@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "broker_host": "192.168.0.10",
+  "broker_port": 8883,
+  "https_bind": "0.0.0.0",
+  "https_port": 8443,
+  "release_root": "/var/lib/capstone-ota/releases",
+  "ca_file": "/etc/capstone-ota/pki/ca.crt",
+  "client_cert": "/etc/capstone-ota/pki/publisher.crt",
+  "client_key": "/etc/capstone-ota/pki/publisher.key",
+  "signing_key": "/etc/capstone-ota/pki/update-signing.key"
+}
+

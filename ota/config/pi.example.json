@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "device_id": "cluster-pi-01",
+  "broker_host": "192.168.0.10",
+  "broker_port": 8883,
+  "ca_file": "/etc/capstone-ota/pki/ca.crt",
+  "client_cert": "/etc/capstone-ota/pki/cluster-pi-01.crt",
+  "client_key": "/etc/capstone-ota/pki/cluster-pi-01.key",
+  "public_key": "/etc/capstone-ota/update-signing.pub",
+  "install_root": "/opt/digital-dash",
+  "state_file": "/var/lib/capstone-ota/state.json",
+  "download_max_bytes": 536870912,
+  "archive_max_files": 20000,
+  "archive_max_bytes": 1073741824
+}
+

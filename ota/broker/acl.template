@@ -1,0 +1,10 @@
+# The username is the certificate Common Name because
+# use_identity_as_username is enabled in mosquitto.conf.
+user publisher
+topic write capstone/+/ota/command
+topic read capstone/+/ota/status
+
+# A device certificate CN must exactly match its device_id.
+pattern read capstone/%u/ota/command
+pattern write capstone/%u/ota/status
+

@@ -1,0 +1,23 @@
+[Unit]
+Description=Volvo 240 Qt digital dashboard
+After=graphical.target
+
+[Service]
+Type=simple
+User=digital-dash
+Group=digital-dash
+ExecStart=/opt/digital-dash/current/run-dashboard.sh
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=graphical.target
+
