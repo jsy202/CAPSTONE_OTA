@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "capstone-ota"
+version = "0.1.0"
+description = "Secure MQTT-controlled OTA updates for a Qt digital dashboard"
+requires-python = ">=3.10"
+dependencies = [
+  "cryptography>=41,<47",
+  "paho-mqtt>=2.1,<3",
+]
+
+[project.scripts]
+capstone-ota-publish = "capstone_ota.publisher.cli:main"
+capstone-ota-agent = "capstone_ota.agent.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.setuptools.packages.find]
+include = ["capstone_ota*"]
