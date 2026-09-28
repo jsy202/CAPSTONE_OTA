@@ -123,10 +123,17 @@ QoS 1과 retained 메시지를 사용합니다. 상태 단계는 `received`, `do
 자세한 위협 모델은 [SECURITY.md](docs/SECURITY.md), 장애 시 절차는
 [RECOVERY_GUIDE.md](docs/RECOVERY_GUIDE.md)를 참조하세요.
 
+## 검증 상태
+
+단위·통합 테스트에는 실제 TLS HTTPS 전송, 정상 활성화, 변조 거부와 자동 롤백이
+포함됩니다. 다만 현재 환경에는 Raspberry Pi 4B와 실제 Qt ARM 바이너리가 없어
+하드웨어 시험은 실행하지 않았습니다. 현장 인수 시
+[Raspberry Pi 검증 체크리스트](docs/RPI_VALIDATION_CHECKLIST.md)에 OS/아키텍처,
+네트워크 단절, 재부팅 지속성과 로그 증거를 기록하세요.
+
 ## Volvo240-DigitalDash
 
 기준 앱은 `whitfijs-jw/Volvo240-DigitalDash`의 MIT 라이선스 Qt/C++/QML
 프로젝트이며 커밋 `793452919127065536bcb7a08f98838fa963d75e`에 고정했습니다.
 출처, 가져오기 범위와 라이선스는
 [UPSTREAM.md](dashboard/volvo-digital-dash/UPSTREAM.md)에 기록되어 있습니다.
-
