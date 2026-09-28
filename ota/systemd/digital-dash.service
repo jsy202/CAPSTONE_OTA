@@ -6,7 +6,7 @@ After=graphical.target
 Type=simple
 User=digital-dash
 Group=digital-dash
-ExecStart=/opt/digital-dash/current/run-dashboard.sh
+ExecStart=/opt/digital-dash/current/bin/digital-dash
 Restart=on-failure
 RestartSec=2s
 NoNewPrivileges=true
@@ -20,4 +20,3 @@ RestrictSUIDSGID=true
 
 [Install]
 WantedBy=graphical.target
-

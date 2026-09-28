@@ -66,7 +66,7 @@ def test_systemd_units_use_fixed_paths_and_least_privilege():
     assert "ReadWritePaths=/var/lib/capstone-ota /opt/digital-dash" in agent
     assert "ProtectSystem=strict" in agent
     assert "User=digital-dash" in dash
-    assert "ExecStart=/opt/digital-dash/current/run-dashboard.sh" in dash
+    assert "ExecStart=/opt/digital-dash/current/bin/digital-dash" in dash
     assert "ProtectSystem=strict" in dash
     assert "ReadWritePaths=/opt/digital-dash" not in dash
 
