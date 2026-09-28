@@ -1,0 +1,13 @@
+.worktrees/
+.superpowers/
+__pycache__/
+.pytest_cache/
+.venv/
+dist/
+*.egg-info/
+*.pyc
+*.part
+*.tar.gz
+*.key
+*.pem
+secrets/
