@@ -105,6 +105,11 @@ class ReleaseInstaller:
             raise OtaError("ACTIVATION_FAILED", f"release link escapes releases: {link.name}")
         return resolved
 
+    def active_version(self) -> str | None:
+        """Return the version selected by the authoritative current symlink."""
+        current = self._resolve_link(self.current_link)
+        return current.name if current is not None else None
+
     def _atomic_link(self, target: Path, link: Path) -> None:
         temporary = link.with_name(f".{link.name}.{uuid.uuid4().hex}")
         try:
