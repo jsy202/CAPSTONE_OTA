@@ -115,6 +115,7 @@ def test_policy_accepts_first_install_without_current_version():
     ("device_id", "current_version", "now", "expected_code"),
     [
         ("another-pi", "1.2.2", datetime(2026, 9, 29, 3, 30, tzinfo=timezone.utc), "WRONG_DEVICE"),
+        ("cluster-pi-01", "1.2.2", datetime(2026, 9, 29, 2, 59, 59, tzinfo=timezone.utc), "NOT_YET_VALID"),
         ("cluster-pi-01", "1.2.2", datetime(2026, 9, 29, 4, 0, 1, tzinfo=timezone.utc), "EXPIRED"),
         ("cluster-pi-01", "1.2.3", datetime(2026, 9, 29, 3, 30, tzinfo=timezone.utc), "ROLLBACK_REJECTED"),
         ("cluster-pi-01", "2.0.0", datetime(2026, 9, 29, 3, 30, tzinfo=timezone.utc), "ROLLBACK_REJECTED"),

@@ -146,8 +146,12 @@ class ReleaseManifest:
             raise _invalid("now must be timezone-aware")
         if self.device_id != device_id:
             raise OtaError("WRONG_DEVICE", "manifest targets a different device")
+        created = _parse_utc(self.created_at, "created_at")
         expires = _parse_utc(self.expires_at, "expires_at")
-        if now.astimezone(timezone.utc) > expires:
+        current_time = now.astimezone(timezone.utc)
+        if current_time < created:
+            raise OtaError("NOT_YET_VALID", "manifest creation time is in the future")
+        if current_time > expires:
             raise OtaError("EXPIRED", "manifest has expired")
         if current_version is not None and _semver_key(self.version) <= _semver_key(current_version):
             raise OtaError(

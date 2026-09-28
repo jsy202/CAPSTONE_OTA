@@ -157,11 +157,17 @@ class UpdateAgent:
             return self._result_from_status(status)
         archive_path: Path | None = None
         extracted_path: Path | None = None
-        state = OtaState.load(self.config.state_file)
-        if state.current_version is None:
-            state.current_version = self.installer.active_version()
+        state = OtaState()
+        state_loaded = False
         reserved = False
+        self._job_id = "unknown"
+        self._version = "unknown"
         try:
+            state = OtaState.load(self.config.state_file)
+            state_loaded = True
+            active_version = self.installer.active_version()
+            if active_version is not None:
+                state.current_version = active_version
             command = _parse_command(payload)
             self._job_id = str(command["job_id"])
             self._version = str(command["version"])
@@ -235,15 +241,17 @@ class UpdateAgent:
             state.save_atomic(self.config.state_file)
             return result
         except OtaError as error:
-            if self._version != "unknown" and self._version not in state.failed_versions:
+            if state_loaded and self._version != "unknown" and self._version not in state.failed_versions:
                 state.failed_versions.append(self._version)
-            state.active_job = None
+            if state_loaded:
+                state.active_job = None
             terminal = self.publish_status(
                 "failed", 100 if reserved else 0, error, success=False, rolled_back=False
             )
-            if self._job_id != "unknown":
+            if state_loaded and self._job_id != "unknown":
                 state.completed_jobs[self._job_id] = terminal
-            state.save_atomic(self.config.state_file)
+            if state_loaded:
+                state.save_atomic(self.config.state_file)
             return self._result_from_status(terminal)
         finally:
             if archive_path is not None:

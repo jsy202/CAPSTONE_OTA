@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from pathlib import Path
 from typing import Callable, Mapping
 
@@ -26,6 +27,7 @@ class PublisherMqtt:
         cert_file: str | Path,
         key_file: str | Path,
         client_factory: Callable = _new_client,
+        connection_timeout: float = 10,
     ):
         self.host = host
         self.port = port
@@ -33,6 +35,7 @@ class PublisherMqtt:
         self.cert_file = str(cert_file)
         self.key_file = str(key_file)
         self._client_factory = client_factory
+        self.connection_timeout = connection_timeout
         self._client = None
 
     @staticmethod
@@ -42,13 +45,29 @@ class PublisherMqtt:
 
     def _connect(self):
         client = self._client_factory()
+        connected = threading.Event()
+        failure: list[object] = []
+
+        def on_connect(_client, _userdata, _flags, reason_code, _properties):
+            if reason_code != 0:
+                failure.append(reason_code)
+            connected.set()
+
+        client.on_connect = on_connect
         client.tls_set(
             ca_certs=self.ca_file,
             certfile=self.cert_file,
             keyfile=self.key_file,
         )
-        client.connect(self.host, self.port, 60)
-        client.loop_start()
+        try:
+            client.connect(self.host, self.port, 60)
+            client.loop_start()
+        except (OSError, mqtt.WebsocketConnectionError) as exc:
+            raise OtaError("MQTT_CONNECT_FAILED", "cannot connect to MQTT broker") from exc
+        if not connected.wait(self.connection_timeout) or failure:
+            client.loop_stop()
+            client.disconnect()
+            raise OtaError("MQTT_CONNECT_FAILED", "MQTT broker rejected or timed out")
         self._client = client
         return client
 

@@ -9,6 +9,7 @@ import pytest
 from capstone_ota.agent.config import AgentConfig
 from capstone_ota.agent.downloader import DownloadResult
 from capstone_ota.agent.installer import ReleaseInstaller
+from capstone_ota.agent.state import OtaState
 from capstone_ota.agent.updater import UpdateAgent
 from capstone_ota.common.signing import generate_key_pair
 from capstone_ota.publisher.bundle import BundleRequest, build_release
@@ -129,6 +130,33 @@ def test_successful_update_reports_exact_stage_order_and_persists_state(tmp_path
     assert state["previous_version"] == "1.0.0"
     assert state["active_job"] is None
     assert config.install_root.joinpath("current").resolve().name == "1.0.1"
+
+
+def test_corrupt_state_fails_without_leaving_agent_permanently_busy(tmp_path):
+    agent, command, statuses, _calls, config, _bundle = setup_update(tmp_path)
+    config.state_file.parent.mkdir(parents=True)
+    config.state_file.write_text("not json")
+
+    first = agent.handle_command(command)
+    second = agent.handle_command(command)
+
+    assert first.error_code == second.error_code == "STATE_INVALID"
+    assert statuses[-1]["error"]["code"] == "STATE_INVALID"
+
+
+def test_current_link_overrides_stale_state_for_anti_rollback(tmp_path):
+    agent, command, _statuses, calls, config, _bundle = setup_update(tmp_path, version="1.0.1")
+    OtaState(current_version="0.9.0").save_atomic(config.state_file)
+    config.install_root.joinpath("current").unlink()
+    config.install_root.joinpath("releases/1.0.0").rename(
+        config.install_root.joinpath("releases/1.0.1")
+    )
+    config.install_root.joinpath("current").symlink_to("releases/1.0.1")
+
+    result = agent.handle_command(command)
+
+    assert result.error_code == "ROLLBACK_REJECTED"
+    assert calls["download"] == 0
 
 
 def test_duplicate_job_republishes_terminal_result_without_download(tmp_path):

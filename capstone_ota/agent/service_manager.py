@@ -40,9 +40,18 @@ class SystemdServiceManager:
             raise ValueError("health timeout must be positive")
         if self._run(["systemctl", "restart", self._UNIT]).returncode != 0:
             return False
-        deadline = self._clock() + timeout_seconds
-        while self._clock() < deadline:
-            if self._run(["systemctl", "is-active", "--quiet", self._UNIT]).returncode == 0:
-                return True
-            self._sleeper(min(self._poll_interval, max(0.0, deadline - self._clock())))
-        return False
+        startup_deadline = self._clock() + timeout_seconds
+        while self._run(["systemctl", "is-active", "--quiet", self._UNIT]).returncode != 0:
+            remaining = startup_deadline - self._clock()
+            if remaining <= 0:
+                return False
+            self._sleeper(min(self._poll_interval, remaining))
+
+        stability_deadline = self._clock() + timeout_seconds
+        while self._clock() < stability_deadline:
+            self._sleeper(
+                min(self._poll_interval, max(0.0, stability_deadline - self._clock()))
+            )
+            if self._run(["systemctl", "is-active", "--quiet", self._UNIT]).returncode != 0:
+                return False
+        return True

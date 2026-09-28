@@ -20,9 +20,11 @@ class PublishInfo:
 
 
 class FakeClient:
-    def __init__(self, published=True):
+    def __init__(self, published=True, connect_reason=0):
         self.calls = []
         self.info = PublishInfo(published)
+        self.connect_reason = connect_reason
+        self.connected = False
         self.on_connect = None
         self.on_message = None
 
@@ -34,6 +36,9 @@ class FakeClient:
 
     def loop_start(self):
         self.calls.append(("loop_start",))
+        if self.on_connect is not None:
+            self.connected = self.connect_reason == 0
+            self.on_connect(self, None, None, self.connect_reason, None)
 
     def loop_stop(self):
         self.calls.append(("loop_stop",))
@@ -42,10 +47,12 @@ class FakeClient:
         self.calls.append(("disconnect",))
 
     def publish(self, topic, payload, qos, retain):
+        assert self.connected
         self.calls.append(("publish", topic, payload, qos, retain))
         return self.info
 
     def subscribe(self, topic, qos):
+        assert self.connected
         self.calls.append(("subscribe", topic, qos))
         return (0, 1)
 
@@ -108,3 +115,11 @@ def test_watch_subscribes_only_to_selected_device_status_topic():
     assert ("subscribe", "capstone/cluster-pi-01/ota/status", 1) in fake.calls
     assert all("#" not in str(call) and "+" not in str(call) for call in fake.calls)
     client.close()
+
+
+def test_broker_rejection_is_reported_before_publish():
+    fake = FakeClient(connect_reason=5)
+    with pytest.raises(OtaError) as error:
+        publisher(fake).publish_command("cluster-pi-01", {"version": "1.0.0"})
+    assert error.value.code == "MQTT_CONNECT_FAILED"
+    assert not any(call[0] == "publish" for call in fake.calls)

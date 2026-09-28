@@ -63,7 +63,8 @@ def test_modified_signature_and_wrong_key_are_rejected(tmp_path):
     generate_key_pair(other_private, other_public)
     signature = sign_manifest(release(), private_key)
 
-    for bad_signature, key in ((signature[:-1] + b"\x00", public_key), (signature, other_public)):
+    changed_signature = signature[:-1] + bytes([signature[-1] ^ 1])
+    for bad_signature, key in ((changed_signature, public_key), (signature, other_public)):
         with pytest.raises(OtaError) as error:
             verify_manifest_signature(release(), bad_signature, key)
         assert error.value.code == "SIGNATURE_INVALID"
