@@ -21,6 +21,8 @@ class RawSocket:
         self.outgoing = []
         self.incoming = []
         self.timeout = None
+        self.receive_timeouts = []
+        self.require_blocking_send = False
         self.bind_error = None
         self.short_send = False
 
@@ -32,12 +34,18 @@ class RawSocket:
     def settimeout(self, timeout):
         self.timeout = timeout
 
+    def gettimeout(self):
+        return self.timeout
+
     def send(self, data):
+        if self.require_blocking_send and self.timeout == 0:
+            raise BlockingIOError("CAN transmit queue is busy")
         self.outgoing.append(data)
         return len(data) - 1 if self.short_send else len(data)
 
     def recv(self, size):
         assert size == 16
+        self.receive_timeouts.append(self.timeout)
         if not self.incoming:
             raise socket.timeout()
         result = self.incoming.pop(0)
@@ -87,7 +95,8 @@ def test_kernel_abi_output_and_receive_decode(adapter, monkeypatch):
         transport.send(frame)
         assert raw.outgoing == [kernel_frame]
         assert transport.recv(0.25) == frame
-        assert raw.timeout == 0.25
+        assert raw.receive_timeouts == [0.25]
+        assert raw.timeout is None
     assert raw.closed
 
 
@@ -178,3 +187,37 @@ def test_short_send_and_real_io_errors_propagate(adapter, monkeypatch):
         raw.incoming.append(OSError("bus failure"))
         with pytest.raises(OSError, match="bus failure"):
             transport.recv(1)
+
+
+@pytest.mark.parametrize("previous_timeout", [None, 2.5])
+def test_nonblocking_receive_restores_send_mode(adapter, monkeypatch, previous_timeout):
+    raw = RawSocket()
+    raw.timeout = previous_timeout
+    raw.require_blocking_send = True
+    install_socket(adapter, monkeypatch, raw)
+    frame = CanFrame(0x100, b"\0" * 8)
+    with adapter.SocketCanTransport("can0") as transport:
+        assert transport.recv(0) is None
+        transport.send(frame)  # Busy socket would fail if recv left nonblocking mode enabled.
+        assert raw.outgoing == [struct.pack("=I", 0x100) + b"\x08\0\0\0" + frame.data]
+        assert raw.timeout == previous_timeout
+        assert raw.receive_timeouts == [0]
+
+
+@pytest.mark.parametrize("incoming,exception", [
+    (socket.timeout(), None), (BlockingIOError(), None),
+    (OSError("bus failure"), OSError), (b"invalid frame", ValueError),
+])
+def test_receive_restores_previous_timeout_on_every_exit(adapter, monkeypatch, incoming, exception):
+    raw = RawSocket()
+    raw.timeout = 1.5
+    raw.incoming.append(incoming)
+    install_socket(adapter, monkeypatch, raw)
+    with adapter.SocketCanTransport("can0") as transport:
+        if exception:
+            with pytest.raises(exception):
+                transport.recv(0.1)
+        else:
+            assert transport.recv(0.1) is None
+        assert raw.timeout == 1.5
+        assert raw.receive_timeouts == [0.1]

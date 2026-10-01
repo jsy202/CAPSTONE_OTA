@@ -250,12 +250,14 @@ class FunctionalTestResultFrame:
         return cls(*_signal_fields(frame, 0x611))
 
 
-def is_counter_fresh(counter: int, previous: int | None, *, bits: int = 8) -> bool:
-    """Accept initial sample or forward modulo distance strictly below half-range.
+def is_counter_contiguous(counter: int, previous: int | None, *, bits: int = 8) -> bool:
+    """Accept an initial sample or exactly one modulo increment; reject loss.
 
     Caller stores only accepted counters and enforces elapsed-time deadlines.
-    Use bits=4 for command/status; bits=8 for heartbeat/vehicle. An exact half
-    jump is ambiguous and rejected. This does not authorize counter resets.
+    Use bits=4 for command/status; bits=8 for heartbeat/vehicle. Duplicate,
+    backward and skipped values fail, including skips across rollover. Counter
+    resets require explicit caller resynchronization. A full counter cycle is
+    indistinguishable from no cycle, so elapsed-time deadlines remain required.
     """
     if type(bits) is not int or not 1 <= bits <= 8:
         raise ValueError("counter width must be between 1 and 8")
@@ -263,8 +265,16 @@ def is_counter_fresh(counter: int, previous: int | None, *, bits: int = 8) -> bo
     if previous is None:
         return True
     _uint(previous, bits, "previous")
-    distance = (counter - previous) % (1 << bits)
-    return 0 < distance < 1 << (bits - 1)
+    return counter == (previous + 1) % (1 << bits)
+
+
+def is_counter_fresh(counter: int, previous: int | None, *, bits: int = 8) -> bool:
+    """Primary counter validation: require a contiguous, loss-free sequence.
+
+    This compatibility entry point has the same semantics as
+    is_counter_contiguous(), including single-step rollover and gap rejection.
+    """
+    return is_counter_contiguous(counter, previous, bits=bits)
 
 
 def matches_transaction_token(token: int, expected_token: int) -> bool:

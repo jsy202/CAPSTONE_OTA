@@ -4,7 +4,8 @@ Import and construction are portable; open() requires AF_CAN support. No CAN
 FD mode is enabled. Linux's 16-byte struct can_frame stores the identifier in
 native byte order, distinct from the big-endian application payload. Invalid
 wire envelopes raise ValueError; codecs separately check payload semantics.
-Own one receive loop per transport: recv() sets the socket timeout per call.
+Own one receive loop per transport: recv() temporarily changes the timeout and
+restores the previous timeout on every exit, preserving later send behavior.
 """
 from __future__ import annotations
 
@@ -76,11 +77,15 @@ class SocketCanTransport:
         raw = self._opened_socket()
         if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout < 0:
             raise ValueError("receive timeout must be a finite nonnegative number")
-        raw.settimeout(timeout)
+        previous_timeout = raw.gettimeout()
         try:
-            data = raw.recv(_KERNEL_FRAME.size)
-        except (TimeoutError, BlockingIOError):
-            return None
+            raw.settimeout(timeout)
+            try:
+                data = raw.recv(_KERNEL_FRAME.size)
+            except (TimeoutError, BlockingIOError):
+                return None
+        finally:
+            raw.settimeout(previous_timeout)
         if len(data) != _KERNEL_FRAME.size:
             raise ValueError("invalid SocketCAN frame size")
         can_id, dlc, payload = _KERNEL_FRAME.unpack(data)

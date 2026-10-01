@@ -44,6 +44,44 @@ def test_crc_smbus_known_check_and_zero_vectors(protocol):
     assert protocol.crc8(b"") == 0
 
 
+@pytest.mark.parametrize("name,number,payload", [
+    ("PREPARE", 1, "01550e840031a51f"),
+    ("ACTIVATE", 2, "02550e840031a579"),
+    ("COMMIT", 3, "03550e840031a5a6"),
+    ("ROLLBACK", 4, "04550e840031a5b5"),
+    ("QUERY_STATUS", 5, "05550e840031a56a"),
+])
+def test_all_command_enum_numeric_values_have_exact_wire_vectors(protocol, name, number, payload):
+    command = protocol.OtaCommand[name]
+    assert int(command) == number
+    message = protocol.OtaCommandFrame(command, 0x550E8400, protocol.Slot.B, 0xA5, 3)
+    frame = protocol.CanFrame(0x600, bytes.fromhex(payload))
+    assert message.encode() == frame
+    assert protocol.OtaCommandFrame.decode(frame) == message
+
+
+@pytest.mark.parametrize("name,number,payload", [
+    ("IDLE", 0, "00550e84003107a7"),
+    ("PREPARING", 1, "01550e8400310778"),
+    ("READY", 2, "02550e840031071e"),
+    ("ACTIVATING", 3, "03550e84003107c1"),
+    ("VERIFYING", 4, "04550e84003107d2"),
+    ("COMMITTED", 5, "05550e840031070d"),
+    ("ROLLING_BACK", 6, "06550e840031076b"),
+    ("ROLLED_BACK", 7, "07550e84003107b4"),
+    ("ERROR", 8, "08550e840031074d"),
+    ("ABORTED", 9, "09550e8400310792"),
+    ("RECOVERY_FAILED", 10, "0a550e84003107f4"),
+])
+def test_all_status_enum_numeric_values_have_exact_wire_vectors(protocol, name, number, payload):
+    status = protocol.OtaStatus[name]
+    assert int(status) == number
+    message = protocol.OtaStatusFrame(status, 0x550E8400, protocol.Slot.B, 7, 3)
+    frame = protocol.CanFrame(0x601, bytes.fromhex(payload))
+    assert message.encode() == frame
+    assert protocol.OtaStatusFrame.decode(frame) == message
+
+
 @pytest.mark.parametrize("bad", [-1, 0x800, True, 0x80000100])
 def test_raw_frame_rejects_non_standard_ids(protocol, bad):
     with pytest.raises(ValueError):
@@ -109,12 +147,23 @@ def test_numeric_wire_boundaries_are_lossless(protocol):
 @pytest.mark.parametrize("counter,previous,bits,expected", [
     (0, None, 8, True), (11, 10, 8, True), (10, 10, 8, False),
     (9, 10, 8, False), (0, 255, 8, True), (255, 0, 8, False),
-    (127, 0, 8, True), (128, 0, 8, False), (0, 15, 4, True),
-    (7, 0, 4, True), (8, 0, 4, False),
+    (12, 10, 8, False), (127, 0, 8, False), (128, 0, 8, False), (0, 15, 4, True),
+    (7, 0, 4, False), (8, 0, 4, False), (1, 255, 8, False), (1, 15, 4, False),
 ])
-def test_counter_freshness_rejects_duplicates_backward_and_ambiguous_jumps(
+def test_primary_counter_validation_rejects_gaps_and_accepts_single_step_rollover(
         protocol, counter, previous, bits, expected):
     assert protocol.is_counter_fresh(counter, previous, bits=bits) is expected
+
+
+@pytest.mark.parametrize("counter,previous,bits,expected", [
+    (10, None, 8, True), (11, 10, 8, True), (12, 10, 8, False),
+    (137, 10, 8, False), (10, 10, 8, False), (9, 10, 8, False),
+    (0, 255, 8, True), (1, 255, 8, False), (0, 15, 4, True),
+    (1, 15, 4, False),
+])
+def test_explicit_contiguous_counter_helper_detects_loss(protocol, counter, previous, bits, expected):
+    assert hasattr(protocol, "is_counter_contiguous"), "loss-detecting helper is missing"
+    assert protocol.is_counter_contiguous(counter, previous, bits=bits) is expected
 
 
 @pytest.mark.parametrize("counter,previous,bits", [(256, 0, 8), (0, -1, 8),
@@ -122,6 +171,14 @@ def test_counter_freshness_rejects_duplicates_backward_and_ambiguous_jumps(
 def test_counter_helper_rejects_invalid_inputs(protocol, counter, previous, bits):
     with pytest.raises(ValueError):
         protocol.is_counter_fresh(counter, previous, bits=bits)
+
+
+@pytest.mark.parametrize("counter,previous,bits", [(256, 0, 8), (0, -1, 8),
+    (0, None, 0), (0, 0, True), (True, None, 8)])
+def test_contiguous_counter_helper_rejects_invalid_inputs(protocol, counter, previous, bits):
+    assert hasattr(protocol, "is_counter_contiguous"), "loss-detecting helper is missing"
+    with pytest.raises(ValueError):
+        protocol.is_counter_contiguous(counter, previous, bits=bits)
 
 
 def test_transaction_token_helper_requires_exact_uint32_match(protocol):
