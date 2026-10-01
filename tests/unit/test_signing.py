@@ -77,3 +77,40 @@ def test_key_generation_refuses_to_overwrite_private_key(tmp_path):
 
     with pytest.raises(FileExistsError):
         generate_key_pair(private_key, public_key)
+
+
+def test_generic_signing_remains_interoperable_with_legacy_manifest_api(tmp_path):
+    from capstone_ota.common.signing import sign_document, verify_document_signature
+
+    private, public = tmp_path / "private.pem", tmp_path / "public.pem"
+    generate_key_pair(private, public)
+    generic = sign_document(release(), private)
+    assert generic == sign_manifest(release(), private)
+    verify_manifest_signature(release(), generic, public)
+    verify_document_signature(release(), sign_manifest(release(), private), public)
+
+
+def test_generic_document_signature_rejects_tampering_and_wrong_key(tmp_path):
+    from capstone_ota.common.signing import sign_document, verify_document_signature
+
+    class Document:
+        def __init__(self, content):
+            self.content = content
+
+        def canonical_bytes(self):
+            return self.content
+
+    private, public = tmp_path / "private.pem", tmp_path / "public.pem"
+    other_private, other_public = tmp_path / "other.pem", tmp_path / "other-public.pem"
+    generate_key_pair(private, public)
+    generate_key_pair(other_private, other_public)
+    original = Document(b'{"value":1}')
+    signature = sign_document(original, private)
+    verify_document_signature(original, signature, public)
+    for document, signed, key in [
+        (Document(b'{"value":2}'), signature, public),
+        (original, signature[:-1], public), (original, signature, other_public),
+    ]:
+        with pytest.raises(OtaError) as error:
+            verify_document_signature(document, signed, key)
+        assert error.value.code == "SIGNATURE_INVALID"

@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Protocol
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
@@ -9,6 +10,12 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 
 from .errors import OtaError
 from .manifest import ReleaseManifest
+
+
+class CanonicalDocument(Protocol):
+    """A document whose stable canonical bytes are signed with Ed25519."""
+
+    def canonical_bytes(self) -> bytes: ...
 
 
 def generate_key_pair(private_path: Path, public_path: Path) -> None:
@@ -54,16 +61,26 @@ def _load_public_key(path: Path) -> Ed25519PublicKey:
     return key
 
 
+def sign_document(document: CanonicalDocument, private_key_path: Path) -> bytes:
+    return _load_private_key(private_key_path).sign(document.canonical_bytes())
+
+
+def verify_document_signature(
+    document: CanonicalDocument, signature: bytes, public_key_path: Path
+) -> None:
+    try:
+        _load_public_key(public_key_path).verify(signature, document.canonical_bytes())
+    except OtaError:
+        raise
+    except (InvalidSignature, ValueError, TypeError) as exc:
+        raise OtaError("SIGNATURE_INVALID", "document signature is invalid") from exc
+
+
 def sign_manifest(manifest: ReleaseManifest, private_key_path: Path) -> bytes:
-    return _load_private_key(private_key_path).sign(manifest.canonical_bytes())
+    return sign_document(manifest, private_key_path)
 
 
 def verify_manifest_signature(
     manifest: ReleaseManifest, signature: bytes, public_key_path: Path
 ) -> None:
-    try:
-        _load_public_key(public_key_path).verify(signature, manifest.canonical_bytes())
-    except OtaError:
-        raise
-    except (InvalidSignature, ValueError, TypeError) as exc:
-        raise OtaError("SIGNATURE_INVALID", "manifest signature is invalid") from exc
+    verify_document_signature(manifest, signature, public_key_path)
