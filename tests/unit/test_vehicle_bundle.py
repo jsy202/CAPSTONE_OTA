@@ -311,3 +311,63 @@ def test_changed_bundle_cannot_use_original_signature(tmp_path):
     with pytest.raises(OtaError) as error:
         verify_document_signature(parse(changed), signature, public)
     assert error.value.code == "SIGNATURE_INVALID"
+
+
+@pytest.mark.parametrize("field", ["release_manifest_url", "release_signature_url", "artifact_url"])
+@pytest.mark.parametrize("url", [
+    "https://updates.local\\evil/app", "https://updates.local/%zz",
+    "https://updates.local/%", "https://updates.local/%1",
+    "https://updates.local/<app>", "https://updates.local/app?value=%zz",
+    "https://updates.local/app#%zz", "https://[::1]suffix/app",
+    "https://updates.local/[app]",
+])
+def test_all_url_fields_reject_invalid_uri_syntax(field, url):
+    data = bundle_data()
+    data["targets"][0][field] = url
+    with pytest.raises(OtaError) as error:
+        parse(data)
+    assert error.value.code == "INVALID_VEHICLE_BUNDLE"
+
+
+@pytest.mark.parametrize("field", ["release_manifest_url", "release_signature_url", "artifact_url"])
+@pytest.mark.parametrize("url", [
+    "https://updates.local/releases/app%20v1.tar.gz?mode=a%2Fb#section",
+    "https://[::1]:8443/releases/app.tar.gz",
+])
+def test_valid_percent_encoded_and_ipv6_urls_remain_signable(field, url):
+    data = bundle_data()
+    data["targets"][0][field] = url
+    assert url.encode() in parse(data).canonical_bytes()
+
+
+@pytest.mark.parametrize("field", ["release_manifest_url", "release_signature_url", "artifact_url", "entrypoint"])
+@pytest.mark.parametrize("surrogate", ["\ud800", "\udfff"])
+def test_escaped_lone_surrogates_are_rejected_during_parsing(field, surrogate):
+    data = bundle_data()
+    data["targets"][0][field] += surrogate
+    with pytest.raises(OtaError) as error:
+        parse(data)
+    assert error.value.code == "INVALID_VEHICLE_BUNDLE"
+
+
+@pytest.mark.parametrize("location", ["bundle", "target", "minimum", "maximum"])
+@pytest.mark.parametrize("version", ["1" * 5000 + ".0.0", "1.0.0-" + "1" * 5000],
+                         ids=["oversized-core", "oversized-prerelease"])
+def test_extremely_long_semver_numbers_have_stable_schema_error(location, version):
+    data = dependent_bundle()
+    if location == "bundle":
+        data["bundle_version"] = version
+    elif location == "target":
+        data["targets"][0]["software_version"] = version
+    else:
+        data["dependencies"][0]["min_version" if location == "minimum" else "max_version"] = version
+    with pytest.raises(OtaError) as error:
+        parse(data)
+    assert error.value.code == "INVALID_VEHICLE_BUNDLE"
+
+
+def test_valid_surrogate_pair_decodes_to_signable_unicode_entrypoint():
+    data = bundle_data()
+    data["targets"][0]["entrypoint"] = "bin/\U0001f680"
+    bundle = parse(data)
+    assert b"\xf0\x9f\x9a\x80" in bundle.canonical_bytes()

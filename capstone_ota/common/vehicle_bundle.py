@@ -24,6 +24,10 @@ _ROLES = {"central-control", "digital-cluster"}
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 _UTC = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z")
 _HASH = re.compile(r"[0-9a-f]{64}")
+_URI_AUTHORITY = re.compile(r"(?:\[[^\[\]]+\]|[A-Za-z0-9._~!$&'()*+,;=%-]+)(?::[0-9]+)?")
+_URI_PATH = re.compile(r"[A-Za-z0-9._~!$&'()*+,;=:@%/-]*")
+_URI_QUERY = re.compile(r"[A-Za-z0-9._~!$&'()*+,;=:@%/?-]*")
+_BAD_PERCENT_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 
 
 def _invalid(message: str) -> OtaError:
@@ -37,6 +41,22 @@ def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             raise _invalid(f"duplicate JSON key: {key}")
         result[key] = value
     return result
+
+
+def _utf8_strings(value: Any) -> None:
+    """JSON escapes may decode to lone surrogates that UTF-8 cannot encode."""
+    if isinstance(value, str):
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise _invalid("bundle strings must be valid Unicode scalar values") from exc
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _utf8_strings(key)
+            _utf8_strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            _utf8_strings(item)
 
 
 def _schema(data: Any, cls: type) -> dict[str, Any]:
@@ -60,7 +80,7 @@ def _version(value: Any) -> tuple[Any, ...]:
         raise _invalid("version must be ASCII SemVer")
     try:
         return _semver_key(value)
-    except OtaError as exc:
+    except (OtaError, ValueError) as exc:
         raise _invalid("version must be SemVer") from exc
 
 
@@ -74,14 +94,22 @@ def _timestamp(value: Any) -> datetime:
 
 
 def _url(value: Any) -> None:
-    if not isinstance(value, str) or any(char.isspace() or ord(char) < 32 for char in value):
-        raise _invalid("URLs must be HTTPS without whitespace")
+    if (not isinstance(value, str) or not value.isascii()
+            or any(char.isspace() or ord(char) < 32 for char in value)
+            or _BAD_PERCENT_ESCAPE.search(value)):
+        raise _invalid("URLs must be ASCII HTTPS URIs with valid percent escapes")
     try:
         parsed = urlsplit(value)
         port = parsed.port
         if (parsed.scheme != "https" or not parsed.hostname or parsed.username is not None
                 or parsed.password is not None or (port is not None and port == 0)):
             raise _invalid("URLs must be HTTPS without credentials")
+        # urlsplit is a component parser, not an RFC 3986 syntax validator.
+        if (not _URI_AUTHORITY.fullmatch(parsed.netloc)
+                or not _URI_PATH.fullmatch(parsed.path)
+                or not _URI_QUERY.fullmatch(parsed.query)
+                or not _URI_QUERY.fullmatch(parsed.fragment)):
+            raise _invalid("invalid HTTPS URI syntax")
     except ValueError as exc:
         raise _invalid("invalid HTTPS URL") from exc
 
@@ -165,6 +193,7 @@ class VehicleBundleManifest:
             data = json.loads(raw.decode("utf-8"), object_pairs_hook=_pairs)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise _invalid("bundle must be valid UTF-8 JSON") from exc
+        _utf8_strings(data)
         _schema(data, cls)
         if type(data["schema_version"]) is not int or data["schema_version"] != 1:
             raise _invalid("unsupported schema_version")
