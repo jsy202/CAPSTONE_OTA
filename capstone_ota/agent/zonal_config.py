@@ -44,7 +44,7 @@ class ZonalAgentConfig:
             schema_version = data.pop("schema_version")
             if type(schema_version) is not int or schema_version != 1:
                 raise invalid
-            if not isinstance(data["device_id"], str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", data["device_id"]):
+            if data["device_id"] != "cluster-pi-02":
                 raise invalid
             if (data["ecu_id"] != "digital-cluster" or data["can_interface"] != "can0"
                     or type(data["can_bitrate"]) is not int or data["can_bitrate"] != 500000

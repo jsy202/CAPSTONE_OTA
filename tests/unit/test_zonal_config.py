@@ -10,7 +10,7 @@ def configuration(tmp_path):
     for name in ("ca.pem", "public.pem"):
         (tmp_path / name).write_text("trusted fixture")
     return {
-        "schema_version": 1, "device_id": "cluster-pi-01", "ecu_id": "digital-cluster",
+        "schema_version": 1, "device_id": "cluster-pi-02", "ecu_id": "digital-cluster",
         "can_interface": "can0", "can_bitrate": 500000,
         "central_base_url": "https://10.10.0.1:8443",
         "ca_file": str(tmp_path / "ca.pem"), "public_key": str(tmp_path / "public.pem"),
@@ -28,7 +28,7 @@ def load(tmp_path, data):
 
 def test_load_pins_cluster_can_and_central_contract(tmp_path):
     config = load(tmp_path, configuration(tmp_path))
-    assert config.device_id == "cluster-pi-01"
+    assert config.device_id == "cluster-pi-02"
     assert config.ecu_id == "digital-cluster"
     assert config.can_interface == "can0"
     assert config.can_bitrate == 500000
@@ -40,7 +40,9 @@ def test_load_pins_cluster_can_and_central_contract(tmp_path):
 
 @pytest.mark.parametrize("field,value", [
     ("schema_version", True), ("schema_version", 2), ("unknown", 1),
-    ("device_id", "bad/name"), ("ecu_id", "central-control"),
+    ("device_id", "bad/name"), ("device_id", "cluster-pi-01"),
+    ("device_id", "central-pi-01"), ("device_id", "cluster-pi-03"),
+    ("ecu_id", "central-control"),
     ("can_interface", "vcan0"), ("can_bitrate", 250000), ("can_bitrate", True),
     ("central_base_url", "http://10.10.0.1:8443"),
     ("central_base_url", "https://elsewhere:8443"),

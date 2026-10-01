@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from capstone_ota.agent.slots import ABSlotInstaller
+from capstone_ota.agent.slots import ABSlotInstaller, SlotState
 from capstone_ota.common.can_protocol import (
     ApplicationState, CanFrame, FunctionalTestRequestFrame, FunctionalTestResultFrame,
     Gear, HeartbeatFrame, OtaCommand, OtaCommandFrame, OtaStatus, Slot, VehicleStatusFrame,
@@ -387,3 +387,132 @@ def test_reserved_flags_are_rejected_before_any_download(tmp_path):
     result = agent.handle_command(frame)
     assert result.status == OtaStatus.ERROR and result.detail == 1
     assert calls == [] and installer.state.phase == "stable"
+
+
+@pytest.mark.parametrize("failure,code", [
+    (OSError, "APPLICATION_OBSERVATION_FAILED"),
+    (ValueError, "APPLICATION_OBSERVATION_INVALID"),
+    (TypeError, "APPLICATION_OBSERVATION_INVALID"),
+])
+def test_vehicle_adapter_failure_is_contained_and_sample_remains_retryable(tmp_path, failure, code):
+    agent, _, transport, _, _, _, _ = setup_agent(tmp_path)
+    class Application:
+        broken = True
+
+        def apply_vehicle_status(self, sample):
+            if self.broken:
+                raise failure("application IPC failure")
+            self.displayed_rpm = sample.rpm
+
+    application = Application()
+    agent.application_adapter = application
+    sample = VehicleStatusFrame(450, 1000, Gear.DRIVE, 0, 7).encode()
+    transport.incoming = [sample, sample]
+    assert agent.poll_once(0) is None
+    assert agent.last_error.code == code
+    assert transport.sent == []
+    application.broken = False
+    assert agent.poll_once(0) is None
+    assert application.displayed_rpm == 1000
+    assert agent.last_error is None
+
+
+@pytest.mark.parametrize("failure", [ValueError, TypeError])
+def test_functional_adapter_value_type_failure_sets_diagnostic(tmp_path, failure):
+    agent, _, transport, _, _, _, _ = setup_agent(tmp_path)
+    class BrokenApplication:
+        def observe_functional_test(self, request):
+            raise failure("invalid application observation")
+    agent.application_adapter = BrokenApplication()
+    transport.incoming = [FunctionalTestRequestFrame(450, 1000, Gear.DRIVE, 0, 1).encode()]
+    assert agent.poll_once(0) is None
+    assert agent.last_error.code == "APPLICATION_OBSERVATION_INVALID"
+    assert transport.sent == []
+
+
+def test_unrepresentable_observed_result_sets_diagnostic(tmp_path):
+    agent, _, transport, _, _, _, _ = setup_agent(tmp_path)
+    module = importlib.import_module("capstone_ota.agent.zonal")
+    class BrokenApplication:
+        def observe_functional_test(self, request):
+            return module.ApplicationObservation(70000, 1000, Gear.DRIVE, 0)
+    agent.application_adapter = BrokenApplication()
+    transport.incoming = [FunctionalTestRequestFrame(450, 1000, Gear.DRIVE, 0, 1).encode()]
+    assert agent.poll_once(0) is None
+    assert agent.last_error.code == "APPLICATION_OBSERVATION_INVALID"
+    assert transport.sent == []
+
+
+def test_failed_rollback_suppresses_stale_trial_heartbeat_and_query_until_recovery(tmp_path):
+    agent, installer, transport, _, _, services, _ = setup_agent(tmp_path)
+    agent.handle_command(command(OtaCommand.PREPARE))
+    agent.handle_command(command(OtaCommand.ACTIVATE, 1))
+    assert agent.publish_heartbeat().state == ApplicationState.TRIAL
+    services.healthy = False
+    assert agent.handle_command(command(OtaCommand.ROLLBACK, 2)).status == OtaStatus.ERROR
+    assert installer.state.phase == "rolling_back" and installer.state.active_slot == "B"
+    assert installer.active_link.resolve() == installer.slots_dir / "A"
+    journal = installer.state_path.read_bytes()
+    sent = len(transport.sent)
+    assert agent.publish_heartbeat() is None
+    assert agent.last_error.code == "SLOT_STATE_MISMATCH"
+    assert len(transport.sent) == sent
+    for counter in (3, 4):
+        status = agent.handle_command(command(OtaCommand.QUERY_STATUS, counter))
+        assert status.status == OtaStatus.RECOVERY_FAILED and status.detail == 6
+        assert status.slot == Slot.A
+        assert agent.last_error.code == "SLOT_STATE_MISMATCH"
+    assert installer.state_path.read_bytes() == journal
+    services.healthy = True
+    installer.recover_on_startup()
+    assert agent.handle_command(command(OtaCommand.QUERY_STATUS, 5)).status == OtaStatus.ROLLED_BACK
+    heartbeat = agent.publish_heartbeat()
+    assert heartbeat.state == ApplicationState.STABLE and heartbeat.software_version == (0, 0, 0)
+    assert heartbeat.counter == 1 and agent.last_error is None
+
+
+def test_interrupted_activation_metadata_cannot_advertise_stale_stable_version(tmp_path, monkeypatch):
+    agent, installer, transport, _, _, _, _ = setup_agent(tmp_path)
+    agent.handle_command(command(OtaCommand.PREPARE))
+    original = SlotState.save_atomic
+    def interrupted_trial_write(state, path):
+        if state.phase == "trial":
+            raise OSError("power loss after selecting and restarting trial")
+        return original(state, path)
+    monkeypatch.setattr(SlotState, "save_atomic", interrupted_trial_write)
+    assert agent.handle_command(command(OtaCommand.ACTIVATE, 1)).status == OtaStatus.ERROR
+    assert installer.state.phase == "activating" and installer.state.active_slot == "A"
+    assert installer.active_link.resolve() == installer.slots_dir / "B"
+    journal = installer.state_path.read_bytes()
+    assert agent.publish_heartbeat() is None
+    assert agent.last_error.code == "SLOT_STATE_MISMATCH" and transport.sent == []
+    status = agent.handle_command(command(OtaCommand.QUERY_STATUS, 2))
+    assert status.status == OtaStatus.RECOVERY_FAILED and status.slot == Slot.B
+    assert agent.last_error.code == "SLOT_STATE_MISMATCH"
+    assert installer.state_path.read_bytes() == journal
+    monkeypatch.setattr(SlotState, "save_atomic", original)
+    installer.recover_on_startup()
+    assert agent.handle_command(command(OtaCommand.QUERY_STATUS, 3)).status == OtaStatus.ROLLED_BACK
+    assert agent.publish_heartbeat().software_version == (0, 0, 0)
+
+
+@pytest.mark.parametrize("selection", ["different", "missing", "escaping", "missing_target"])
+def test_invalid_selector_never_produces_stale_heartbeat_or_healthy_query(tmp_path, selection):
+    agent, installer, transport, _, _, _, _ = setup_agent(tmp_path)
+    journal = installer.state_path.read_bytes()
+    installer.active_link.unlink()
+    if selection == "different":
+        (installer.slots_dir / "B").mkdir()
+        installer.active_link.symlink_to("slots/B")
+    elif selection == "escaping":
+        installer.active_link.symlink_to(tmp_path / "source")
+    elif selection == "missing_target":
+        installer.active_link.symlink_to("slots/B")
+    assert agent.publish_heartbeat() is None
+    assert agent.last_error.code == "SLOT_STATE_MISMATCH" and transport.sent == []
+    status = agent.handle_command(command(OtaCommand.QUERY_STATUS, token=0, slot=Slot.A))
+    assert status.status == OtaStatus.RECOVERY_FAILED and status.detail == 6
+    assert agent.last_error.code == "SLOT_STATE_MISMATCH"
+    if selection == "different":
+        assert status.slot == Slot.B
+    assert installer.state_path.read_bytes() == journal

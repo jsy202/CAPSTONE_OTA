@@ -38,7 +38,7 @@ from capstone_ota.common.socketcan import CanTransport
 
 from .archive import ArchiveLimits, safe_extract_tar
 from .downloader import download_https
-from .slots import ABSlotInstaller
+from .slots import ABSlotInstaller, SlotState
 from .updater import fetch_https_bytes
 from .zonal_config import ZonalAgentConfig, unique_fields
 
@@ -272,14 +272,39 @@ class ZonalAgent:
                     "committing": OtaStatus.VERIFYING, "rolling_back": OtaStatus.ROLLING_BACK}[state.phase]
         return OtaStatus.IDLE
 
-    def _response(self, command: OtaCommandFrame, status: OtaStatus, detail: ZonalDetail = ZonalDetail.NONE) -> OtaStatusFrame:
+    def _actual_slot(self) -> Slot:
+        """Read the installer's validated selector without changing its state."""
+        self.installer._check_slot_paths()
+        selected = self.installer._selected_slot()
+        if selected is None or not (self.installer.slots_dir / selected).is_dir():
+            raise OtaError("SLOT_STATE_MISMATCH", "active application selector or target is missing")
+        return Slot[selected]
+
+    def _reconciled_state(self) -> SlotState:
         try:
             state = self.installer.state
-            pending = state.transaction_id and _token(state.transaction_id) == command.transaction_token
-            slot = Slot[state.trial_slot if pending else state.active_slot]
-        except OtaError as exc:
-            self.last_error = exc
-            status, detail, slot = OtaStatus.RECOVERY_FAILED, ZonalDetail.STATE, command.slot
+            selected = self._actual_slot()
+            if selected.name != state.active_slot or state.phase not in {"stable", "staged", "trial"}:
+                raise OtaError("SLOT_STATE_MISMATCH", "application selector and durable phase require recovery")
+            return state
+        except (OtaError, OSError) as exc:
+            raise OtaError("SLOT_STATE_MISMATCH", "cannot safely establish active application state") from exc
+
+    def _response(self, command: OtaCommandFrame, status: OtaStatus, detail: ZonalDetail = ZonalDetail.NONE) -> OtaStatusFrame:
+        if status != OtaStatus.RECOVERY_FAILED:
+            try:
+                state = self.installer.state
+                pending = state.transaction_id and _token(state.transaction_id) == command.transaction_token
+                slot = Slot[state.trial_slot if pending else state.active_slot]
+            except OtaError as exc:
+                self.last_error = exc
+                status = OtaStatus.RECOVERY_FAILED
+        if status == OtaStatus.RECOVERY_FAILED:
+            detail = ZonalDetail.STATE
+            try:
+                slot = self._actual_slot()
+            except (OtaError, OSError):
+                slot = command.slot  # Requested slot is not a claim of healthy selection.
         result = OtaStatusFrame(status, command.transaction_token, slot, int(detail), self._status_counter)
         self._status_counter = (self._status_counter + 1) % 16
         return result
@@ -309,6 +334,7 @@ class ZonalAgent:
             if command.command == OtaCommand.PREPARE:
                 tx = self._prepare(command)
             elif command.command == OtaCommand.QUERY_STATUS:
+                self._reconciled_state()
                 tx = self.token_history.get(f"{command.transaction_token:08x}")
                 if tx is None and command.transaction_token != 0:
                     raise OtaError("TRANSACTION_MISMATCH", "unknown transaction token")
@@ -322,6 +348,8 @@ class ZonalAgent:
         except (OtaError, OSError) as exc:
             self.last_error = exc if isinstance(exc, OtaError) else OtaError("ZONAL_IO_FAILED", str(exc))
             code = self.last_error.code
+            if code == "SLOT_STATE_MISMATCH":
+                return self._response(command, OtaStatus.RECOVERY_FAILED, ZonalDetail.STATE)
             detail = (ZonalDetail.REJECTED if code == "COMMAND_INVALID" else
                       ZonalDetail.TOKEN if code.startswith("TRANSACTION_") else
                       ZonalDetail.SLOT if code.startswith("SLOT_") else ZonalDetail.UPDATE)
@@ -329,32 +357,47 @@ class ZonalAgent:
         finally:
             self._previous_at = self.monotonic()
 
-    def publish_heartbeat(self) -> HeartbeatFrame:
-        state = self.installer.state
-        trial = state.trial_slot == state.active_slot and state.trial_slot is not None
-        version = state.trial_version if trial else state.stable_version
-        heartbeat = HeartbeatFrame(self.config.ecu_id,
-                                   _numeric_version(version) if version else self.initial_software_version,
-                                   *self.protocol_version,
-                                   ApplicationState.TRIAL if trial else ApplicationState.STABLE,
-                                   self._heartbeat_counter)
+    def publish_heartbeat(self) -> HeartbeatFrame | None:
+        """Publish only reconciled application metadata; suppress until recovery."""
+        try:
+            state = self._reconciled_state()
+            trial = state.trial_slot == state.active_slot and state.trial_slot is not None
+            version = state.trial_version if trial else state.stable_version
+            heartbeat = HeartbeatFrame(self.config.ecu_id,
+                                       _numeric_version(version) if version else self.initial_software_version,
+                                       *self.protocol_version,
+                                       ApplicationState.TRIAL if trial else ApplicationState.STABLE,
+                                       self._heartbeat_counter)
+        except OtaError as exc:
+            self.last_error = exc
+            return None
         self.transport.send(heartbeat.encode())
         self._heartbeat_counter = (self._heartbeat_counter + 1) % 256
+        self.last_error = None
         return heartbeat
 
     def handle_functional_request(self, frame: CanFrame) -> FunctionalTestResultFrame:
         request = FunctionalTestRequestFrame.decode(frame)
         if self.application_adapter is None:
             raise OtaError("APPLICATION_ADAPTER_UNAVAILABLE", "application observation adapter is required")
-        try:
-            observed = self.application_adapter.observe_functional_test(request)
-        except OSError as exc:
-            raise OtaError("APPLICATION_OBSERVATION_FAILED", "cannot observe Cluster application") from exc
+        observed = self._application_call(self.application_adapter.observe_functional_test, request)
         if not isinstance(observed, ApplicationObservation):
             raise OtaError("APPLICATION_OBSERVATION_INVALID", "adapter must return displayed application values")
         result = FunctionalTestResultFrame(observed.speed, observed.rpm, observed.gear, observed.warnings, request.test_id)
-        result.encode()  # Reject unrepresentable observations before publication.
+        try:
+            result.encode()  # Reject unrepresentable observations before publication.
+        except (ValueError, TypeError) as exc:
+            raise OtaError("APPLICATION_OBSERVATION_INVALID", "application values cannot be represented on CAN") from exc
+        self.last_error = None
         return result
+
+    def _application_call(self, operation: Callable, sample: object) -> object:
+        try:
+            return operation(sample)
+        except OSError as exc:
+            raise OtaError("APPLICATION_OBSERVATION_FAILED", "cannot communicate with Cluster application") from exc
+        except (ValueError, TypeError) as exc:
+            raise OtaError("APPLICATION_OBSERVATION_INVALID", "invalid Cluster application data") from exc
 
     def poll_once(self, timeout: float) -> OtaStatusFrame | FunctionalTestResultFrame | None:
         """Process at most one CAN sample; ignore malformed/irrelevant frames."""
@@ -369,8 +412,9 @@ class ZonalAgent:
             elif frame.can_id == 0x200:
                 sample = VehicleStatusFrame.decode(frame)
                 if self.application_adapter is not None and is_counter_contiguous(sample.counter, self._vehicle_counter):
-                    self.application_adapter.apply_vehicle_status(sample)
+                    self._application_call(self.application_adapter.apply_vehicle_status, sample)
                     self._vehicle_counter = sample.counter
+                    self.last_error = None
                 return None
             else:
                 return None
