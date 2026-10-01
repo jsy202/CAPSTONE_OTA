@@ -70,3 +70,30 @@ def test_systemd_manager_rejects_mqtt_controlled_unit_name():
     manager = SystemdServiceManager(runner=lambda *_args, **_kwargs: None)
     with pytest.raises(ValueError):
         manager.restart_and_wait_healthy("attacker.service", 15)
+
+
+def test_systemd_manager_accepts_explicit_units_and_freezes_caller_allowlist():
+    calls = []
+    def runner(command, **_kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0)
+    clock = Clock()
+    allowed = {"central-control.service", "digital-cluster.service"}
+    manager = SystemdServiceManager(
+        runner=runner, clock=clock.now, sleeper=clock.sleep, allowed_units=allowed
+    )
+    allowed.add("attacker.service")
+    allowed.remove("central-control.service")
+    assert manager.restart_and_wait_healthy("central-control.service", 1)
+    assert calls[0] == ["systemctl", "restart", "central-control.service"]
+    assert all(command == ["systemctl", "is-active", "--quiet", "central-control.service"] for command in calls[1:])
+    with pytest.raises(ValueError):
+        manager.restart_and_wait_healthy("attacker.service", 1)
+    with pytest.raises(ValueError):
+        manager.restart_and_wait_healthy("digital-dash.service", 1)
+
+
+@pytest.mark.parametrize("unit", ["--all.service", "bad unit.service", "../evil.service", "bad\n.service", "no-suffix"])
+def test_systemd_manager_rejects_unsafe_allowed_unit_configuration(unit):
+    with pytest.raises(ValueError):
+        SystemdServiceManager(allowed_units={unit})
