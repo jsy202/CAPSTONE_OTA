@@ -318,7 +318,13 @@ class ABSlotInstaller:
     def _restart(self) -> bool:
         return self.service_manager.restart_and_wait_healthy(self.service_unit, self.health_timeout)
 
-    def activate_trial(self, transaction_id: str | UUID) -> SlotState:
+    def activate_trial(self, transaction_id: str | UUID, *, rollback_on_failure: bool = True) -> SlotState:
+        """Activate trial; a coordinator may own remote-first failure recovery.
+
+        False leaves the durable activating intent and actual trial selector
+        intact on failed process health so whole-vehicle rollback can run first.
+        Standalone callers retain immediate automatic rollback by default.
+        """
         tx, state = self._pending(transaction_id)
         if tx in state.completed_transactions:
             return state
@@ -335,7 +341,8 @@ class ABSlotInstaller:
         state.save_atomic(self.state_path)
         self._select(state.trial_slot)
         if not self._restart():
-            self.rollback(tx)
+            if rollback_on_failure:
+                self.rollback(tx)
             raise OtaError("HEALTH_CHECK_FAILED", "trial application failed its health check")
         state = replace(state, phase="trial", active_slot=state.trial_slot)
         state.save_atomic(self.state_path)

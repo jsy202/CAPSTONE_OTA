@@ -52,6 +52,20 @@ def test_initialization_durably_selects_a_as_stable(tmp_path):
     assert json.loads(installer.state_path.read_text())["schema_version"] == 1
 
 
+def test_delegated_activation_failure_leaves_trial_for_remote_first_rollback(tmp_path):
+    installer, services = installer_at(tmp_path, results=(False, True))
+    installer.stage(TX, application(tmp_path), "bin/app", "2.0")
+    with pytest.raises(OtaError, match="HEALTH_CHECK_FAILED"):
+        installer.activate_trial(TX, rollback_on_failure=False)
+    assert installer.active_link.resolve() == installer.slots_dir / "B"
+    assert installer.state.phase == "activating"
+    assert len(services.calls) == 1
+    installer.rollback(TX)
+    assert installer.active_link.resolve() == installer.slots_dir / "A"
+    assert installer.state.completed_transactions[TX] == "rolled_back"
+    assert len(services.calls) == 2
+
+
 def test_stage_replaces_only_inactive_slot_and_preserves_input(tmp_path):
     installer, services = installer_at(tmp_path)
     old_stable = (installer.slots_dir / "A" / "bin" / "app").read_text()
