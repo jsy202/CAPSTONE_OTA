@@ -37,12 +37,14 @@ class ZoneClient(Protocol):
     rollback of a PREPARE that may not have reached Cluster must safely discover
     and establish stable/no-pending state, then return ROLLED_BACK; never invent
     that acknowledgement after a CAN timeout.
+    timeout_s is the positive float remaining in the shared phase at invocation,
+    including elapsed journal writes; never extend it to the original policy.
     """
-    def prepare(self, transaction_id: str, token: int, slot: Slot, timeout_s: int) -> OtaStatusFrame: ...
-    def activate(self, transaction_id: str, token: int, slot: Slot, timeout_s: int) -> OtaStatusFrame: ...
-    def commit(self, transaction_id: str, token: int, slot: Slot, timeout_s: int) -> OtaStatusFrame: ...
-    def rollback(self, transaction_id: str, token: int, slot: Slot, timeout_s: int) -> OtaStatusFrame: ...
-    def status(self, transaction_id: str | None, token: int, timeout_s: int) -> OtaStatusFrame: ...
+    def prepare(self, transaction_id: str, token: int, slot: Slot, timeout_s: float) -> OtaStatusFrame: ...
+    def activate(self, transaction_id: str, token: int, slot: Slot, timeout_s: float) -> OtaStatusFrame: ...
+    def commit(self, transaction_id: str, token: int, slot: Slot, timeout_s: float) -> OtaStatusFrame: ...
+    def rollback(self, transaction_id: str, token: int, slot: Slot, timeout_s: float) -> OtaStatusFrame: ...
+    def status(self, transaction_id: str | None, token: int, timeout_s: float) -> OtaStatusFrame: ...
 
 
 class CompatibilityProbe(Protocol):
@@ -51,9 +53,10 @@ class CompatibilityProbe(Protocol):
     Flush old frames, issue unique functional challenges after not_before, observe
     continuous process health, and preserve corrupt raw frames in the snapshot.
     Receiver and core share monotonic clock. Never manufacture a response echo.
+    timeout_s is the remaining phase budget, not the full signed policy limit.
     """
     def collect(self, bundle: VehicleBundleManifest, *, trial: bool,
-                not_before: float, timeout_s: int) -> CompatibilitySnapshot: ...
+                not_before: float, timeout_s: float) -> CompatibilitySnapshot: ...
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,22 @@ class PreparedArtifact:
     entrypoint: str
     archive_path: Path
     staging_dir: Path
+
+
+class ArtifactPreparer(Protocol):
+    """Trusted release preparation must finish within remaining timeout_s."""
+    def __call__(self, target: EcuTarget, artifact: Any, *, timeout_s: float) -> PreparedArtifact: ...
+
+
+class ArtifactPublisher(Protocol):
+    """Publish verified transaction assets within the remaining phase budget."""
+    def __call__(self, bundle: VehicleBundleManifest, artifacts: Mapping[str, PreparedArtifact],
+                 *, timeout_s: float) -> None: ...
+
+
+class MaintenanceController(Protocol):
+    """Idempotent application IPC limited to the remaining timeout_s."""
+    def __call__(self, enabled: bool, *, timeout_s: float) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -98,10 +117,10 @@ def _error(exc: Exception, default="COORDINATOR_IO_FAILED") -> dict:
 class VehicleCoordinator:
     def __init__(self, *, state_path: Path, installer: ABSlotInstaller, zone: ZoneClient,
                  probe: CompatibilityProbe,
-                 prepare_artifact: Callable[[EcuTarget, Any], PreparedArtifact],
+                 prepare_artifact: ArtifactPreparer,
                  stable_bundle: VehicleBundleManifest | None = None,
-                 publish_artifacts: Callable[[VehicleBundleManifest, Mapping[str, PreparedArtifact]], None],
-                 maintenance: Callable[[bool], None],
+                 publish_artifacts: ArtifactPublisher,
+                 maintenance: MaintenanceController,
                  progress: Callable[[dict], None] | None = None,
                  validator: CompatibilityValidator | None = None,
                  now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
@@ -180,7 +199,7 @@ class VehicleCoordinator:
         return VehicleUpdateResult(state.transaction_id, state.bundle_version,
                                    state.phase, state.last_error, tuple(state.evidence))
 
-    def _external(self, action: str, function: Callable, timeout_s: int):
+    def _external(self, action: str, function: Callable[[float], Any], timeout_s: float):
         started = self.monotonic()
         deadline = started + timeout_s
         if self._phase_deadline is not None:
@@ -190,7 +209,11 @@ class VehicleCoordinator:
         state = self.state
         self._save(replace(state, attempts=state.attempts + 1,
                            evidence=[*state.evidence, {"check": "action", "action": action, "status": "intent"}]))
-        result = function()
+        invoked_at = self.monotonic()
+        remaining = deadline - invoked_at
+        if invoked_at < started or remaining <= 0:
+            raise OtaError("ACTION_TIMEOUT", f"{action} has no remaining budget after durable intent write")
+        result = function(float(remaining))
         elapsed = self.monotonic() - started
         if elapsed < 0 or self.monotonic() > deadline:
             raise OtaError("ACTION_TIMEOUT", f"{action} exceeded its monotonic deadline")
@@ -206,7 +229,8 @@ class VehicleCoordinator:
         # true until confirmed, so a terminal-state restart retries release.
         if enabled:
             self._save(replace(self.state, maintenance_enabled=True))
-        self._external(f"maintenance:{'on' if enabled else 'off'}", lambda: self.maintenance(enabled), timeout_s)
+        self._external(f"maintenance:{'on' if enabled else 'off'}",
+                       lambda remaining: self.maintenance(enabled, timeout_s=remaining), timeout_s)
         if not enabled:
             self._save(replace(self.state, maintenance_enabled=False))
 
@@ -216,8 +240,8 @@ class VehicleCoordinator:
         slot = Slot[state.ecu_states["digital-cluster"]["trial_slot"]]
         response_slot = Slot[state.ecu_states["digital-cluster"]["stable_slot"]] if name == "rollback" else slot
         self._ecu("digital-cluster", **{name: "intent"})
-        result = self._external(f"cluster:{name}", lambda: getattr(self.zone, name)(
-            state.transaction_id, token, slot, timeout_s), timeout_s)
+        result = self._external(f"cluster:{name}", lambda remaining: getattr(self.zone, name)(
+            state.transaction_id, token, slot, remaining), timeout_s)
         try:
             result.encode()
             if (result.status != expected or result.transaction_token != token or result.slot != response_slot or result.detail != 0):
@@ -231,9 +255,9 @@ class VehicleCoordinator:
 
     def _verify(self, bundle: VehicleBundleManifest, *, trial: bool) -> bool:
         started = self.monotonic()
-        snapshot = self._external("verify:trial" if trial else "verify:recovery", lambda:
+        snapshot = self._external("verify:trial" if trial else "verify:recovery", lambda remaining:
             self.probe.collect(bundle, trial=trial, not_before=started,
-                               timeout_s=bundle.health_policy.verification_timeout_s),
+                               timeout_s=remaining),
             bundle.health_policy.verification_timeout_s)
         if isinstance(snapshot, CompatibilitySnapshot) and snapshot.ended_at > self.monotonic():
             raise OtaError("OBSERVATION_WINDOW_INVALID", "receiver observation extends into future monotonic time")
@@ -280,8 +304,8 @@ class VehicleCoordinator:
                     or (local.completed_transactions.get(state.transaction_id) == "rolled_back"
                         and state.ecu_states.get("central-control", {}).get("rollback") != "done")):
                 self._ecu("central-control", rollback="intent")
-                self._external("central:abort-staging", lambda: self.installer.rollback(state.transaction_id), 30)
-                self._external("central:cleanup-staging", self.installer.recover_on_startup, 30)
+                self._external("central:abort-staging", lambda remaining: self.installer.rollback(state.transaction_id), 30)
+                self._external("central:cleanup-staging", lambda remaining: self.installer.recover_on_startup(), 30)
                 self._ecu("central-control", rollback="done", phase="ROLLED_BACK")
         except Exception as exc:
             failures.append(_error(exc))
@@ -326,13 +350,13 @@ class VehicleCoordinator:
                 raise OtaError("ARTIFACT_SET_INVALID", "both and only both target artifacts are required")
             prepared = {}
             for target in bundle.targets:
-                item = self._external(f"cache:{target.ecu_id}", lambda target=target:
-                    self.prepare_artifact(target, artifacts[target.ecu_id]), policy.prepare_timeout_s)
+                item = self._external(f"cache:{target.ecu_id}", lambda remaining, target=target:
+                    self.prepare_artifact(target, artifacts[target.ecu_id], timeout_s=remaining), policy.prepare_timeout_s)
                 self._check_artifact(target, item)
                 prepared[target.ecu_id] = item
             # Entire signed artifact set verified before touching either slot.
-            self._external("publish-artifacts", lambda: self.publish_artifacts(bundle, prepared), policy.prepare_timeout_s)
-            remote = self._external("cluster:status", lambda: self.zone.status(None, 0, policy.prepare_timeout_s), policy.prepare_timeout_s)
+            self._external("publish-artifacts", lambda remaining: self.publish_artifacts(bundle, prepared, timeout_s=remaining), policy.prepare_timeout_s)
+            remote = self._external("cluster:status", lambda remaining: self.zone.status(None, 0, remaining), policy.prepare_timeout_s)
             remote.encode()
             if remote.status not in {OtaStatus.IDLE, OtaStatus.COMMITTED, OtaStatus.ROLLED_BACK} or remote.detail or remote.transaction_token != 0:
                 raise OtaError("ZONE_NOT_STABLE", "remote application has a pending or failed transaction")
@@ -342,7 +366,7 @@ class VehicleCoordinator:
                           trial_slot="B" if stable == "A" else "A", phase="STABLE")
             target = next(t for t in bundle.targets if t.ecu_id == "central-control")
             self._ecu("central-control", stage="intent")
-            self._external("central:stage", lambda: self.installer.stage(bundle.transaction_id,
+            self._external("central:stage", lambda remaining: self.installer.stage(bundle.transaction_id,
                 prepared[target.ecu_id].staging_dir, target.entrypoint, target.software_version), policy.prepare_timeout_s)
             self._ecu("central-control", stage="done", phase="READY")
             self._zone_action("prepare", OtaStatus.READY, policy.prepare_timeout_s)
@@ -367,7 +391,7 @@ class VehicleCoordinator:
         self._set_maintenance(True, policy.activation_timeout_s)
         self._zone_action("activate", OtaStatus.VERIFYING, policy.activation_timeout_s)
         self._ecu("central-control", activate="intent")
-        self._external("central:activate", lambda: self.installer.activate_trial(bundle.transaction_id,
+        self._external("central:activate", lambda remaining: self.installer.activate_trial(bundle.transaction_id,
             rollback_on_failure=False), policy.activation_timeout_s)
         self._ecu("central-control", activate="done", phase="VERIFYING", active_slot=self.installer.state.active_slot)
         self._transition("VERIFYING")
@@ -375,7 +399,7 @@ class VehicleCoordinator:
             raise OtaError("COMPATIBILITY_FAILED", "trial verification failed")
         self._zone_action("commit", OtaStatus.COMMITTED, policy.activation_timeout_s)
         self._ecu("central-control", commit="intent")
-        self._external("central:commit", lambda: self.installer.commit(bundle.transaction_id), policy.activation_timeout_s)
+        self._external("central:commit", lambda remaining: self.installer.commit(bundle.transaction_id), policy.activation_timeout_s)
         self._ecu("central-control", commit="done", phase="COMMITTED", active_slot=self.installer.state.active_slot)
         self._transition("COMMITTED")
         self._set_maintenance(False, policy.activation_timeout_s)
@@ -401,7 +425,7 @@ class VehicleCoordinator:
             self._ecu("digital-cluster", rollback="failed", error=_error(exc))
         try:
             self._ecu("central-control", rollback="intent")
-            self._external("central:rollback", lambda: self.installer.rollback(state.transaction_id),
+            self._external("central:rollback", lambda remaining: self.installer.rollback(state.transaction_id),
                            bundle.health_policy.activation_timeout_s)
             self._ecu("central-control", rollback="done", phase="ROLLED_BACK",
                       active_slot=self.installer.state.active_slot)

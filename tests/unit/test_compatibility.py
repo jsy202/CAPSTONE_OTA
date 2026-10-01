@@ -114,10 +114,10 @@ def test_verification_detects_independent_contract_failures(kind, code):
     elif kind == "can_missing":
         frames = [f for f in frames if f.can_id != 0x200]
     elif kind == "can_period":
-        frames[-2] = replace(frames[-2], observed_at=10.0)
+        frames = [f for f in frames if f.can_id != 0x200] + [frames[4],
+            replace(frames[-1], data=VehicleStatusFrame(650, 1500, Gear.DRIVE, 0, 247).encode().data)]
     elif kind == "can_timeout":
-        frames[-2] = replace(frames[-2], observed_at=10.0)
-        frames[-1] = replace(frames[-1], observed_at=10.1)
+        frames = [f for f in frames if f.can_id != 0x200 or f.observed_at <= 10.4]
     elif kind == "functional_missing":
         value = replace(value, functional_results=())
     elif kind == "functional_wrong_id":
@@ -189,3 +189,54 @@ def test_malformed_observation_returns_structured_failure():
     result = validate(value)
     assert not result.passed
     assert "OBSERVATION_INVALID" in {e["code"] for e in result.errors}
+
+
+@pytest.mark.parametrize("invalid", ["duplicates", "all-range", "range-breaks-sequence", "backwards-counter"])
+def test_tolerated_invalid_traffic_never_advances_valid_samples_or_freshness(invalid):
+    _, _, Observation = api()
+    data = bundle_data()
+    data["health_policy"]["max_error_count"] = 20
+    value = snapshot()
+    heartbeat_frames = tuple(f for f in value.frames if f.can_id != 0x200)
+    vehicle = []
+    for index in range(11):
+        counter, speed = (246 + index) % 256, 650
+        if invalid == "duplicates":
+            counter = 246
+        elif invalid == "all-range":
+            speed = 4000
+        elif invalid == "range-breaks-sequence" and index == 1:
+            speed = 4000
+        elif invalid == "backwards-counter" and index >= 2:
+            counter = 244 + (index % 2)
+        encoded = VehicleStatusFrame(speed, 1500, Gear.DRIVE, 0, counter).encode()
+        vehicle.append(Observation(10.0 + index / 10, encoded.can_id, encoded.data))
+    result = validate(replace(value, frames=(*heartbeat_frames, *vehicle)), bundle=parse(data))
+    assert not result.passed
+    can = next(item for item in result.evidence if item["check"] == "can")
+    assert can["samples"] == {"duplicates": 1, "all-range": 0,
+                              "range-breaks-sequence": 1, "backwards-counter": 2}[invalid]
+    assert can["last_observed_at"] == {"duplicates": 10.0, "all-range": None,
+                                       "range-breaks-sequence": 10.0, "backwards-counter": 10.1}[invalid]
+    codes = {error["code"] for error in result.errors}
+    assert "CAN_TIMEOUT" in codes
+    if invalid != "backwards-counter":
+        assert "CAN_OBSERVATION_MISSING" in codes
+
+
+@pytest.mark.parametrize("invalid", ["version", "state"])
+def test_wrong_heartbeat_identity_or_state_does_not_count_as_valid_evidence(invalid):
+    _, _, Observation = api()
+    value = snapshot()
+    frames = list(value.frames)
+    heartbeat = HeartbeatFrame.decode(CanFrame(frames[1].can_id, frames[1].data))
+    if invalid == "version":
+        heartbeat = replace(heartbeat, software_version=(9, 0, 0))
+    else:
+        heartbeat = replace(heartbeat, state=ApplicationState.STABLE)
+    frames[1] = Observation(11.0, 0x100, heartbeat.encode().data)
+    result = validate(replace(value, frames=tuple(frames)))
+    assert not result.passed
+    central = next(item for item in result.evidence if item["check"] == "heartbeat" and item["ecu_id"] == "central-control")
+    assert central["samples"] == 1
+    assert "HEARTBEAT_MISSING" in {error["code"] for error in result.errors}

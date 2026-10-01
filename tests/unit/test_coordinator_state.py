@@ -40,7 +40,10 @@ def test_durable_token_history_blocks_collision_even_after_completion(tmp_path):
     State = api()
     state = State().retain_transaction(TX, "a" * 64)
     path = tmp_path / "state.json"
-    state = replace(state, completed_transactions={TX: "ABORTED"})
+    state = replace(state, completed_transactions={TX: "ABORTED"}, completed_results={TX: {
+        "transaction_id": TX, "bundle_version": "2.0.0", "phase": "ABORTED",
+        "last_error": None, "evidence": [],
+    }})
     state.save_atomic(path)
     loaded = State.load(path)
     assert loaded.retain_transaction(TX, "a" * 64) == loaded
@@ -115,6 +118,43 @@ def test_tampered_active_metadata_cannot_be_loaded(tmp_path, mutation):
         del data["ecu_states"]["digital-cluster"]
     else:
         data["stable_bundle"] = None
+    h.state_path.write_text(json.dumps(data))
+    with pytest.raises(OtaError, match="TRANSACTION_STATE_INVALID"):
+        api().load(h.state_path)
+
+
+@pytest.mark.parametrize("mutation", ["missing_current_result", "missing_old_result", "extra_result",
+    "outcome_mismatch", "current_version", "current_error", "current_evidence", "old_error_type", "old_evidence_type"])
+def test_completed_outcomes_and_results_must_be_exact_and_consistent(tmp_path, mutation):
+    from tests.unit.test_coordinator import Harness
+    from tests.unit.test_vehicle_bundle import parse
+    h = Harness(tmp_path)
+    h.execute()
+    new = json.loads(h.bundle.canonical_bytes())
+    new["transaction_id"] = "660e8400-e29b-41d4-a716-446655440000"
+    h.bundle = parse(new)
+    h.execute()
+    data = json.loads(h.state_path.read_text())
+    current = data["transaction_id"]
+    results = data["completed_results"]
+    if mutation == "missing_current_result":
+        del results[current]
+    elif mutation == "missing_old_result":
+        del results[TX]
+    elif mutation == "extra_result":
+        results["770e8400-e29b-41d4-a716-446655440000"] = results[TX]
+    elif mutation == "outcome_mismatch":
+        results[TX]["phase"] = "ROLLED_BACK"
+    elif mutation == "current_version":
+        results[current]["bundle_version"] = "9.0.0"
+    elif mutation == "current_error":
+        results[current]["last_error"] = {"code": "INVENTED", "message": "inconsistent current record"}
+    elif mutation == "current_evidence":
+        results[current]["evidence"] = []
+    elif mutation == "old_error_type":
+        results[TX]["last_error"] = {"code": False, "message": 123}
+    else:
+        results[TX]["evidence"] = [123]
     h.state_path.write_text(json.dumps(data))
     with pytest.raises(OtaError, match="TRANSACTION_STATE_INVALID"):
         api().load(h.state_path)

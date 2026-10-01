@@ -110,11 +110,17 @@ class VehicleTransactionState:
         for tx, outcome in self.completed_transactions.items():
             if tx not in self.bundle_history or outcome not in TERMINAL_STATES:
                 raise invalid
+        if set(self.completed_transactions) != set(self.completed_results):
+            raise invalid
         for tx, result in self.completed_results.items():
             if (not isinstance(result, dict) or set(result) != {"transaction_id", "bundle_version", "phase", "last_error", "evidence"}
                     or result["transaction_id"] != tx or result["phase"] != self.completed_transactions.get(tx)
                     or not isinstance(result["bundle_version"], str) or not isinstance(result["evidence"], list)
-                    or (result["last_error"] is not None and not isinstance(result["last_error"], dict))):
+                    or any(not isinstance(item, dict) for item in result["evidence"])
+                    or (result["last_error"] is not None and (
+                        not isinstance(result["last_error"], dict)
+                        or set(result["last_error"]) != {"code", "message"}
+                        or any(not isinstance(v, str) for v in result["last_error"].values())))):
                 raise invalid
         if self.last_error is not None and (not isinstance(self.last_error, dict)
                 or set(self.last_error) != {"code", "message"}
@@ -161,6 +167,10 @@ class VehicleTransactionState:
         elif self.phase != "IDLE" or self.current_bundle is not None or self.bundle_version is not None:
             raise invalid
         if self.phase in TERMINAL_STATES and self.completed_transactions.get(self.transaction_id) != self.phase:
+            raise invalid
+        if self.phase in TERMINAL_STATES and self.completed_results[self.transaction_id] != {
+                "transaction_id": self.transaction_id, "bundle_version": self.bundle_version,
+                "phase": self.phase, "last_error": self.last_error, "evidence": self.evidence}:
             raise invalid
         if self.phase == "COMMITTED" and self.stable_bundle != self.current_bundle:
             raise invalid

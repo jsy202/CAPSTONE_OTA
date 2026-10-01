@@ -154,27 +154,31 @@ class CompatibilityValidator:
         expected_state = ApplicationState.TRIAL if trial else ApplicationState.STABLE
 
         def sequence(samples, period, role, prefix):
-            if len(samples) < 2:
-                fail(f"{prefix}_MISSING" if prefix == "HEARTBEAT" else "CAN_OBSERVATION_MISSING",
-                     "at least two fresh samples are required", role)
-                return
+            accepted = []
             previous = None
             previous_time = snapshot.started_at
             missed = 0
             for timestamp, value in samples:
                 if timestamp < previous_time:
                     fail("OBSERVATION_WINDOW_INVALID", "receiver timestamps moved backwards", role)
+                    continue
                 if not is_counter_contiguous(value.counter, previous):
                     fail(f"{prefix}_COUNTER_STALE", "rolling counter is not contiguous", role,
                          can=prefix == "CAN")
+                    continue
                 missed += max(0, int((timestamp - previous_time + 1e-9) / period) - 1)
+                accepted.append((timestamp, value))
                 previous, previous_time = value.counter, timestamp
+            if len(accepted) < 2:
+                fail(f"{prefix}_MISSING" if prefix == "HEARTBEAT" else "CAN_OBSERVATION_MISSING",
+                     "at least two accepted fresh samples are required", role)
             missed += max(0, int((snapshot.ended_at - previous_time + 1e-9) / period))
             if missed > policy.max_missed_heartbeats:
                 fail(f"{prefix}_PERIOD_MISSED", "missed-period budget exceeded", role, missed=missed)
             timeout = policy.heartbeat_timeout_s if prefix == "HEARTBEAT" else period * (policy.max_missed_heartbeats + 1)
             if snapshot.ended_at - previous_time > timeout:
                 fail(f"{prefix}_TIMEOUT", "last observation is too old", role)
+            return accepted
 
         for role, samples in heartbeats.items():
             target = targets[role]
@@ -182,22 +186,33 @@ class CompatibilityValidator:
                 expected_version = tuple(int(p) for p in target.software_version.split("."))
             except ValueError:
                 expected_version = ()
-            sequence(samples, contract.heartbeat_period_s, role, "HEARTBEAT")
-            for _, heartbeat in samples:
+            valid = []
+            for timestamp, heartbeat in samples:
+                accepted = True
                 if (heartbeat.software_version != expected_version
                         or (heartbeat.protocol_major, heartbeat.protocol_minor) != (target.protocol_major, target.protocol_minor)):
                     fail("HEARTBEAT_VERSION_MISMATCH", "software/protocol differs from expected version set", role,
                          expected=target.software_version, observed=list(heartbeat.software_version))
+                    accepted = False
                 if heartbeat.state != expected_state:
                     fail("HEARTBEAT_STATE_MISMATCH", "application state differs from verification phase", role)
-            evidence.append({"check": "heartbeat", "ecu_id": role, "samples": len(samples),
+                    accepted = False
+                if accepted:
+                    valid.append((timestamp, heartbeat))
+            valid = sequence(valid, contract.heartbeat_period_s, role, "HEARTBEAT")
+            evidence.append({"check": "heartbeat", "ecu_id": role, "samples": len(valid),
+                             "last_observed_at": valid[-1][0] if valid else None,
                              "expected_version": target.software_version, "expected_state": int(expected_state)})
-        sequence(vehicle, contract.vehicle_period_s, "central-control", "CAN")
-        for _, value in vehicle:
+        valid = []
+        for timestamp, value in vehicle:
             if (value.speed > contract.max_speed or value.rpm > contract.max_rpm
                     or value.warnings & ~contract.allowed_warning_mask):
                 fail("CAN_VALUE_OUT_OF_RANGE", "vehicle signals violate physical contract", can=True)
-        evidence.append({"check": "can", "samples": len(vehicle), "error_count": len(can_errors),
+                continue
+            valid.append((timestamp, value))
+        valid = sequence(valid, contract.vehicle_period_s, "central-control", "CAN")
+        evidence.append({"check": "can", "samples": len(valid), "last_observed_at": valid[-1][0] if valid else None,
+                         "error_count": len(can_errors),
                          "max_error_count": policy.max_error_count})
         requests = {}
         for request in snapshot.requests:

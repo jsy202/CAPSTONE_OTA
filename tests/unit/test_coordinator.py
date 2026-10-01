@@ -139,7 +139,7 @@ class Harness:
         self.zone, self.probe = Zone(self), Probe(self)
         self.prepare_failure = None
 
-        def prepare(target, artifact):
+        def prepare(target, artifact, *, timeout_s=None):
             self.record(f"cache:{target.ecu_id}")
             if self.prepare_failure == target.ecu_id:
                 raise OtaError("ARTIFACT_VERIFICATION_FAILED", "release verification rejected")
@@ -147,8 +147,8 @@ class Harness:
 
         self.options = dict(state_path=self.state_path, installer=self.local, zone=self.zone,
             probe=self.probe, prepare_artifact=prepare, stable_bundle=self.stable,
-            publish_artifacts=lambda bundle, prepared: self.record("publish"),
-            maintenance=lambda enabled: self.record(f"maintenance:{enabled}"),
+            publish_artifacts=lambda bundle, prepared, **kwargs: self.record("publish"),
+            maintenance=lambda enabled, **kwargs: self.record(f"maintenance:{enabled}"),
             progress=lambda event: self.record(f"event:{event['phase']}"),
             monotonic=self.clock,
             now=lambda: datetime(2026, 10, 1, 3, 30, tzinfo=timezone.utc))
@@ -389,8 +389,8 @@ def test_phase_timeout_is_shared_by_both_cache_operations(tmp_path, monkeypatch)
     h = Harness(tmp_path)
     original = h.coordinator.prepare_artifact
 
-    def slow(target, artifact):
-        result = original(target, artifact)
+    def slow(target, artifact, **kwargs):
+        result = original(target, artifact, **kwargs)
         h.clock.value += 40
         return result
 
@@ -456,6 +456,7 @@ def test_failed_abort_cleanup_retries_remote_on_startup(tmp_path, monkeypatch):
 
 def test_old_completed_transaction_returns_recorded_failure_evidence(tmp_path):
     h = Harness(tmp_path)
+    Coordinator, _ = core_api()
     h.probe.bad_trial = True
     first_bundle = h.bundle
     first = h.execute().to_dict()
@@ -464,7 +465,12 @@ def test_old_completed_transaction_returns_recorded_failure_evidence(tmp_path):
     data["transaction_id"] = "660e8400-e29b-41d4-a716-446655440000"
     h.bundle = parse(data)
     assert h.execute().phase == "COMMITTED"
+    h.coordinator = Coordinator(**h.options)
+    state = h.coordinator.state
+    assert set(state.completed_results) == set(state.completed_transactions) == {TX, h.bundle.transaction_id}
+    before = h.trace.copy()
     assert h.coordinator.execute(first_bundle, h.artifacts).to_dict() == first
+    assert h.trace == before
 
 
 def test_restart_after_terminal_write_releases_maintenance_idempotently(tmp_path, monkeypatch):
@@ -472,10 +478,10 @@ def test_restart_after_terminal_write_releases_maintenance_idempotently(tmp_path
     Coordinator, _ = core_api()
     original = h.coordinator.maintenance
 
-    def cut_release(enabled):
+    def cut_release(enabled, **kwargs):
         if not enabled:
             raise PowerCut()
-        original(enabled)
+        original(enabled, **kwargs)
 
     monkeypatch.setattr(h.coordinator, "maintenance", cut_release)
     with pytest.raises(PowerCut):
@@ -541,3 +547,93 @@ def test_interrupted_abort_cleanup_resumes_after_slot_rollback_completed(tmp_pat
     h.coordinator = Coordinator(**h.options)
     assert h.coordinator.recover_on_startup().phase == "ABORTED"
     assert not interrupted_tree.exists()
+
+
+def test_each_prepare_adapter_receives_remaining_shared_phase_budget(tmp_path, monkeypatch):
+    h = Harness(tmp_path)
+    budgets = {}
+    original_prepare = h.coordinator.prepare_artifact
+    original_publish = h.coordinator.publish_artifacts
+    original_status = h.zone.status
+    original_zone_prepare = h.zone.prepare
+
+    def prepare(target, artifact, *, timeout_s=None):
+        budgets[target.ecu_id] = timeout_s
+        result = original_prepare(target, artifact, timeout_s=timeout_s)
+        h.clock.value += 7.5
+        return result
+
+    def publish(bundle, prepared, *, timeout_s=None):
+        budgets["publish"] = timeout_s
+        original_publish(bundle, prepared, timeout_s=timeout_s)
+        h.clock.value += 4
+
+    def status(tx, token, timeout_s):
+        budgets["status"] = timeout_s
+        result = original_status(tx, token, timeout_s)
+        h.clock.value += 3
+        return result
+
+    def zone_prepare(tx, token, slot, timeout_s):
+        budgets["zone_prepare"] = timeout_s
+        return original_zone_prepare(tx, token, slot, timeout_s)
+
+    monkeypatch.setattr(h.coordinator, "prepare_artifact", prepare)
+    monkeypatch.setattr(h.coordinator, "publish_artifacts", publish)
+    monkeypatch.setattr(h.zone, "status", status)
+    monkeypatch.setattr(h.zone, "prepare", zone_prepare)
+    assert h.execute().phase == "COMMITTED"
+    assert budgets == {"central-control": 60.0, "digital-cluster": 52.5,
+                       "publish": 45.0, "status": 41.0, "zone_prepare": 38.0}
+
+
+def test_probe_and_commit_receive_remaining_budget_after_phase_consumption(tmp_path, monkeypatch):
+    h = Harness(tmp_path)
+    budgets = {}
+    original_progress, original_collect = h.coordinator.progress, h.probe.collect
+    original_validate, original_commit = h.coordinator.validator.validate_runtime, h.zone.commit
+
+    def progress(event):
+        original_progress(event)
+        if event["phase"] == "VERIFYING":
+            h.clock.value += 2
+
+    def collect(bundle, *, trial, not_before, timeout_s):
+        budgets["probe"] = timeout_s
+        return original_collect(bundle, trial=trial, not_before=not_before, timeout_s=timeout_s)
+
+    def validate(*args, **kwargs):
+        result = original_validate(*args, **kwargs)
+        h.clock.value += 0.25
+        return result
+
+    def commit(tx, token, slot, timeout_s):
+        budgets["commit"] = timeout_s
+        return original_commit(tx, token, slot, timeout_s)
+
+    monkeypatch.setattr(h.coordinator, "progress", progress)
+    monkeypatch.setattr(h.probe, "collect", collect)
+    monkeypatch.setattr(h.coordinator.validator, "validate_runtime", validate)
+    monkeypatch.setattr(h.zone, "commit", commit)
+    assert h.execute().phase == "COMMITTED"
+    assert budgets == {"probe": 18.0, "commit": 16.75}
+
+
+@pytest.mark.parametrize("fsync_time", [2.0, 5.0])
+def test_adapter_budget_accounts_for_durable_intent_write_time(tmp_path, monkeypatch, fsync_time):
+    h = Harness(tmp_path)
+    original = h.coordinator._save
+    calls = []
+
+    def slow_save(state):
+        original(state)
+        h.clock.value += fsync_time
+
+    monkeypatch.setattr(h.coordinator, "_save", slow_save)
+    if fsync_time == 5.0:
+        with pytest.raises(OtaError, match="ACTION_TIMEOUT"):
+            h.coordinator._external("boundary", lambda remaining=None: calls.append(remaining), 5)
+        assert calls == []
+    else:
+        h.coordinator._external("boundary", lambda remaining=None: calls.append(remaining), 5)
+        assert calls == [3.0]
