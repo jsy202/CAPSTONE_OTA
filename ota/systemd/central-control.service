@@ -1,0 +1,26 @@
+[Unit]
+Description=Central Control application (A/B slot, OTA-managed)
+After=sys-subsystem-net-devices-can0.device
+
+[Service]
+Type=simple
+User=central-control
+Group=central-control
+# Releases must use entrypoint bin/central-control; the slot selector is atomic.
+ExecStart=/opt/central-control/active-slot/bin/central-control
+RuntimeDirectory=central-control
+RuntimeDirectoryMode=0750
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_CAN
+LockPersonality=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

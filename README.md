@@ -29,8 +29,9 @@ Linux 노트북                              Raspberry Pi 4B
 CAPSTONE_OTA/
 ├── capstone_ota/
 │   ├── common/       # manifest, 오류, Ed25519 서명 검증
-│   ├── publisher/    # 패키징, HTTPS 서버, MQTT 배포 CLI
-│   └── agent/        # Pi 다운로드, 검증, 설치, 활성화, 롤백
+│   ├── publisher/    # 패키징, HTTPS 서버, MQTT 배포 CLI (vehicle-* 포함)
+│   ├── agent/        # Pi 다운로드, 검증, 설치, 롤백 + A/B 슬롯·zone agent
+│   └── coordinator/  # Central HPC: vehicle 트랜잭션, CAN 검증, 캐시 서버
 ├── dashboard/volvo-digital-dash/
 │   ├── import-upstream.sh  # 고정 upstream 커밋의 Qt 앱만 가져오기
 │   ├── make-payload.sh     # ARM 실행 파일을 OTA payload로 조립
@@ -38,7 +39,8 @@ CAPSTONE_OTA/
 │   └── LICENSE.upstream
 ├── ota/
 │   ├── broker/       # Mosquitto TLS 설정과 장치별 ACL
-│   ├── config/       # 노트북/Pi 예제 JSON(비밀 없음)
+│   ├── config/       # 노트북/Pi/zonal 예제 JSON(비밀 없음)
+│   ├── network/      # zonal eth0 직결 주소와 can0 500 kbit/s
 │   ├── polkit/       # OTA 계정의 dashboard 재시작 권한 제한
 │   ├── scripts/      # PKI 생성과 설치 스크립트
 │   └── systemd/      # OTA agent와 dashboard 서비스
@@ -130,6 +132,25 @@ QoS 1과 retained 메시지를 사용합니다. 상태 단계는 `received`, `do
 하드웨어 시험은 실행하지 않았습니다. 현장 인수 시
 [Raspberry Pi 검증 체크리스트](docs/RPI_VALIDATION_CHECKLIST.md)에 OS/아키텍처,
 네트워크 단절, 재부팅 지속성과 로그 증거를 기록하세요.
+
+## Zonal 다중 ECU 확장 (application A/B)
+
+두 번째 단계로 Raspberry Pi 두 대(Central HPC + Digital Cluster)를 하나의 서명된
+vehicle bundle로 함께 업데이트합니다. Central의 coordinator가 두 앱을 trial 슬롯에서
+활성화하고, Classic CAN(500 kbit/s) heartbeat·차량 신호·기능시험 응답으로 실제 호환성을
+확인한 뒤 **둘 다 commit하거나 둘 다 이전 슬롯으로 rollback**합니다. 아티팩트는 Wi-Fi와
+직결 Ethernet의 HTTPS로만 전달되고, CAN에는 짧은 명령과 상태만 오갑니다.
+
+```bash
+python3 -m pytest tests/integration/test_zonal_end_to_end.py tests/integration/test_zonal_recovery.py -q
+```
+
+실제 TLS 서버, 실제 A/B 슬롯과 zone agent, 가상 CAN 위에서 정상 commit, 정적 거부,
+런타임 의미 결함 rollback, heartbeat 손실, 전원 차단 복구, 아카이브 변조, 서명 위조
+명령 거부를 실행합니다. 하드웨어 시험은 아직 하지 않았고, Central Control 앱과 Qt
+Cluster의 IPC/CAN 연동은 앱 쪽 구현이 필요합니다. 설치·계약·시연 절차는
+[ZONAL_OTA_GUIDE.md](docs/ZONAL_OTA_GUIDE.md)에 있습니다. Uptane을 참고했지만 준수
+구현은 아닙니다.
 
 ## Volvo240-DigitalDash
 

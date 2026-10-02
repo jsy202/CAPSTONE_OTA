@@ -1,0 +1,9 @@
+// Install on both zonal Pis; each Pi only has its own application unit.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        subject.user == "capstone-ota" &&
+        ["central-control.service", "digital-cluster.service"].indexOf(action.lookup("unit")) >= 0 &&
+        ["start", "stop", "restart"].indexOf(action.lookup("verb")) >= 0) {
+        return polkit.Result.YES;
+    }
+});

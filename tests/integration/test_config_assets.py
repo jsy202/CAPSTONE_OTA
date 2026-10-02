@@ -102,3 +102,50 @@ def test_pki_generator_creates_expected_keys_and_refuses_overwrite(tmp_path):
     )
     assert repeated.returncode != 0
     assert "refus" in repeated.stderr.lower() or "exists" in repeated.stderr.lower()
+
+
+def _provisioned(tmp_path, example, trust_fields):
+    data = json.loads((OTA / "config" / example).read_text())
+    for name in trust_fields:
+        path = tmp_path / name
+        path.write_text("provisioned")
+        data[name] = str(path)
+    config = tmp_path / example
+    config.write_text(json.dumps(data))
+    return config
+
+
+def test_zonal_example_configs_satisfy_strict_loaders(tmp_path):
+    from capstone_ota.agent.zonal_config import ZonalAgentConfig
+    from capstone_ota.common.vehicle_bundle import VehicleBundleManifest
+    from capstone_ota.coordinator.compatibility import CompatibilityValidator
+    from capstone_ota.coordinator.config import CoordinatorConfig
+    central = CoordinatorConfig.from_json(_provisioned(tmp_path, "coordinator.example.json", (
+        "ca_file", "client_cert", "client_key", "public_key", "https_cert", "https_key", "stable_bundle")))
+    cluster = ZonalAgentConfig.from_json(_provisioned(tmp_path, "cluster-zonal.example.json", ("ca_file", "public_key")))
+    assert central.https_bind == "10.10.0.1" and cluster.central_base_url == "https://10.10.0.1:8443"
+    assert central.can_interface == cluster.can_interface == "can0"
+    stable = VehicleBundleManifest.from_bytes((OTA / "config/stable-bundle.example.json").read_bytes())
+    assert CompatibilityValidator().validate_static(stable).passed
+
+
+def test_zonal_units_match_configs_and_network_assets():
+    coordinator = (OTA / "systemd/capstone-ota-coordinator.service").read_text()
+    zone = (OTA / "systemd/capstone-ota-zone-agent.service").read_text()
+    for unit in (coordinator, zone):
+        assert "User=capstone-ota" in unit and "ProtectSystem=strict" in unit
+        assert "AF_CAN" in unit and "Requires=sys-subsystem-net-devices-can0.device" in unit
+    assert "--config /etc/capstone-ota/coordinator.json" in coordinator
+    assert "ReadWritePaths=/var/lib/capstone-ota /var/cache/capstone-ota /opt/central-control" in coordinator
+    assert "--application-socket /run/digital-cluster/ota.sock" in zone
+    assert "ReadWritePaths=/var/lib/capstone-ota /opt/digital-cluster" in zone
+    central_app = (OTA / "systemd/central-control.service").read_text()
+    cluster_app = (OTA / "systemd/digital-cluster.service").read_text()
+    assert "ExecStart=/opt/central-control/active-slot/bin/central-control" in central_app
+    assert "ExecStart=/opt/digital-cluster/active-slot/bin/digital-dash" in cluster_app
+    assert "ReadWritePaths" not in central_app + cluster_app
+    can = _directives(OTA / "network/80-can0.network")
+    assert can["BitRate=500000"] == [""]
+    assert "Address=10.10.0.1/24" in (OTA / "network/10-eth0-central.network").read_text()
+    assert "Address=10.10.0.2/24" in (OTA / "network/10-eth0-cluster.network").read_text()
+    assert "IP:10.10.0.1" in (OTA / "scripts/issue-zonal-certs.sh").read_text()

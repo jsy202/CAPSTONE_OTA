@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "transaction_id": "00000000-0000-4000-8000-000000000001",
+  "bundle_version": "1.0.0",
+  "created_at": "2026-10-01T00:00:00Z",
+  "expires_at": "2036-10-01T00:00:00Z",
+  "targets": [
+    {
+      "ecu_id": "central-control",
+      "hardware_id": "rpi-4b",
+      "software_version": "1.0.0",
+      "entrypoint": "bin/central-control",
+      "can_interface": "vehicle-status",
+      "protocol_major": 1,
+      "protocol_minor": 0,
+      "capabilities": [
+        "speed",
+        "rpm",
+        "gear",
+        "warnings"
+      ],
+      "release_manifest_url": "https://192.168.0.10:8443/releases/central-control.manifest.json",
+      "release_signature_url": "https://192.168.0.10:8443/releases/central-control.manifest.sig",
+      "artifact_url": "https://192.168.0.10:8443/releases/central-control-1.0.0.tar.gz",
+      "artifact_size": 1,
+      "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "ecu_id": "digital-cluster",
+      "hardware_id": "rpi-4b",
+      "software_version": "1.0.0",
+      "entrypoint": "bin/digital-dash",
+      "can_interface": "vehicle-status",
+      "protocol_major": 1,
+      "protocol_minor": 0,
+      "capabilities": [
+        "speed",
+        "rpm",
+        "gear",
+        "warnings"
+      ],
+      "release_manifest_url": "https://192.168.0.10:8443/releases/digital-cluster.manifest.json",
+      "release_signature_url": "https://192.168.0.10:8443/releases/digital-cluster.manifest.sig",
+      "artifact_url": "https://192.168.0.10:8443/releases/digital-cluster-1.0.0.tar.gz",
+      "artifact_size": 1,
+      "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "dependencies": [
+    {
+      "dependent_ecu_id": "digital-cluster",
+      "provider_ecu_id": "central-control",
+      "hardware_id": "rpi-4b",
+      "min_version": "1.0.0",
+      "max_version": null,
+      "can_interface": "vehicle-status",
+      "protocol_major": 1,
+      "min_protocol_minor": 0,
+      "required_capabilities": [
+        "speed",
+        "gear"
+      ]
+    }
+  ],
+  "health_policy": {
+    "prepare_timeout_s": 300,
+    "activation_timeout_s": 60,
+    "verification_timeout_s": 30,
+    "heartbeat_timeout_s": 3,
+    "max_missed_heartbeats": 2,
+    "max_error_count": 0
+  },
+  "rollback_scope": "all"
+}

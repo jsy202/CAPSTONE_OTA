@@ -77,3 +77,8 @@ capstone-ota-publish publish --broker 192.168.0.10 --port 8883 \
 명령을 broker에서 제거해야 한다면 publisher 인증서로 해당 command 토픽에 빈
 retained 메시지를 발행하세요.
 
+## Zonal 다중 ECU 배포
+
+두 Pi(Central HPC + Digital Cluster)를 함께 업데이트하는 `vehicle-package` /
+`vehicle-publish` 흐름, CAN·Ethernet 설정, 시연 시나리오와 증거 수집은
+[ZONAL_OTA_GUIDE.md](ZONAL_OTA_GUIDE.md)를 따르세요. 위 단일 Pi 명령은 그대로 동작합니다.

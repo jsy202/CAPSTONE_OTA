@@ -76,3 +76,24 @@ def test_unsigned_command_is_rejected_without_journal_change(vehicle):
     vehicle.handler(raw)
     assert vehicle.rejections[-1]["last_error"]["code"] == "SIGNATURE_INVALID"
     assert vehicle.coordinator.state.phase == "IDLE"
+
+
+def test_declared_can_major_mismatch_is_rejected_before_activation(vehicle):
+    import json
+    from capstone_ota.common.signing import sign_document
+    from capstone_ota.common.vehicle_bundle import VehicleBundleManifest
+    raw = vehicle.publish_update()
+    # The publisher CLI already refuses this; re-sign to prove the coordinator
+    # independently rejects a signed but statically incompatible bundle.
+    path = vehicle.release_root / "2.0.0.vehicle-manifest.json"
+    data = json.loads(path.read_bytes())
+    data["targets"][1]["protocol_major"] = 2
+    bundle = VehicleBundleManifest.from_bytes(json.dumps(data).encode())
+    path.write_bytes(bundle.canonical_bytes())
+    (vehicle.release_root / "2.0.0.vehicle-manifest.sig").write_bytes(sign_document(bundle, vehicle.signing))
+    vehicle.handler(raw)
+    state = vehicle.coordinator.state
+    assert state.phase == "ABORTED"
+    assert state.last_error["code"] == "CAN_DECLARATION_MISMATCH"
+    assert vehicle.slots() == {"central-control": ("A", "A", None), "digital-cluster": ("A", "A", None)}
+    assert vehicle.maintenance == []

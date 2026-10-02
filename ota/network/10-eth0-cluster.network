@@ -1,0 +1,8 @@
+# Digital Cluster private link to the Central HPC (direct cable, no gateway/DNS).
+[Match]
+Name=eth0
+
+[Network]
+Address=10.10.0.2/24
+LinkLocalAddressing=no
+IPv6AcceptRA=no

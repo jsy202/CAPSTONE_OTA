@@ -1,0 +1,25 @@
+[Unit]
+Description=Volvo 240 Qt Digital Cluster (A/B slot, OTA-managed)
+After=graphical.target
+
+[Service]
+Type=simple
+User=digital-dash
+Group=digital-cluster
+# Releases must use entrypoint bin/digital-dash; the slot selector is atomic.
+ExecStart=/opt/digital-cluster/active-slot/bin/digital-dash
+RuntimeDirectory=digital-cluster
+RuntimeDirectoryMode=0750
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=graphical.target

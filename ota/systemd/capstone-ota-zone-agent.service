@@ -1,0 +1,27 @@
+[Unit]
+Description=CAPSTONE zonal OTA agent (Digital Cluster, stable path)
+Wants=network-online.target
+After=network-online.target sys-subsystem-net-devices-can0.device
+Requires=sys-subsystem-net-devices-can0.device
+
+[Service]
+Type=simple
+User=capstone-ota
+Group=capstone-ota
+SupplementaryGroups=digital-cluster
+# --initial-version is the provisioned factory Cluster version (stable-bundle.json).
+ExecStart=/opt/capstone-ota/venv/bin/capstone-ota-zone-agent --config /etc/capstone-ota/zonal.json --application-socket /run/digital-cluster/ota.sock --initial-version 1.0.0
+Restart=on-failure
+RestartSec=2s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/capstone-ota /opt/digital-cluster
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_CAN
+LockPersonality=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

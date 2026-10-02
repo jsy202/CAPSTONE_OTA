@@ -1,0 +1,27 @@
+[Unit]
+Description=CAPSTONE zonal OTA coordinator (Central HPC, stable path)
+# eth0 must hold 10.10.0.1 before the private HTTPS cache can bind to it.
+Wants=network-online.target
+After=network-online.target sys-subsystem-net-devices-can0.device
+Requires=sys-subsystem-net-devices-can0.device
+
+[Service]
+Type=simple
+User=capstone-ota
+Group=capstone-ota
+SupplementaryGroups=central-control
+ExecStart=/opt/capstone-ota/venv/bin/capstone-ota-coordinator --config /etc/capstone-ota/coordinator.json
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/capstone-ota /var/cache/capstone-ota /opt/central-control
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_CAN
+LockPersonality=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

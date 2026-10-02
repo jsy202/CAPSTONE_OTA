@@ -27,6 +27,22 @@ staging/releases를 수정하며 polkit은 `digital-dash.service` 관리만 허�
 Mosquitto publisher는 모든 장치 명령 쓰기/상태 읽기, 각 Pi는 자기 ID 토픽만
 읽기/쓰기가 가능합니다.
 
+## Zonal 다중 ECU 경계
+
+- 노트북은 Central(`central-pi-01`)에만 MQTT 명령을 보냅니다. Cluster에는 MQTT 신원이 없습니다.
+- vehicle bundle과 ECU별 릴리스는 같은 Ed25519 키로 **각각** 서명됩니다. Central은
+  번들 서명, 릴리스 서명, 타깃 버전/엔트리포인트/URL/크기/SHA-256 바인딩을 모두 확인한
+  뒤에만 슬롯을 건드립니다. Central 캐시는 바이트를 중계할 뿐 승인 권한이 없습니다.
+- Cluster는 `https://10.10.0.1:8443`만 신뢰하며(SAN `IP:10.10.0.1`), 릴리스 서명을
+  자체 공개키로 다시 검증합니다. 캐시 서버는 거래별 네 파일만 정확한 경로로 제공하고
+  심볼릭 링크·디렉터리 나열·쿼리 문자열을 거부합니다.
+- 같은 32비트 CAN 토큰에 다른 UUID가 오면 coordinator와 zone agent 모두 거부합니다.
+- **CAN은 인증되지 않습니다.** CRC-8과 4/8비트 카운터는 오류·재전송 탐지용입니다.
+  버스에 물리적으로 접근한 공격자는 명령·heartbeat를 위조할 수 있습니다. 이 위험은
+  시연 범위에서 수용하며, 양산에는 SecOC 같은 메시지 인증이 필요합니다.
+- polkit은 `capstone-ota` 계정에 `central-control.service`와 `digital-cluster.service`의
+  start/stop/restart만 허용합니다. coordinator와 agent는 자기 자신을 업데이트하지 않습니다.
+
 ## 키 회전과 폐기 제한
 
 현재 schema는 하나의 업데이트 공개키와 개발 CA를 사용하며 복수 키, 임계 서명,

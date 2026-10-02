@@ -1,0 +1,7 @@
+# systemd-networkd: Classic CAN 2.0 at 500 kbit/s on the MCP2515 HAT (both Pis).
+[Match]
+Name=can0
+
+[CAN]
+BitRate=500000
+RestartSec=100ms
