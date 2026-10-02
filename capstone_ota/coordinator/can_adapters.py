@@ -254,15 +254,16 @@ class CanCompatibilityProbe:
     the validator independently re-checks heartbeat freshness and content.
     """
     def __init__(self, bus, central_running: Callable[[], bool], *, window_s: float = 5.0,
-                 monotonic: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep):
-        self.bus, self.central_running, self.window_s = bus, central_running, window_s
+                 min_window_s: float = 1.0, monotonic: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep):
+        self.bus, self.central_running = bus, central_running
+        self.window_s, self.min_window_s = window_s, min_window_s
         self.monotonic, self.sleep = monotonic, sleep
 
     def collect(self, bundle: VehicleBundleManifest, *, trial: bool, not_before: float,
                 timeout_s: float) -> CompatibilitySnapshot:
         window = min(self.window_s, timeout_s - 0.5)
-        if window < 1.0:
-            raise OtaError("ACTION_TIMEOUT", "verification budget is shorter than one heartbeat period")
+        if window < self.min_window_s:
+            raise OtaError("ACTION_TIMEOUT", "verification budget is shorter than the minimum window")
         receiver = self.bus.subscribe({0x100, 0x101, 0x200, 0x611})
         try:
             started = max(self.monotonic(), not_before)
