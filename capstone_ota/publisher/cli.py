@@ -5,16 +5,21 @@ import json
 import sys
 import time
 import uuid
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
 from capstone_ota.common.manifest import ReleaseManifest
-from capstone_ota.common.signing import generate_key_pair
+from capstone_ota.common.signing import generate_key_pair, verify_document_signature
+from capstone_ota.common.vehicle_bundle import VehicleBundleManifest
+from capstone_ota.common.errors import OtaError
 
 from .bundle import BundleRequest, ReleaseBundle, build_release
 from .http_server import create_https_server
 from .mqtt import PublisherMqtt
+from .vehicle_bundle import build_vehicle_bundle
+from .bundle import _atomic_write
 
 
 def _https_base(value: str) -> str:
@@ -61,7 +66,12 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument("--cert", required=True, type=Path)
     serve.add_argument("--key", required=True, type=Path)
 
-    for name in ("publish", "watch"):
+    vehicle = commands.add_parser("vehicle-package", help="sign a vehicle spec and independently signed releases")
+    for flag in ("spec", "output", "private-key", "public-key", "central-manifest", "central-signature", "cluster-manifest", "cluster-signature"):
+        vehicle.add_argument("--" + flag, required=True, type=Path)
+    vehicle.add_argument("--base-url", required=True, type=_https_base)
+
+    for name in ("publish", "watch", "vehicle-publish"):
         mqtt_parser = commands.add_parser(name)
         mqtt_parser.add_argument("--broker", required=True)
         mqtt_parser.add_argument("--port", type=int, default=8883)
@@ -69,7 +79,7 @@ def _parser() -> argparse.ArgumentParser:
         mqtt_parser.add_argument("--cert", required=True, type=Path)
         mqtt_parser.add_argument("--key", required=True, type=Path)
         mqtt_parser.add_argument("--device-id", required=True)
-        if name == "publish":
+        if name in {"publish", "vehicle-publish"}:
             mqtt_parser.add_argument("--manifest", required=True, type=Path)
             mqtt_parser.add_argument("--signature", required=True, type=Path)
             mqtt_parser.add_argument("--base-url", required=True, type=_https_base)
@@ -84,6 +94,29 @@ def main(
 ) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
+    if args.command == "vehicle-package":
+        spec = VehicleBundleManifest.from_bytes(args.spec.read_bytes())
+        targets, files = [], []
+        for target in spec.targets:
+            prefix, device = (("central", "central-pi-01") if target.ecu_id == "central-control"
+                              else ("cluster", "cluster-pi-02"))
+            raw = getattr(args, prefix + "_manifest").read_bytes()
+            sig = getattr(args, prefix + "_signature").read_bytes()
+            release = ReleaseManifest.from_bytes(raw)
+            verify_document_signature(release, sig, args.public_key)
+            if (release.device_id != device or release.version != target.software_version
+                    or release.entrypoint != target.entrypoint or release.artifact_url != target.artifact_url
+                    or release.artifact_size != target.artifact_size or release.artifact_sha256 != target.artifact_sha256):
+                raise OtaError("RELEASE_BINDING_INVALID", "release differs from vehicle target")
+            name = target.ecu_id
+            targets.append(replace(target, release_manifest_url=f"{args.base_url}/{name}.manifest.json",
+                                   release_signature_url=f"{args.base_url}/{name}.manifest.sig"))
+            files.extend(((name + ".manifest.json", raw), (name + ".manifest.sig", sig)))
+        result = build_vehicle_bundle(args.output, replace(spec, targets=tuple(targets)), args.private_key)
+        for name, content in files:
+            _atomic_write(args.output / name, content)
+        print(json.dumps({"manifest": str(result.manifest_path), "signature": str(result.signature_path)}))
+        return 0
     if args.command == "keys":
         generate_key_pair(args.private_key, args.public_key)
         print(json.dumps({"private_key": str(args.private_key), "public_key": str(args.public_key)}))
@@ -133,6 +166,19 @@ def main(
         cert_file=args.cert,
         key_file=args.key,
     )
+    if args.command == "vehicle-publish":
+        if args.device_id != "central-pi-01":
+            parser.error("vehicle commands target central-pi-01")
+        bundle = VehicleBundleManifest.from_bytes(args.manifest.read_bytes())
+        if len(args.signature.read_bytes()) != 64:
+            parser.error("vehicle signature must be 64 bytes")
+        command = {"schema_version": 1, "command": "vehicle-update", "device_id": args.device_id,
+                   "transaction_id": bundle.transaction_id, "bundle_version": bundle.bundle_version,
+                   "bundle_manifest_url": f"{args.base_url}/{args.manifest.name}",
+                   "bundle_signature_url": f"{args.base_url}/{args.signature.name}"}
+        client.publish_command(args.device_id, command)
+        print(json.dumps({"device_id": args.device_id, "transaction_id": bundle.transaction_id, "status": "published"}))
+        return 0
     if args.command == "publish":
         try:
             manifest = ReleaseManifest.from_bytes(args.manifest.read_bytes())
