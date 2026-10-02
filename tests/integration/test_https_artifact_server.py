@@ -65,6 +65,8 @@ def test_https_server_exposes_only_regular_release_files(tmp_path):
     release_root = tmp_path / "releases"
     release_root.mkdir()
     (release_root / "1.0.0.tar.gz").write_bytes(b"artifact")
+    (release_root / "2.0.0.vehicle-manifest.json").write_bytes(b"bundle")
+    (release_root / "2.0.0.vehicle-manifest.sig").write_bytes(b"signature")
     outside = tmp_path / "secret.txt"
     outside.write_text("secret")
     (release_root / "linked.tar.gz").symlink_to(outside)
@@ -77,6 +79,10 @@ def test_https_server_exposes_only_regular_release_files(tmp_path):
     try:
         with urllib.request.urlopen(f"{base}/releases/1.0.0.tar.gz", context=context) as response:
             assert response.read() == b"artifact"
+        # vehicle-publish advertises these exact names to the coordinator.
+        for name, content in (("2.0.0.vehicle-manifest.json", b"bundle"), ("2.0.0.vehicle-manifest.sig", b"signature")):
+            with urllib.request.urlopen(f"{base}/releases/{name}", context=context) as response:
+                assert response.read() == content
         for path in ("/secret.txt", "/releases/../secret.txt", "/releases/linked.tar.gz"):
             with pytest.raises(urllib.error.HTTPError) as error:
                 urllib.request.urlopen(f"{base}{path}", context=context)

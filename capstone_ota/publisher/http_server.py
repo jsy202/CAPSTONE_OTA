@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 
-_ALLOWED_SUFFIXES = (".tar.gz", ".manifest.json", ".manifest.sig")
+_ALLOWED_SUFFIXES = (".tar.gz", ".manifest.json", ".manifest.sig", ".vehicle-manifest.json", ".vehicle-manifest.sig")
 
 
 def _handler_for(release_root: Path):
