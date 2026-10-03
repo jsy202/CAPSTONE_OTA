@@ -298,3 +298,84 @@ def test_unreadable_state_is_unknown():
 - [ ] **Step 2: Run** `python3 -m pytest -q`. Expected: `651 + new` passed, 0 failed. Then run `git diff dca36a8 --stat -- capstone_ota/coordinator capstone_ota/common capstone_ota/agent/slots.py capstone_ota/agent/zonal.py capstone_ota/agent/zonal_cli.py tests/unit/test_slots.py tests/integration/test_zonal_end_to_end.py tests/integration/test_zonal_recovery.py`. Expected: empty output.
 
 - [ ] **Step 3: Commit** `docs: describe cluster status badge install, demo and limits`
+
+---
+
+## Amendment A (2026-10-03): Verification process requirements
+
+The user added a verification-process requirement. Requirements, measures,
+pass/fail criteria, gates, traceability and evidence must be explicit, and
+the work must reference Automotive SPICE 4.0 SWE.4–6/SUP.1, ISO 26262-6
+verification levels and UN R156 software-update concepts. Every reference is
+**tailored and inspired by** those sources; nothing claims compliance.
+
+Execution order: Tasks 1–4 → 5–6 → 8 → 9 → 7 (docs last, so they cite real
+results).
+
+### Task 8: System-level UI state transition verification
+
+**Files:**
+- Create: `tests/integration/test_ui_status_system.py`
+- Create: `tests/verification_evidence.py`
+- Must not modify `zonal_harness.py` or the existing zonal tests.
+
+**Interfaces:**
+- Consumes: `run_once`, `watch`, and `read_previous` from Tasks 1–3, and `Vehicle` from `tests/integration/zonal_harness.py`.
+- Produces: `record(requirement_id: str, data: dict) -> None`. It writes `<CAPSTONE_EVIDENCE_DIR>/<id>.json` when that env var is set, and is a no-op otherwise.
+
+**Hooks.** After every `Vehicle(...)` or `boot()`:
+- Wrap `vehicle.cluster_installer.service_manager` so that every restart first calls `run_once(tmp/"cluster", "1.0.0", out)`. This emulates `ExecStartPre`.
+- Wrap `vehicle.coordinator.progress` so that every durable event also calls `watch(..., iterations=1)`. This emulates the watcher.
+- Record a timeline of `(source, coordinator_phase, state, version, restored)`.
+
+- [ ] **Step 1: Write failing tests**
+  - `test_normal_update_display_sequence_stable_trial_stable_new`: the de-duplicated `(state,version)` timeline is `[("stable","1.0.0"),("trial","1.1.1"),("stable","1.1.1")]`. The coordinator ends `COMMITTED`, and `restored_at` is never set.
+  - `test_runtime_defect_display_sequence_and_recovery_verification`: `speed_divisor=10` → the timeline is `[stable 1.0.0, trial 1.1.1, stable 1.0.0]`, and the last entry has `restored_at`. The coordinator ends `ROLLED_BACK` with `FUNCTIONAL_VALUE_MISMATCH`. The recovery verification evidence passed. Both slots are back on A.
+  - `test_power_loss_during_verification_display_sequence`: power is cut in VERIFYING. Delete the status file at power-off, because `/run` does not survive a reboot. After `boot()` + `recover_on_startup()` the display is stable `1.0.0`, `restored_at` is None (documented limit), and the coordinator ends `ROLLED_BACK` with recovery passed.
+  - `test_trial_display_version_matches_signed_bundle_target`: the trial UI version equals `coordinator.state.current_bundle` target `digital-cluster.software_version`.
+  - `test_ui_status_never_exposes_privileged_journal`: after a full lifecycle, `state.json` is still mode `0o600`. The status file has exactly the keys `{schema_version,state,version,restored_at}` and contains neither the transaction UUID nor the trial digest.
+- [ ] **Step 2: Run them.** Expected: they FAIL only if Tasks 1–3 behavior is wrong. If they pass on first run, that is acceptable here: they are system-level acceptance tests over finished units. Record a ledger note, then prove sensitivity by temporarily breaking `decide`'s trial rule and watching them fail.
+- [ ] **Step 3: Commit** `test: verify cluster UI state transitions over the zonal OTA system`
+
+### Task 9: Verification measures, gates, demo command and evidence
+
+**Files:**
+- Create: `docs/verification/verification_measures.json`. This is the single source: VR id, title, level (`SWE.4`/`SWE.5`/`SWE.6`), technique list, gate, and test node ids.
+- Create: `scripts/verify_cluster_ota.py` and `scripts/verify-cluster-ota-demo.sh` (wrapper).
+- Create: `tests/unit/test_verify_cluster_ota.py`.
+
+**Interfaces:**
+- `load_measures(path) -> list[dict]`
+- `evaluate_gates(measures, results: dict[nodeid, outcome], protected_diff_empty: bool, full_regression: dict) -> dict`
+- `main(argv) -> int` (0 only when the result is PASS)
+
+**Behavior:**
+- Run pytest once over all measure node ids with `--junitxml`, and once more for the full suite.
+- A node id that is missing or not collected counts as FAIL.
+- Check the change impact with `git diff --quiet <merge-base main> -- <protected paths>`.
+- Print the per-VR `[PASS]/[FAIL]` lines, plus the evidence highlights taken from `CAPSTONE_EVIDENCE_DIR`.
+- Write `verification-results/<timestamp>/{results.json,summary.md,TRACEABILITY_MATRIX.md}`. The directory is git-ignored; a snapshot is copied to `docs/verification/evidence/`.
+- Print `VERIFICATION RESULT: PASS` or `FAIL`.
+
+- [ ] **Step 1: Failing unit tests** for `evaluate_gates`:
+  - all pass → PASS
+  - one failing node → FAIL, naming that gate
+  - a missing node → FAIL
+  - a non-empty protected diff → FAIL
+  - a `NOT_EXECUTED` measure (Qt/hardware) does not fail the automated gates but is listed as pending
+- [ ] **Step 2: Implement** with the stdlib only (`xml.etree`, `subprocess`, `json`).
+- [ ] **Step 3: Write the measures JSON.** Every VR maps to at least one existing test node. A unit test asserts that every node id is collected (`pytest --collect-only -q`).
+- [ ] **Step 4: Run** `scripts/verify-cluster-ota-demo.sh`. Expected: `VERIFICATION RESULT: PASS`.
+- [ ] **Step 5: Commit** `feat: add cluster OTA verification gates and evidence command`
+
+### Task 7 additions
+
+Task 7 also writes `docs/verification/{VERIFICATION_PLAN,REQUIREMENTS,TRACEABILITY_MATRIX,VERIFICATION_REPORT}.md` from real run results.
+
+### Task 5/6 addition: Qt toolchain attempt
+
+Try a user-local Qt 5.15.2 via `aqtinstall`, in the scratchpad or `~/Qt`; this is not a system change. If it is available:
+- compile and run `qt-tests`
+- compile the patched upstream desktop build (`DashHost` path) and capture offscreen screenshots of each badge state as evidence
+
+If it is unavailable, keep Qt items at NOT EXECUTED.
