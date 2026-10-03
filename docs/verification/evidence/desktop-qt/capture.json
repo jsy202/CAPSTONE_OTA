@@ -1,0 +1,180 @@
+{
+  "failed": false,
+  "steps": [
+    {
+      "step": "1-stable-1.0.0",
+      "screen": "Original240Layout",
+      "png": "1-stable-1.0.0.png",
+      "size": [
+        1280,
+        480
+      ],
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false
+    },
+    {
+      "step": "2-trial-1.1.1",
+      "screen": "Original240Layout",
+      "png": "2-trial-1.1.1.png",
+      "size": [
+        1280,
+        480
+      ],
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false
+    },
+    {
+      "step": "3-restored-1.0.0",
+      "screen": "Original240Layout",
+      "png": "3-restored-1.0.0.png",
+      "size": [
+        1280,
+        480
+      ],
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false
+    },
+    {
+      "step": "4-stable-1.0.0",
+      "screen": "Original240Layout",
+      "png": "4-stable-1.0.0.png",
+      "size": [
+        1280,
+        480
+      ],
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false
+    },
+    {
+      "step": "5-corrupt",
+      "screen": "Original240Layout",
+      "png": "5-corrupt.png",
+      "size": [
+        1280,
+        480
+      ],
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false
+    },
+    {
+      "step": "screen-01-BigTachLeft",
+      "screen": "BigTachLeft",
+      "png": "screen-01-BigTachLeft.png",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "verdict": "PASS"
+    },
+    {
+      "step": "screen-02-Original240Layout",
+      "screen": "Original240Layout",
+      "png": "screen-02-Original240Layout.png",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "verdict": "PASS"
+    },
+    {
+      "step": "screen-03-Original740Layout",
+      "screen": "Original740Layout",
+      "png": "screen-03-Original740Layout.png",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "verdict": "PASS"
+    },
+    {
+      "step": "screen-04-Original240LayoutClock",
+      "screen": "Original240LayoutClock",
+      "png": "screen-04-Original240LayoutClock.png",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "verdict": "PASS"
+    },
+    {
+      "step": "screen-05-Original850R",
+      "screen": "Original850R",
+      "png": "screen-05-Original850R.png",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "verdict": "PASS"
+    },
+    {
+      "step": "screen-06-OriginalRSportLayout",
+      "screen": "OriginalRSportLayout",
+      "png": "screen-06-OriginalRSportLayout.png",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "verdict": "PASS"
+    },
+    {
+      "step": "screen-07-Original544Layout",
+      "screen": "Original544Layout",
+      "png": "screen-07-Original544Layout.png",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "verdict": "PASS"
+    },
+    {
+      "step": "screen-08-OriginalP1800Layout",
+      "screen": "OriginalP1800Layout",
+      "png": "screen-08-OriginalP1800Layout.png",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "verdict": "PASS"
+    },
+    {
+      "step": "screen-09-OriginalEarly240Layout",
+      "screen": "OriginalEarly240Layout",
+      "png": "screen-09-OriginalEarly240Layout.png",
+      "plate_left": 1150,
+      "content_right_edge": 1149,
+      "gap_px": 0,
+      "overlap": true,
+      "verdict": "REVIEWED: panel frame line passes under the badge corner"
+    },
+    {
+      "step": "screen-10-Original140RallyeLayout",
+      "screen": "Original140RallyeLayout",
+      "png": "screen-10-Original140RallyeLayout.png",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "verdict": "PASS"
+    },
+    {
+      "step": "screen-00-BigTachCenter",
+      "screen": "BigTachCenter",
+      "png": "screen-00-BigTachCenter.png",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "verdict": "PASS"
+    }
+  ]
+}
