@@ -167,6 +167,17 @@ scripts/verify-cluster-ota-demo.sh      # Gate G1–G7 판정, 요구사항별 P
 [docs/verification/](docs/verification/VERIFICATION_REPORT.md)에 있습니다. Automotive SPICE /
 ISO 26262-6 / UN R156의 검증 개념을 프로젝트 규모에 맞게 참고했으며, 준수나 인증을 주장하지 않습니다.
 
+### Zonal 애플리케이션 계약 구현 (stacked branch)
+
+`apps/central-control/`에 Central Control 앱(0x100 heartbeat, 0x200 차량 신호, maintenance IPC)을 구현했습니다.
+Qt Cluster에는 `vehicle`/`functional` IPC를 추가해, 실제 화면 모델을 거쳐 해석한 값으로 응답합니다.
+실제 앱과 실제 coordinator·zone agent로 무하드웨어 E2E를 돌려 다음을 확인했습니다.
+- 정상 commit
+- 결함 빌드(DEMO/TEST 전용) 투입 시 `FUNCTIONAL_VALUE_MISMATCH` → 두 ECU rollback
+- 전원 차단 후 복구
+
+Raspberry Pi 실물 검증은 대기 중입니다([VERIFICATION_REPORT.md](docs/verification/VERIFICATION_REPORT.md) Part B).
+
 ## Volvo240-DigitalDash
 
 기준 앱은 `whitfijs-jw/Volvo240-DigitalDash`의 MIT 라이선스 Qt/C++/QML

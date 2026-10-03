@@ -113,9 +113,10 @@ def test_exit_codes_distinguish_pass_incomplete_fail():
     assert (V.EXIT_CODES["PASS"], V.EXIT_CODES["INCOMPLETE"], V.EXIT_CODES["FAIL"]) == (0, 2, 1)
 
 
-def test_gate_with_only_not_executed_measures_fails():
+def test_gate_with_only_not_executed_measures_is_incomplete_never_pass():
     report = _gates([(g, s) for g, s in GATES if g != "G3"] + [("G3", "NOT_EXECUTED")])
-    assert report["result"] == "FAIL"
+    assert report["result"] == "INCOMPLETE"
+    assert [g["status"] for g in report["gates"] if g["id"] == "G3"] == ["INCOMPLETE"]
 
 
 def test_full_regression_failure_or_protected_change_fails_g6():
@@ -201,3 +202,62 @@ def test_environment_summary_never_records_local_paths(tmp_path):
     assert str(tmp_path) not in json.dumps(summary)
     assert summary["qt"] == "5.15.2" and summary["upstream_import"] == "provided"
     assert V.environment_summary(None, None)["qt"] is None
+
+
+# --- application contract gates (A1-A9) --------------------------------------
+
+def test_application_contract_gates_exist_and_a9_is_regression_plus_change_impact():
+    assert [g for g in V.GATE_TITLES if g.startswith("A")] == [f"A{i}" for i in range(1, 10)]
+    results = [{"vr": f"VR-{g}", "gate": g, "status": "PASS"} for g in V.GATE_TITLES if g not in ("G6", "A9")]
+    ok = V.evaluate_gates(results, protected_diff_empty=True,
+                          full_regression={"tests": 5, "failures": 0, "errors": 0, "skipped": 0})
+    assert ok["result"] == "PASS"
+    bad = V.evaluate_gates(results, protected_diff_empty=False,
+                           full_regression={"tests": 5, "failures": 0, "errors": 0, "skipped": 0})
+    assert {g["id"] for g in bad["gates"] if g["status"] == "FAIL"} == {"G6", "A9"}
+
+
+def test_environment_summary_reports_cluster_apps_without_paths(tmp_path, monkeypatch):
+    monkeypatch.setenv("CAPSTONE_CLUSTER_APP", str(tmp_path / "normal"))
+    monkeypatch.setenv("CAPSTONE_CLUSTER_FAULT_APP", str(tmp_path / "fault"))
+    summary = V.environment_summary(None, None)
+    assert summary["cluster_apps"] == "normal+fault" and str(tmp_path) not in json.dumps(summary)
+
+
+def test_explicit_required_gate_without_measures_fails():
+    results = [{"vr": "VR-1", "gate": "G1", "status": "PASS"}]
+    report = V.evaluate_gates(results, protected_diff_empty=True,
+                              full_regression={"tests": 5, "failures": 0, "errors": 0, "skipped": 0},
+                              required_gates=["G1", "A1"])
+    assert report["result"] == "FAIL"
+    assert [g["id"] for g in report["gates"]] == ["G1", "A1"]
+
+
+def test_main_requires_every_gate_declared_in_measures_file():
+    data = V.load_measures(MEASURES)
+    assert [g["id"] for g in data["gates"]] == list(V.GATE_TITLES)
+
+
+def test_gate_with_only_not_executed_members_is_incomplete_not_fail():
+    results = [{"vr": "VR-1", "gate": "A2", "status": "NOT_EXECUTED"}]
+    report = V.evaluate_gates(results, protected_diff_empty=True,
+                              full_regression={"tests": 5, "failures": 0, "errors": 0, "skipped": 0},
+                              required_gates=["A2"])
+    assert report["gates"][0]["status"] == "INCOMPLETE" and report["result"] == "INCOMPLETE"
+
+
+def test_unconditional_central_evidence_is_its_own_automated_measure():
+    data = V.load_measures(MEASURES)
+    always = {"tests/integration/test_application_contracts_system.py::test_real_central_contract_commits_with_harness_cluster",
+              "tests/integration/test_application_contracts_system.py::test_central_identity_loss_during_trial_rolls_back_and_recovers"}
+    for node in always:
+        kinds = {m["kind"] for m in data["measures"] if node in m["tests"]}
+        assert "automated" in kinds, node
+
+
+def test_committed_evidence_contains_no_local_paths():
+    import re
+    pattern = re.compile(r'"(/tmp/|/home/|/Users/)')
+    leaks = [str(p.relative_to(ROOT)) for p in (ROOT / "docs" / "verification" / "evidence").rglob("*")
+             if p.is_file() and p.suffix in {".json", ".md"} and pattern.search(p.read_text(errors="ignore"))]
+    assert leaks == []

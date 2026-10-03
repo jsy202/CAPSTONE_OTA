@@ -11,8 +11,8 @@ logic: results come only from pytest and from evidence files.
 Rules that keep the verdict honest:
   * a referenced test that does not exist is FAIL (broken traceability)
   * a skipped test is NOT_EXECUTED, never PASS
-  * a gate needs at least one executed PASS and no FAIL; a gate with any
-    NOT_EXECUTED measure is INCOMPLETE, and so is the overall result
+  * a gate PASSes only with executed PASSes and no FAIL or NOT_EXECUTED; any
+    NOT_EXECUTED member makes it INCOMPLETE; a required gate without measures FAILs
   * results: PASS (exit 0), INCOMPLETE (exit 2), FAIL (exit 1); FAIL wins
   * hardware measures are PENDING_HARDWARE and are listed, not passed
 
@@ -120,14 +120,33 @@ GATE_TITLES = {
     "G5": "Recovery verification (SWE.6)",
     "G6": "Full regression + change impact",
     "G7": "Privilege / security regression",
+    "A1": "Central unit verification",
+    "A2": "Cluster IPC / model integration",
+    "A3": "Application protocol conformance",
+    "A4": "Normal compatibility verification (real apps)",
+    "A5": "Semantic fault detection (real fault build)",
+    "A6": "Whole-vehicle rollback (real apps)",
+    "A7": "Recovery verification (real apps)",
+    "A8": "Application security / privilege regression",
+    "A9": "Full regression + change impact (application contracts)",
 }
+REGRESSION_GATES = {"G6", "A9"}
 
 
-def evaluate_gates(results: list[dict], *, protected_diff_empty: bool, full_regression: dict) -> dict:
+def _default_gates(results: list[dict]) -> list[str]:
+    families = {r["gate"][0] for r in results if r["gate"] in GATE_TITLES}
+    return [g for g in GATE_TITLES if g[0] in families]
+
+
+def evaluate_gates(results: list[dict], *, protected_diff_empty: bool, full_regression: dict,
+                   required_gates: list[str] | None = None) -> dict:
+    """required_gates (from the measures file) are all mandatory; a required gate
+    with no executed PASS fails. Without it, the gate families present are evaluated."""
     gates = []
-    for gate_id, title in GATE_TITLES.items():
+    for gate_id in (required_gates if required_gates is not None else _default_gates(results)):
+        title = GATE_TITLES.get(gate_id, gate_id)
         members = [r for r in results if r["gate"] == gate_id]
-        if gate_id == "G6":
+        if gate_id in REGRESSION_GATES:
             ok = (full_regression["failures"] == 0 and full_regression["errors"] == 0
                   and full_regression["tests"] > 0 and protected_diff_empty)
             detail = (f"{full_regression['tests']} tests, {full_regression['failures']} failures, "
@@ -139,7 +158,12 @@ def evaluate_gates(results: list[dict], *, protected_diff_empty: bool, full_regr
             failed_members = [r["vr"] for r in members if r["status"] == "FAIL"]
             executed = [r for r in members if r["status"] == "PASS"]
             not_executed = [r for r in members if r["status"] == "NOT_EXECUTED"]
-            status = "FAIL" if failed_members or not executed else "INCOMPLETE" if not_executed else "PASS"
+            if failed_members or not (executed or not_executed):
+                status = "FAIL"          # a failure, or a required gate with no measures at all
+            elif not_executed:
+                status = "INCOMPLETE"    # nothing failed, but something could not run here
+            else:
+                status = "PASS"
             detail = f"{len(executed)} PASS, {len(failed_members)} FAIL, " \
                      f"{sum(r['status'] == 'NOT_EXECUTED' for r in members)} NOT_EXECUTED"
         gates.append({"id": gate_id, "title": title, "status": status, "detail": detail, "failed": failed_members})
@@ -232,8 +256,11 @@ def environment_summary(qt_dir: Path | None, upstream_dir: Path | None) -> dict:
                                         capture_output=True, text=True, timeout=30).stdout.strip() or "unknown"
         except OSError:
             qt_version = "unknown"
+    apps = [name for name, key in (("normal", "CAPSTONE_CLUSTER_APP"), ("fault", "CAPSTONE_CLUSTER_FAULT_APP"))
+            if os.environ.get(key)]
     return {"python": sys.version.split()[0], "platform": sys.platform, "qt": qt_version,
-            "upstream_import": "provided" if upstream_dir else None}
+            "upstream_import": "provided" if upstream_dir else None,
+            "cluster_apps": "+".join(apps) if apps else None}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -277,7 +304,8 @@ def main(argv: list[str] | None = None) -> int:
     results = [measure_result(m, junit, ROOT) for m in data["measures"]]
     unchanged, impact = protected_paths_unchanged(data["protected_paths"], args.base_ref)
     totals = junit_totals(junit_path)
-    report = evaluate_gates(results, protected_diff_empty=unchanged, full_regression=totals)
+    report = evaluate_gates(results, protected_diff_empty=unchanged, full_regression=totals,
+                            required_gates=[g["id"] for g in data["gates"]])
 
     print()
     for gate in report["gates"]:
@@ -288,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"       {r['detail']}")
             for line in _highlights(evidence, r["vr"]):
                 print(f"       {line}")
-        if gate["id"] == "G6":
+        if gate["id"] in REGRESSION_GATES:
             print(f"[{gate['status']}] Full regression and change impact: {gate['detail']}")
             print(f"       merge base {impact}")
         print(f"    gate {gate['id']}: {gate['status']} ({gate['detail']})")

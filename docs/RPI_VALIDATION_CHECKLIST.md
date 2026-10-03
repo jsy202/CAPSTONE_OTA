@@ -64,7 +64,7 @@ Zonal 두 Pi 구성에서 실행합니다. 자동화 결과는 `docs/verificatio
 
 절차는 `docs/CLUSTER_STATUS_HARDWARE_ACCEPTANCE.md`를 따릅니다.
 - B1–B3, B6–B8: Cluster Pi 단독 drill로 지금 할 수 있습니다.
-- B4–B5: 두 Pi 전체 OTA 시나리오라서 ZONAL §5 앱 계약(Central Control 앱, Qt `functional` IPC)을 구현한 뒤에 할 수 있습니다.
+- B4–B5: 두 Pi 전체 OTA 시나리오입니다. 필요한 앱 계약(Central Control 앱, Qt `vehicle`/`functional` IPC)은 구현됐고 무하드웨어 E2E로 확인했습니다. 실물 실행은 아직입니다.
 
 기록 형식은 `docs/verification/hardware/README.md`입니다.
 

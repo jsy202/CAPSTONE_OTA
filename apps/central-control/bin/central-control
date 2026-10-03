@@ -1,0 +1,5 @@
+#!/bin/sh
+# Central Control slot entrypoint (bin/central-control). Application code lives
+# in this slot; the OTA framework codecs come from the stable venv.
+here=$(dirname "$(readlink -f "$0")")
+exec /opt/capstone-ota/venv/bin/python3 "$here/../lib/central_control.py" "$@"

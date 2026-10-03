@@ -1,0 +1,30 @@
+{
+  "cluster_launches_after_boot": [
+    {
+      "badge": {
+        "restored_at": null,
+        "schema_version": 1,
+        "state": "stable",
+        "version": "1.0.0"
+      },
+      "log": "cluster-0.log",
+      "slot": "slots/A"
+    }
+  ],
+  "final_phase": "ROLLED_BACK",
+  "final_slots": {
+    "central-control": [
+      "A",
+      "A",
+      null
+    ],
+    "digital-cluster": [
+      "A",
+      "A",
+      null
+    ]
+  },
+  "recovery_verification_passed": true,
+  "requirement": "VR-APP-013",
+  "scenario": "power loss during verification with real applications"
+}

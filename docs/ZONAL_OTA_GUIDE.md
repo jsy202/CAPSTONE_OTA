@@ -125,10 +125,15 @@ sudo systemctl daemon-reload && sudo systemctl enable --now capstone-ota-ui-stat
   → `capstone-ota-coordinator`. coordinator는 시작 시 복구를 먼저 끝낸 뒤에만 MQTT를 구독하고,
   저널이 `RECOVERY_FAILED`이면 구독하지 않고 종료합니다.
 
-## 5. 애플리케이션 계약 (앱 쪽 구현 필요)
+## 5. 애플리케이션 계약
 
-**이 저장소에는 Central Control 애플리케이션과 Qt Cluster의 IPC/CAN 연동 코드가 없습니다.**
-하드웨어 시연 전에 두 앱이 아래 계약을 구현해야 합니다.
+두 계약 모두 이 저장소에 구현돼 있습니다(`feature/zonal-application-contracts`).
+- **Central Control:** `apps/central-control/`(Python slot payload)
+  - heartbeat에 넣는 version/state는 `capstone-ota-ui-status`가 만든 `/run/capstone-ota-ui/central-control.json`에서 읽습니다. 값을 하드코딩하지 않으며, 알 수 없으면 heartbeat를 보내지 않습니다.
+  - maintenance 중에는 정지 상태 신호 `(0 km/h, 800 rpm, P)`를 계속 보냅니다.
+- **Digital Cluster:** Qt overlay의 `ClusterIpcServer`
+  - GUI 이벤트 루프 위의 `QLocalServer`가 upstream 모델(`speedoModel`, `rpmModel`, 경고등 모델)에 값을 쓰고, 그 모델에서 다시 읽어 응답합니다.
+- **결함 빌드(데모·시험 전용):** `qmake CAPSTONE_FAULT_SPEED_DIVISOR=10`으로 빌드하면 표시와 응답이 함께 1/10로 틀립니다. 결함 payload는 `customization/make-fault-payload.sh`로만 만들 수 있고, 일반 `make-payload.sh`는 이 바이너리를 거부합니다.
 
 | 앱 | CAN 송신 | IPC 소켓 | IPC operation |
 |---|---|---|---|

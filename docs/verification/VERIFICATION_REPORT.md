@@ -2,7 +2,7 @@
 
 | 항목 | 값 |
 |---|---|
-| 대상 | feature/cluster-status-badge (기준선 `dca36a8`) |
+| 대상 | feature/cluster-status-badge (기준선 `dca36a8`) + feature/zonal-application-contracts (Part B, 기준 `ab76590`) |
 | 실행일 | 2026-10-03 |
 | 실행 명령 | `CAPSTONE_QT_DIR=<Qt 5.15.2> CAPSTONE_UPSTREAM_DIR=<pinned import> scripts/verify-cluster-ota-demo.sh --snapshot docs/verification/evidence/latest` |
 | 자동 판정 | **VERIFICATION RESULT: PASS** (Gate G1–G7 모두 PASS, NOT_EXECUTED 0건) |
@@ -170,10 +170,7 @@
 
 실행 절차는 [CLUSTER_STATUS_HARDWARE_ACCEPTANCE.md](../CLUSTER_STATUS_HARDWARE_ACCEPTANCE.md)에 모았습니다.
 
-**선행 조건:** 두 Pi 전체 OTA 시나리오(B4, B5, VR-HW-001 완결)에는 Central Control 앱과
-Qt Cluster의 `functional` IPC(ZONAL §5)가 필요합니다. 이 구현은 아직 없습니다. 지금은 Cluster Pi
-단독 badge drill(B1–B3, B6–B8)만 할 수 있습니다. drill 도구는
-`ota/scripts/cluster_badge_drill.py`이고 테스트는 `test_cluster_badge_drill.py`입니다.
+**선행 조건 (갱신):** 두 Pi 전체 OTA 시나리오에 필요한 앱 계약(Central Control 앱, Qt `vehicle`/`functional` IPC)은 Part B에서 구현했고, 무하드웨어 E2E로 확인했습니다. 실물 실행은 아직 PENDING입니다.
 
 Qt 검증 등급:
 - **A (실행됨, x86_64 데스크톱):** Qt Test 38, QML 14, 패치된 upstream 전체 빌드(`-Werror`), Xvfb 실행·캡처
@@ -211,3 +208,94 @@ python3 dashboard/volvo-digital-dash/customization/qt-tests/capture_dashboard_st
 - **하드웨어 검증:** 3건 대기
 
 따라서 판정은 **PASS WITH HARDWARE VALIDATION PENDING**입니다.
+
+---
+
+# Part B — Zonal OTA Application Contracts (stacked on PR #1)
+
+| 항목 | 값 |
+|---|---|
+| 대상 | `feature/zonal-application-contracts` (기준 `ab76590` = PR #1 head) |
+| 실행 명령 | `CAPSTONE_QT_DIR=… CAPSTONE_UPSTREAM_DIR=… CAPSTONE_CLUSTER_APP=… CAPSTONE_CLUSTER_FAULT_APP=… scripts/verify-cluster-ota-demo.sh --snapshot docs/verification/evidence/latest` |
+| 자동 판정 | **VERIFICATION RESULT: PASS**: G1–G7과 A1–A9 모두 PASS, NOT_EXECUTED 0건 |
+| Qt 없는 환경 | **INCOMPLETE (exit 2)**: 실행할 수 없는 항목만 NOT_EXECUTED이고 FAIL은 0건 |
+| 최종 결론 | **PASS WITH HARDWARE VALIDATION PENDING** |
+
+## B.1 구현 범위
+
+- **Central Control 앱 (`apps/central-control/`):**
+  - 0x100 heartbeat(1 s)와 0x200 차량 신호(100 ms)를 보냅니다.
+  - heartbeat의 version/state는 `capstone-ota-ui-status`가 만든 `/run` 상태 파일에서 읽습니다. 하드코딩하지 않고, 알 수 없으면 heartbeat를 보내지 않습니다.
+  - maintenance IPC(ApplicationIpc v1)를 제공하고, maintenance 중에는 정지 상태 신호를 계속 보냅니다.
+  - maintenance 상태는 activate_trial 재시작 뒤에도 유지됩니다.
+  - CAN 전송 오류나 잘못된 IPC 상대가 있어도 멈추지 않습니다.
+- **Qt Cluster (`customization/overlay`):**
+  - `QLocalServer`가 GUI 이벤트 루프 위에서 동작합니다.
+  - `vehicle`/`functional` 값을 upstream 모델(속도계, RPM, 경고등 8개)에 쓰고, 같은 모델에서 다시 읽어 응답합니다.
+- **결함 빌드(DEMO/TEST FAULT INJECTION ONLY):**
+  - `qmake CAPSTONE_FAULT_SPEED_DIVISOR=10`으로 빌드하면 속도 해석 경로 자체가 1/10이 됩니다. 표시와 응답이 함께 틀립니다.
+  - 일반 payload 스크립트는 결함 바이너리를 거부하고, 결함 payload에는 라벨이 붙습니다.
+- **OTA 프레임워크 변경 0줄:** coordinator, zone agent, CAN 코덱, validator, slots, `ui_status.py`. 보호 경로 diff를 G6/A9에서 자동으로 확인합니다.
+
+## B.2 결과
+
+| 항목 | 값 |
+|---|---|
+| 검증 요구사항 | 전체 48건(신규 VR-APP 23건): automated 34, conditional 11(Qt/실제 앱 필요), hardware 3 |
+| 추적성 | 요구사항 48 ↔ 자동 테스트 노드 148개 ↔ 결과 (`evidence/latest/TRACEABILITY_MATRIX.md`) |
+| pytest | **856 passed, 0 failed, 0 skipped** (PR #1 766개 + 이 브랜치 신규 90개) |
+| Qt Test | AppStatus 38/38, ClusterSignals 28/28(일반 빌드), 28/28(결함 빌드), ClusterIpcServer 7/7 |
+| QML TestCase | 14/14 |
+| 패치된 upstream 빌드 | 일반·결함 두 변형 모두 `-Werror` 빌드 성공. 결함 marker는 결함 바이너리에만 존재 |
+| Gate | G1–G7, A1–A9 모두 PASS |
+
+### B.2.1 무하드웨어 시스템 E2E (실제 앱 + 실제 coordinator/zone agent + 가상 CAN)
+
+| 시나리오 | 결과 |
+|---|---|
+| 정상 업데이트 (실제 Central + 실제 Qt) | `COMMITTED`, functional 검사 전부 통과, Cluster가 slot A → B로 재실행, maintenance는 실제 IPC로 [on, off] |
+| 결함 빌드 trial | `FUNCTIONAL_VALUE_MISMATCH`(기대 650, 실제 65) → 두 ECU 모두 rollback → recovery functional 통과 → Cluster가 slot A로 재실행, 배지는 stable 1.0.0 → trial 1.1.1 → stable 1.0.0(restored 표시) |
+| 검증 중 전원 차단 | 부팅 후 `ROLLED_BACK`, recovery 통과, 두 ECU slot A |
+| trial 중 Central identity 손실 | `HEARTBEAT_*` 검출 → rollback → STABLE heartbeat로 recovery 통과 |
+| 실제 Central + harness Cluster (Qt 불필요, CI에서 실행) | `COMMITTED`. Central이 실제로 재시작된 뒤 VERIFYING 시점에도 maintenance가 켜져 있음 |
+
+**민감도(mutation) 확인:**
+- request echo 변이 → Qt 테스트 FAIL
+- 결함 빌드 자리에 일반 바이너리 → E2E가 COMMITTED되어 FAIL
+- maintenance 소실 변이 → E2E FAIL
+- 소켓 deadline 해제 또는 0666 권한 변이 → 통합 테스트 FAIL
+
+## B.3 이 브랜치에서 발견하고 수정한 결함
+
+| ID | 발견 방법 | 결함 | 조치 |
+|---|---|---|---|
+| DA-1 | 첫 Qt 컴파일 | 매개변수 이름 `signals`가 Qt 매크로와 충돌 | 이름 변경 |
+| DA-2 | Qt 서버 테스트 | Qt가 소켓을 0770으로 만들어 명세(0660)와 다름 | listen 후 chmod 0660, 테스트로 고정 |
+| RA-1 | 독립 리뷰 | Central 재시작(activate_trial) 시 maintenance가 사라지는데, E2E가 같은 객체를 재사용해서 이를 가림 | 상태 파일과 `RuntimeDirectoryPreserve=restart`; E2E가 재시작마다 새 객체를 만들고 VERIFYING 시점 maintenance를 확인 |
+| RA-2 | 독립 리뷰 | 2 KB짜리 중첩 JSON이나 접속 폭주(EMFILE)로 Central이 죽음 | `RecursionError` 처리, 연결별 예외 격리 |
+| RA-3 | 독립 리뷰 | 일시적인 CAN 전송 오류(ENOBUFS/ENETDOWN)로 Central이 죽음 | 해당 프레임만 건너뛰고 counter 연속성을 유지하며, 로그는 빈도를 제한해 기록 |
+| RA-4 | 독립 리뷰 | Qt가 없을 때 verifier가 INCOMPLETE 대신 FAIL을 냄. Qt 없이 늘 실행되는 Central 증적이 conditional 항목에 묻힘 | Gate 규칙 수정, automated와 conditional 측정 항목 분리 |
+| RA-5 | 독립 리뷰 | heartbeat counter 255→0 넘김이 테스트되지 않음 | 300 heartbeat 테스트 추가 |
+| DA-3 | push 전 QA 점검 | 증적 JSON에 pytest 임시 경로(사용자 이름 포함)가 기록됨 | 파일 이름만 기록하도록 수정, 증적에 절대경로가 있으면 실패하는 테스트 추가 |
+
+## B.4 잔여 위험과 한계
+
+- **gear:** upstream에 기어 표시가 없어서 gear는 해석된 상태로만 보관하고 보고합니다. 속도, RPM, 경고등은 모델을 거쳐 검증됩니다.
+- **Pi의 upstream 센서 루프:** Pi에서 upstream `Dash`의 센서와 경고등 타이머(ADC, 펄스 카운터, MCP23017)가 같은 모델을 덮어쓸 수 있습니다. functional은 같은 이벤트 루프 차례 안에서 쓰고 읽으므로 영향이 없지만, 화면에 Central 신호가 계속 유지되는지는 하드웨어에서 확인해야 합니다.
+- **보류한 리뷰 Minor:**
+  - selector 전환과 재시작 사이의 짧은 identity 구간
+  - Qt 서버 소멸 순서(시스템 SIGTERM 경로에서는 해당 없음)
+  - bind 중 process-wide umask
+  - Qt 서버 테스트의 symlink/FIFO 케이스
+  - `main()` 종료 경로 테스트
+- **환경 차이:** 데스크톱 x86_64 Qt 5.15.2와 가상 CAN에서 확인했습니다. 실제 SocketCAN, MCP2515, ARM, EGLFS는 실행하지 않았습니다.
+
+## B.5 남은 하드웨어 검증
+
+| 항목 | 상태 |
+|---|---|
+| VR-HW-001: 두 Pi 시연(정상 commit, 결함 rollback, 전원 차단) | **PENDING**. 절차는 [CLUSTER_STATUS_HARDWARE_ACCEPTANCE.md](../CLUSTER_STATUS_HARDWARE_ACCEPTANCE.md) Part 2 |
+| VR-HW-002: 패치 전후 계기판 동작과 Central 신호 표시 유지 | **PENDING** |
+| VR-HW-003: Pi 빌드(일반·결함), `run-qt-tests.sh` | **PENDING** |
+
+표준 참고 범위는 Part A와 같습니다(Automotive SPICE 4.0 SWE.4/5/6·SUP.1, ISO 26262-6 검증 계층, UN R156 업데이트 검증·복구 개념). **어느 표준에도 준수, 인증, Capability Level, ASIL, 승인을 주장하지 않습니다.**
