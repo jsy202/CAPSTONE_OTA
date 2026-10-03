@@ -230,3 +230,48 @@ class MaintenanceServer:
                 self.path.unlink()
         except FileNotFoundError:
             pass
+
+
+# --- process entry point ------------------------------------------------------
+
+def run(app: CentralControl, server: MaintenanceServer, stop, clock: Callable[[], float] = time.monotonic) -> None:
+    """Single-threaded loop: send due frames, then serve IPC until the next deadline."""
+    while not stop.is_set():
+        due = app.tick(clock())
+        server.service(min(max(0.0, due - clock()), 0.05))
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    import signal
+    import threading
+
+    parser = argparse.ArgumentParser(description="Central Control demonstration application")
+    parser.add_argument("--can", default="can0")
+    parser.add_argument("--identity", type=Path, default=Path("/run/capstone-ota-ui/central-control.json"))
+    parser.add_argument("--socket", type=Path, default=Path("/run/central-control/ota.sock"))
+    parser.add_argument("--heartbeat-period", type=float, default=1.0)
+    parser.add_argument("--vehicle-period", type=float, default=0.1)
+    parser.add_argument("--protocol", default="1.0", help="CAN protocol major.minor declared in the bundle")
+    args = parser.parse_args(argv)
+    major, minor = (int(p) for p in args.protocol.split("."))
+
+    from capstone_ota.common.socketcan import SocketCanTransport
+
+    stop = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
+    with SocketCanTransport(args.can) as transport:
+        app = CentralControl(transport, args.identity, heartbeat_period=args.heartbeat_period,
+                             vehicle_period=args.vehicle_period, protocol=(major, minor))
+        server = MaintenanceServer(args.socket, app)
+        try:
+            run(app, server, stop)
+        finally:
+            server.close()
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())

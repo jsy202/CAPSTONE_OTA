@@ -1,0 +1,25 @@
+[Unit]
+Description=CAPSTONE Central Control runtime identity publisher (read-only)
+# Reflects slot transitions that do not restart the application (commit).
+After=capstone-ota-coordinator.service
+
+[Service]
+Type=simple
+User=capstone-ota
+Group=capstone-ota
+# --initial-version must match the provisioned Central version (stable-bundle.json).
+ExecStart=/opt/capstone-ota/venv/bin/capstone-ota-ui-status --install-root /opt/central-control --initial-version 1.0.0 --output /run/capstone-ota-ui/central-control.json --watch --interval 1.0
+Restart=on-failure
+RestartSec=2s
+UMask=0022
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run/capstone-ota-ui
+RestrictAddressFamilies=AF_UNIX
+LockPersonality=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

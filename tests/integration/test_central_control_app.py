@@ -103,3 +103,86 @@ def test_stale_socket_is_replaced(tmp_path):
     server = C.MaintenanceServer(path, app)
     server.close()
     assert not os.path.lexists(path)
+
+
+# --- runtime loop, wall-clock cadence, packaging (Task 3) --------------------
+
+import statistics
+import subprocess
+from pathlib import Path
+
+from capstone_ota.common.can_protocol import HeartbeatFrame, VehicleStatusFrame
+
+ROOT = Path(__file__).parents[2]
+
+
+class StampedTransport:
+    def __init__(self):
+        self.frames = []
+
+    def send(self, frame):
+        self.frames.append((time.monotonic(), frame))
+
+
+def _intervals(frames, can_id):
+    stamps = [t for t, f in frames if f.can_id == can_id]
+    return [b - a for a, b in zip(stamps, stamps[1:])]
+
+
+def test_wall_clock_cadence_within_tolerance(tmp_path):
+    transport = StampedTransport()
+    app = C.CentralControl(transport, identity_file(tmp_path), heartbeat_period=0.1, vehicle_period=0.05)
+    server = C.MaintenanceServer(tmp_path / "ota.sock", app)
+    stop = threading.Event()
+    thread = threading.Thread(target=C.run, args=(app, server, stop), daemon=True)
+    thread.start()
+    time.sleep(3.0)
+    stop.set()
+    thread.join(2)
+    server.close()
+    for can_id, nominal in ((0x100, 0.1), (0x200, 0.05)):
+        gaps = _intervals(transport.frames, can_id)
+        assert len(gaps) >= int(2.5 / nominal)
+        assert abs(statistics.median(gaps) - nominal) <= 0.2 * nominal, (can_id, statistics.median(gaps))
+        assert max(gaps) <= 2 * nominal, (can_id, max(gaps))
+    for _, frame in transport.frames:
+        (HeartbeatFrame if frame.can_id == 0x100 else VehicleStatusFrame).decode(frame)
+
+
+def test_run_serves_maintenance_while_sending(tmp_path):
+    transport = StampedTransport()
+    app = C.CentralControl(transport, identity_file(tmp_path), heartbeat_period=0.1, vehicle_period=0.05)
+    server = C.MaintenanceServer(tmp_path / "ota.sock", app)
+    stop = threading.Event()
+    thread = threading.Thread(target=C.run, args=(app, server, stop), daemon=True)
+    thread.start()
+    try:
+        ApplicationIpc(tmp_path / "ota.sock").set_maintenance(True, timeout_s=2)
+        time.sleep(0.3)
+        assert app.maintenance is True
+        assert any(f.can_id == 0x100 for _, f in transport.frames)
+    finally:
+        stop.set()
+        thread.join(2)
+        server.close()
+
+
+def test_payload_script_builds_slot_payload(tmp_path):
+    out = tmp_path / "payload"
+    script = ROOT / "apps" / "central-control" / "make-payload.sh"
+    subprocess.run([str(script), str(out)], check=True, capture_output=True)
+    launcher = out / "bin" / "central-control"
+    assert launcher.stat().st_mode & 0o111
+    assert (out / "lib" / "central_control.py").read_bytes() == (ROOT / "apps/central-control/lib/central_control.py").read_bytes()
+    assert "/opt/capstone-ota/venv/bin/python3" in launcher.read_text()
+    again = subprocess.run([str(script), str(out)], capture_output=True)
+    assert again.returncode != 0
+
+
+def test_launcher_runs_module_help(tmp_path):
+    out = tmp_path / "payload"
+    subprocess.run([str(ROOT / "apps/central-control/make-payload.sh"), str(out)], check=True, capture_output=True)
+    import sys
+    result = subprocess.run([sys.executable, str(out / "lib" / "central_control.py"), "--help"],
+                            capture_output=True, text=True, env={**os.environ, "PYTHONPATH": str(ROOT)})
+    assert result.returncode == 0 and "--heartbeat-period" in result.stdout

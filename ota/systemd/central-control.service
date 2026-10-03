@@ -6,6 +6,10 @@ After=sys-subsystem-net-devices-can0.device
 Type=simple
 User=central-control
 Group=central-control
+# Display/heartbeat identity of the running slot. '+' only leaves this unit's
+# sandbox; setpriv drops to capstone-ota (owner of the 0600 slot journal)
+# before the read-only helper runs. '-' never blocks the application.
+ExecStartPre=-+/usr/bin/setpriv --reuid=capstone-ota --regid=capstone-ota --init-groups --no-new-privs -- /opt/capstone-ota/venv/bin/capstone-ota-ui-status --install-root /opt/central-control --initial-version 1.0.0 --output /run/capstone-ota-ui/central-control.json
 # Releases must use entrypoint bin/central-control; the slot selector is atomic.
 ExecStart=/opt/central-control/active-slot/bin/central-control
 RuntimeDirectory=central-control
