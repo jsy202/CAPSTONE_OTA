@@ -1,0 +1,25 @@
+[Unit]
+Description=CAPSTONE Cluster UI status publisher (read-only, display only)
+# Reflects slot transitions that do not restart the application (commit).
+After=capstone-ota-zone-agent.service
+
+[Service]
+Type=simple
+User=capstone-ota
+Group=capstone-ota
+# --initial-version must match capstone-ota-zone-agent.service.
+ExecStart=/opt/capstone-ota/venv/bin/capstone-ota-ui-status --install-root /opt/digital-cluster --initial-version 1.0.0 --output /run/capstone-ota-ui/digital-cluster.json --watch --interval 1.0
+Restart=on-failure
+RestartSec=2s
+UMask=0022
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run/capstone-ota-ui
+RestrictAddressFamilies=AF_UNIX
+LockPersonality=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

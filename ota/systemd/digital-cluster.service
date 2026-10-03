@@ -6,6 +6,10 @@ After=graphical.target
 Type=simple
 User=digital-dash
 Group=digital-cluster
+# Display-only status for the on-screen badge. '+' lets the read-only helper
+# read the 0600 slot journal; '-' guarantees a helper failure never blocks the
+# application. The app itself gains no access to OTA state.
+ExecStartPre=-+/opt/capstone-ota/venv/bin/capstone-ota-ui-status --install-root /opt/digital-cluster --initial-version 1.0.0 --output /run/capstone-ota-ui/digital-cluster.json
 # Releases must use entrypoint bin/digital-dash; the slot selector is atomic.
 ExecStart=/opt/digital-cluster/active-slot/bin/digital-dash
 RuntimeDirectory=digital-cluster
