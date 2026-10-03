@@ -188,3 +188,16 @@ def test_evidence_check_rejects_stale_source_hash(junit, tmp_path):
     (tmp_path / "src.qml").write_text("v3")
     result = V.measure_result(m, junit, tmp_path)
     assert result["status"] == "FAIL" and "stale" in result["detail"]
+
+
+def test_environment_summary_never_records_local_paths(tmp_path):
+    qt = tmp_path / "Qt" / "5.15.2" / "gcc_64"
+    (qt / "bin").mkdir(parents=True)
+    (qt / "bin" / "qmake").write_text("#!/bin/sh\necho 5.15.2\n")
+    (qt / "bin" / "qmake").chmod(0o755)
+    upstream = tmp_path / "import"
+    upstream.mkdir()
+    summary = V.environment_summary(qt, upstream)
+    assert str(tmp_path) not in json.dumps(summary)
+    assert summary["qt"] == "5.15.2" and summary["upstream_import"] == "provided"
+    assert V.environment_summary(None, None)["qt"] is None

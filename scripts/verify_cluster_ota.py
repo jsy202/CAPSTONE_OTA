@@ -223,6 +223,19 @@ def _highlights(evidence_dir: Path, vr: str) -> list[str]:
     return [f"{key}: {json.dumps(data[key], ensure_ascii=False)}" for key in keys if key in data]
 
 
+def environment_summary(qt_dir: Path | None, upstream_dir: Path | None) -> dict:
+    """Describe the run environment without recording local filesystem paths."""
+    qt_version = None
+    if qt_dir:
+        try:
+            qt_version = subprocess.run([str(Path(qt_dir) / "bin" / "qmake"), "-query", "QT_VERSION"],
+                                        capture_output=True, text=True, timeout=30).stdout.strip() or "unknown"
+        except OSError:
+            qt_version = "unknown"
+    return {"python": sys.version.split()[0], "platform": sys.platform, "qt": qt_version,
+            "upstream_import": "provided" if upstream_dir else None}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--qt-dir", type=Path, default=os.environ.get("CAPSTONE_QT_DIR"))
@@ -295,8 +308,7 @@ def main(argv: list[str] | None = None) -> int:
     payload = {"schema_version": 1, "generated_at": stamp, "result": report["result"], "gates": report["gates"],
                "not_executed": report["not_executed"], "pending_hardware": report["pending_hardware"],
                "full_regression": totals, "change_impact": {"protected_paths_unchanged": unchanged, "detail": impact},
-               "environment": {"python": sys.version.split()[0], "qt_dir": str(args.qt_dir) if args.qt_dir else None,
-                               "upstream_dir": str(args.upstream_dir) if args.upstream_dir else None},
+               "environment": environment_summary(args.qt_dir, args.upstream_dir),
                "measures": results}
     (out / "results.json").write_text(json.dumps(payload, indent=2))
     (out / "TRACEABILITY_MATRIX.md").write_text(_matrix(data, results))

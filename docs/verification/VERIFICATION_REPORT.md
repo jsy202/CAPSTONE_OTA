@@ -167,6 +167,13 @@
 | VR-HW-002 | 패치 전후 속도·RPM·기어·경고등 동작 동일, 배지가 가리지 않음 | B6 |
 | VR-HW-003 | Pi에서 패치된 앱 빌드, `run-qt-tests.sh` 통과 | B1–B2 |
 
+실행 절차는 [CLUSTER_STATUS_HARDWARE_ACCEPTANCE.md](../CLUSTER_STATUS_HARDWARE_ACCEPTANCE.md)에 모았습니다.
+
+**선행 조건:** 두 Pi 전체 OTA 시나리오(B4, B5, VR-HW-001 완결)에는 Central Control 앱과
+Qt Cluster의 `functional` IPC(ZONAL §5)가 필요합니다. 이 구현은 아직 없습니다. 지금은 Cluster Pi
+단독 badge drill(B1–B3, B6–B8)만 할 수 있습니다. drill 도구는
+`ota/scripts/cluster_badge_drill.py`이고 테스트는 `test_cluster_badge_drill.py`입니다.
+
 Qt 검증 등급:
 - **A (실행됨, x86_64 데스크톱):** Qt Test 38, QML 14, 패치된 upstream 전체 빌드(`-Werror`), Xvfb 실행·캡처
 - **C (미실행):** 대상 하드웨어(ARM, EGLFS, 실제 패널)

@@ -62,6 +62,12 @@ sudo python3 -m json.tool /var/lib/capstone-ota/state.json
 Zonal 두 Pi 구성에서 실행합니다. 자동화 결과는 `docs/verification/VERIFICATION_REPORT.md`에
 있고, 이 표의 하드웨어 항목은 아직 **PENDING HARDWARE VALIDATION**입니다.
 
+절차는 `docs/CLUSTER_STATUS_HARDWARE_ACCEPTANCE.md`를 따릅니다.
+- B1–B3, B6–B8: Cluster Pi 단독 drill로 지금 할 수 있습니다.
+- B4–B5: 두 Pi 전체 OTA 시나리오라서 ZONAL §5 앱 계약(Central Control 앱, Qt `functional` IPC)을 구현한 뒤에 할 수 있습니다.
+
+기록 형식은 `docs/verification/hardware/README.md`입니다.
+
 | # | 확인 항목과 방법 | 기대 결과 | 판정 | 결과/증거 |
 |---|---|---|---|---|
 | B1 | Cluster Pi에서 `customization/qt-tests/run-qt-tests.sh <Pi Qt prefix>` | Qt 38/38, QML 14/14 통과 (VR-HW-003) | PENDING | |
