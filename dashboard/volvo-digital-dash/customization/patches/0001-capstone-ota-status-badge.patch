@@ -1,0 +1,62 @@
+diff -ruN a/app/app.pro b/app/app.pro
+--- a/app/app.pro
++++ b/app/app.pro
+@@ -499,3 +499,8 @@
+ }
+ 
+ DISTFILES +=
++
++# CAPSTONE OTA status badge (local customization, see customization/ in CAPSTONE_OTA)
++SOURCES += src/capstone/app_status.cpp
++HEADERS += inc/capstone/app_status.h
++INCLUDEPATH += inc/capstone
+diff -ruN a/app/main.qml b/app/main.qml
+--- a/app/main.qml
++++ b/app/main.qml
+@@ -409,5 +409,13 @@
+             asynchronous: true
+             anchors.fill: parent
+         }
++
++        // CAPSTONE OTA: display-only status badge. It lives inside gaugeItem so
++        // it follows the Raspberry Pi 180 degree rotation with the gauges.
++        StatusBadge {
++            anchors.fill: parent
++            status: capstoneStatus
++            z: 100
++        }
+     }
+ }
+diff -ruN a/app/qml.qrc b/app/qml.qrc
+--- a/app/qml.qrc
++++ b/app/qml.qrc
+@@ -1,6 +1,7 @@
+ <RCC>
+     <qresource prefix="/">
+         <file>main.qml</file>
++        <file>StatusBadge.qml</file>
+         <file>qtquickcontrols2.conf</file>
+         <file>NeedleCenter.qml</file>
+         <file>TempCoolant.qml</file>
+diff -ruN a/app/src/main.cpp b/app/src/main.cpp
+--- a/app/src/main.cpp
++++ b/app/src/main.cpp
+@@ -9,6 +9,7 @@
+ #include <QQmlComponent>
+ #include <QQuickWindow>
+ #include <key_press_emitter.h>
++#include <app_status.h>
+ 
+ #include <config.h>
+ #include <QMetaType>
+@@ -45,6 +46,10 @@
+     KeyPressEmitter * sideScreenKeyPress = new KeyPressEmitter();
+     ctxt->setContextProperty("keyPressEmitter", sideScreenKeyPress);
+ 
++    // CAPSTONE OTA: display-only status of the running A/B application slot.
++    AppStatus * capstoneStatus = new AppStatus(&app);
++    ctxt->setContextProperty("capstoneStatus", capstoneStatus);
++
+     // Initialize Dash
+ #ifdef RASPBERRY_PI
+     auto dash = std::make_unique<Dash>(&app, ctxt); // new scheme with sensor source -> sensor -> gauge -> model

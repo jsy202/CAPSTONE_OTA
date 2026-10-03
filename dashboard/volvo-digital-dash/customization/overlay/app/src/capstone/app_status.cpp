@@ -84,20 +84,19 @@ AppStatus::Snapshot AppStatus::fromEnvironment()
 QString AppStatus::titleFor(const QString &state)
 {
     if (state == QLatin1String("stable"))
-        return QString::fromUtf8("● STABLE");
+        return QStringLiteral("STABLE");
     if (state == QLatin1String("trial"))
-        return QString::fromUtf8("● OTA TRIAL");
+        return QStringLiteral("OTA TRIAL");
     if (state == QLatin1String("restored"))
-        return QString::fromUtf8("↺ ROLLBACK COMPLETE");
+        return QStringLiteral("RESTORED");
     return QStringLiteral("SW STATUS");
 }
 
 QString AppStatus::detailFor(const QString &state, const QString &version)
 {
-    if (state == QLatin1String("stable") || state == QLatin1String("trial"))
+    if (state == QLatin1String("stable") || state == QLatin1String("trial")
+            || state == QLatin1String("restored"))
         return QStringLiteral("SW ") + version;
-    if (state == QLatin1String("restored"))
-        return QStringLiteral("RESTORED SW ") + version;
     return QString::fromUtf8("—");
 }
 

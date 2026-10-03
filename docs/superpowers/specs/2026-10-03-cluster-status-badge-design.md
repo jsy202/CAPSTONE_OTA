@@ -182,18 +182,24 @@ dashboard/volvo-digital-dash/customization/
 - A `QTimer` re-reads every 1000 ms and emits change signals only on change.
   Files larger than 4 KiB are rejected.
 
-**`StatusBadge.qml`** has a fixed visual contract:
+**`StatusBadge.qml`** has a fixed visual contract (revised 2026-10-03 after
+the desktop capture of the real patched app; see §9):
 
 | Display state | Title / detail | Accent |
 |---|---|---|
-| stable | `● STABLE` / `SW 1.0.0` | green dot `#3FB950`, light gray text, dark translucent plate; no strip |
-| trial | `● OTA TRIAL` / `SW 1.1.1` | cyan `#22D3EE` dot, border and 4 px bottom strip |
-| restored (secondary) | `↺ ROLLBACK COMPLETE` / `RESTORED SW 1.0.0` | soft amber `#F5B841` border and strip, about 15 s only |
+| stable | `STABLE` / `SW 1.0.0` | green `#3FB950` title, dark plate with neutral `#30363D` border; no frame lines |
+| trial | `OTA TRIAL` / `SW 1.1.1` | cyan `#22D3EE` title, border, and 4 px lines on the top and bottom screen edges |
+| restored (secondary) | `RESTORED` / `SW 1.0.0` | soft amber `#F5B841` title, border and frame lines, 15 s only |
 | unknown | `SW STATUS` / `—` | gray `#8B949E` |
 
-- Size: the title is 22 px bold and the detail 18 px, on a plate about 64 px
-  tall with a 12 px margin from the bottom-right edge. It must be readable on
-  camera.
+- Plate: 124×50 px, 6 px from the bottom-right corner. This is the margin the
+  upstream WarningLightBar leaves free right of its last lamp (x ≥ ~1150 at
+  1280×480) in every upstream layout.
+- Title: 16 px bold, shrunk to fit (`fontSizeMode: HorizontalFit`, minimum
+  11 px), never elided.
+- Version line: 15 px in upstream's bundled Arial Black
+  (`qrc:/fonts/ariblk.ttf`), because Handel Gothic draws "1" like "I". Very
+  long versions are elided; the plate never widens.
 - No pop-ups or full-screen overlays. Red is never used.
 - The plate has `enabled: false`, so it never takes key events.
 - Trial uses cyan and not amber because amber is the color of real Volvo
@@ -232,7 +238,15 @@ dashboard/volvo-digital-dash/customization/
 | `AppStatus::evaluate` cases and QML badge rendering | `customization/qt-tests` standalone Qt Test project. Qt is not installed on the dev PC, so build and run happen on the Pi/build host | B until run |
 | Gauges, RPM, gear and warning lights unaffected; badge readable on camera | Hardware checklist items | C until run |
 
-## 8. Non-Goals
+## 8. Design Revisions From Verification
+
+| ID | Found by | Finding | Revision |
+|---|---|---|---|
+| D-02 | Desktop capture of the real patched app, all 11 layouts | A 180 px badge covered the right-most warning lamp (SHIFT UP) | 124×50 plate in the free margin, plus thin frame lines for distance visibility |
+| D-03 | Same capture | Titles were elided ("OTA TRI…") in the dashboard's wide global font | Drop the `●`/`↺` glyphs from titles; shrink-to-fit instead of elide |
+| D-04 | Same capture | Handel Gothic draws "1" like "I", so "SW 1.1.1" read as "SW I.I.I" | Version line in bundled Arial Black |
+
+## 9. Non-Goals
 
 - Any change to OTA, CAN, IPC, coordinator or slot code paths.
 - Central Control UI, and the legacy single-Pi `digital-dash.service`.

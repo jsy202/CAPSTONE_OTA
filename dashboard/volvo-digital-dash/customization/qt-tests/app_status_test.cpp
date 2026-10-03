@@ -118,12 +118,12 @@ private slots:
 
     void displayTextPerState()
     {
-        QCOMPARE(AppStatus::titleFor("stable"), QString::fromUtf8("● STABLE"));
+        QCOMPARE(AppStatus::titleFor("stable"), QString("STABLE"));
         QCOMPARE(AppStatus::detailFor("stable", "1.0.0"), QString("SW 1.0.0"));
-        QCOMPARE(AppStatus::titleFor("trial"), QString::fromUtf8("● OTA TRIAL"));
+        QCOMPARE(AppStatus::titleFor("trial"), QString("OTA TRIAL"));
         QCOMPARE(AppStatus::detailFor("trial", "1.1.1"), QString("SW 1.1.1"));
-        QCOMPARE(AppStatus::titleFor("restored"), QString::fromUtf8("↺ ROLLBACK COMPLETE"));
-        QCOMPARE(AppStatus::detailFor("restored", "1.0.0"), QString("RESTORED SW 1.0.0"));
+        QCOMPARE(AppStatus::titleFor("restored"), QString("RESTORED"));
+        QCOMPARE(AppStatus::detailFor("restored", "1.0.0"), QString("SW 1.0.0"));
         QCOMPARE(AppStatus::titleFor("unknown"), QString("SW STATUS"));
         QCOMPARE(AppStatus::detailFor("unknown", ""), QString::fromUtf8("—"));
     }
@@ -151,7 +151,7 @@ private slots:
         file.close();
         model.refresh();
         QCOMPARE(model.state(), QString("trial"));
-        QCOMPARE(model.title(), QString::fromUtf8("● OTA TRIAL"));
+        QCOMPARE(model.title(), QString("OTA TRIAL"));
         QCOMPARE(model.detail(), QString("SW 1.1.1"));
         QCOMPARE(spy.count(), 1);
         model.refresh();

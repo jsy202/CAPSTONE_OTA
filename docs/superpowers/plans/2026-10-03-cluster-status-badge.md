@@ -24,7 +24,7 @@
 - Trial rule mirrors `zonal.py` `publish_heartbeat`: `trial_slot is not None and selected_slot == trial_slot`.
 - Restored banner window: 15 s. UI poll interval: 1000 ms. Watch interval default: 1.0 s.
 - Colors: stable dot `#3FB950`, trial `#22D3EE`, restored `#F5B841`, unknown `#8B949E`. Never red.
-- Text: `● STABLE` / `SW <v>`; `● OTA TRIAL` / `SW <v>`; `↺ ROLLBACK COMPLETE` / `RESTORED SW <v>`; `SW STATUS` / `—`.
+- Text (revised by spec §8, D-02..D-04): `STABLE` / `SW <v>`; `OTA TRIAL` / `SW <v>`; `RESTORED` / `SW <v>`; `SW STATUS` / `—`. Plate 124×50 px, 6 px margin; trial/restored add 4 px top and bottom frame lines.
 - UI version regex `[0-9A-Za-z][0-9A-Za-z.+-]{0,31}`. Max status file size 4096 bytes.
 - The upstream patch touches only `app/src/main.cpp`, `app/app.pro`, `app/qml.qrc`, `app/main.qml`.
 - Pinned upstream commit `793452919127065536bcb7a08f98838fa963d75e`. `import-upstream.sh` is unchanged.

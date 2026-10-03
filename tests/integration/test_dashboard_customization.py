@@ -57,4 +57,101 @@ def test_qt_unit_and_component_tests_pass_when_qt_available():
                             capture_output=True, text=True, timeout=600)
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-4000:]
     assert "Totals: 33 passed, 0 failed" in result.stdout
-    assert "Totals: 10 passed, 0 failed" in result.stdout
+    assert "Totals: 14 passed, 0 failed" in result.stdout
+
+
+# --- reproducible patch application (Task 6) -------------------------------
+
+import os
+import shutil
+import subprocess
+
+import pytest
+
+PATCH = CUSTOM / "patches" / "0001-capstone-ota-status-badge.patch"
+APPLY = CUSTOM / "apply-customization.sh"
+PINNED = "793452919127065536bcb7a08f98838fa963d75e"
+
+
+def test_patch_touches_only_the_four_allowed_upstream_files():
+    targets = sorted(line.split()[1].split("\t")[0] for line in PATCH.read_text().splitlines()
+                     if line.startswith("+++ "))
+    assert targets == ["b/app/app.pro", "b/app/main.qml", "b/app/qml.qrc", "b/app/src/main.cpp"]
+
+
+def test_patch_wires_model_badge_resource_and_sources():
+    added = "\n".join(line for line in PATCH.read_text().splitlines() if line.startswith("+"))
+    for needle in ('setContextProperty("capstoneStatus"', "#include <app_status.h>", "StatusBadge {",
+                   "<file>StatusBadge.qml</file>", "src/capstone/app_status.cpp",
+                   "inc/capstone/app_status.h", "INCLUDEPATH += inc/capstone"):
+        assert needle in added, needle
+    removed = [line for line in PATCH.read_text().splitlines()
+               if line.startswith("-") and not line.startswith("---")]
+    assert removed == [], "the patch must only add lines to upstream files"
+
+
+def test_apply_script_is_strict_and_pinned():
+    script = APPLY.read_text()
+    assert APPLY.stat().st_mode & 0o111
+    assert "set -euo pipefail" in script and "patch -p1 --forward" in script and "--dry-run" in script
+    assert PINNED in script
+
+
+def test_apply_refuses_a_tree_that_is_not_an_import(tmp_path):
+    (tmp_path / "app").mkdir()
+    result = subprocess.run([str(APPLY), str(tmp_path)], capture_output=True, text=True)
+    assert result.returncode != 0
+    assert not (tmp_path / ".capstone-customization-applied").exists()
+    assert not (tmp_path / "app" / "StatusBadge.qml").exists()
+
+
+def test_patch_applies_to_pinned_upstream_and_refuses_reapplication(tmp_path):
+    source = os.environ.get("CAPSTONE_UPSTREAM_DIR")
+    if not source:
+        pytest.skip("CAPSTONE_UPSTREAM_DIR not set: pinned upstream import unavailable")
+    tree = tmp_path / "VolvoDigitalDashModels"
+    shutil.copytree(source, tree, symlinks=True)
+    first = subprocess.run([str(APPLY), str(tree)], capture_output=True, text=True)
+    assert first.returncode == 0, first.stderr
+    assert PINNED in (tree / ".capstone-customization-applied").read_text()
+    assert (tree / "app" / "StatusBadge.qml").read_text() == (OVERLAY / "StatusBadge.qml").read_text()
+    assert (tree / "app" / "src" / "capstone" / "app_status.cpp").is_file()
+    assert "StatusBadge {" in (tree / "app" / "main.qml").read_text()
+    second = subprocess.run([str(APPLY), str(tree)], capture_output=True, text=True)
+    assert second.returncode != 0 and "already applied" in second.stderr
+
+
+# --- desktop capture tool: clearance measurement ----------------------------
+
+def _capture_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "capture_dashboard_states", CUSTOM / "qt-tests" / "capture_dashboard_states.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _frame_with_content_at(x_right):
+    width, height = 1280, 480
+    rgb = bytearray(width * height * 3)
+    y = height - 30
+    for x in range(x_right - 60, x_right + 1):
+        rgb[(y * width + x) * 3:(y * width + x) * 3 + 3] = b"\xff\xa5\x00"  # amber lamp
+    return width, height, bytes(rgb)
+
+
+def test_clearance_passes_when_last_lamp_ends_left_of_plate():
+    result = _capture_module().badge_clearance(*_frame_with_content_at(1146))
+    assert result["plate_left"] == 1150 and result["gap_px"] == 3 and result["overlap"] is False
+
+
+def test_clearance_fails_when_upstream_content_touches_plate():
+    result = _capture_module().badge_clearance(*_frame_with_content_at(1149))
+    assert result["overlap"] is True
+
+
+def test_reviewed_decorative_overlaps_are_explicit_and_few():
+    module = _capture_module()
+    assert set(module.REVIEWED_DECORATIVE) <= set(module.SCREENS)
+    assert len(module.REVIEWED_DECORATIVE) <= 1
