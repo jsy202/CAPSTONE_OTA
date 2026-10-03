@@ -186,3 +186,18 @@ def test_launcher_runs_module_help(tmp_path):
     result = subprocess.run([sys.executable, str(out / "lib" / "central_control.py"), "--help"],
                             capture_output=True, text=True, env={**os.environ, "PYTHONPATH": str(ROOT)})
     assert result.returncode == 0 and "--heartbeat-period" in result.stdout
+
+
+def test_nested_json_does_not_crash_the_server(running):
+    with socket.socket(socket.AF_UNIX) as attacker:
+        attacker.connect(str(running.path))
+        attacker.sendall(b"[" * 2000 + b"\n")
+        attacker.settimeout(3)
+        assert attacker.recv(10) == b""
+    ApplicationIpc(running.path).set_maintenance(True, timeout_s=2)
+    assert running.thread.is_alive() and running.app.maintenance is True
+
+
+def test_central_unit_preserves_runtime_directory_across_restart():
+    lines = (ROOT / "ota" / "systemd" / "central-control.service").read_text().splitlines()
+    assert "RuntimeDirectoryPreserve=restart" in [l.strip() for l in lines]

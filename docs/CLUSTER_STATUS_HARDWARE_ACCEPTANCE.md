@@ -4,17 +4,13 @@
 - 판정과 증거 기록 형식: [docs/verification/hardware/README.md](verification/hardware/README.md)
 - 체크리스트 항목(B1–B8): [RPI_VALIDATION_CHECKLIST.md](RPI_VALIDATION_CHECKLIST.md)
 
-> **먼저 읽기: 지금 할 수 있는 범위**
+> **실행 범위**
 >
-> 전체 OTA 시나리오(Part 2)는 coordinator 검증에 두 가지가 필요합니다.
-> - Central Control 앱의 heartbeat(`0x100`)·차량 신호(`0x200`)
-> - Qt Cluster 앱의 `functional` IPC 응답
->
-> 두 앱 쪽 구현은 아직 없습니다([ZONAL_OTA_GUIDE.md](ZONAL_OTA_GUIDE.md) §5).
-> 이 상태에서 Part 2를 실행하면 정상 commit은 일어나지 않고, rollback도 의도한
-> `FUNCTIONAL_VALUE_MISMATCH`가 아닌 heartbeat/IPC 부재로 일어납니다. 따라서:
-> - **Part 1 (지금 가능):** Cluster Pi 한 대에서 실제 systemd·setpriv·watch 서비스와 실제 화면으로 배지 전환을 확인합니다(B1–B3, B6–B8).
-> - **Part 2 (§5 구현 후):** 두 Pi 전체 OTA 시나리오 A/B/C를 실행합니다(B4–B5, VR-HW-001 완결).
+> - **Part 1:** Cluster Pi 한 대에서 실제 systemd·setpriv·watch 서비스와 실제 화면으로 배지 전환을 확인합니다(B1–B3, B6–B8).
+> - **Part 2:** 두 Pi 전체 OTA 시나리오 A/B/C를 실행합니다(B4–B5, VR-HW-001).
+>   - Central Control 앱(`apps/central-control/`)과 Qt Cluster의 `vehicle`/`functional` IPC가 구현돼 있습니다(`feature/zonal-application-contracts`).
+>   - 무하드웨어 E2E(실제 앱 + 실제 coordinator/zone agent + 가상 CAN)에서 commit, `FUNCTIONAL_VALUE_MISMATCH` rollback, 전원 차단 복구까지 확인했습니다.
+>   - 실제 SocketCAN·MCP2515·ARM에서는 아직 실행하지 않았습니다(PENDING).
 
 ## 0. 공통 준비 (Cluster Pi)
 
@@ -130,7 +126,32 @@ sudo systemctl start capstone-ota-ui-status
 sudo systemctl start capstone-ota-zone-agent
 ```
 
-## Part 2 — 두 Pi 전체 OTA 시나리오 (ZONAL §5 앱 계약 구현 후)
+## Part 2 — 두 Pi 전체 OTA 시나리오
+
+**2-0. 앱 payload 준비 (노트북 또는 각 Pi)**
+
+```bash
+# Central Control (공장 1.0.0과 업데이트 1.1.0은 같은 코드이고 slot journal로 버전을 구분)
+apps/central-control/make-payload.sh /tmp/central-payload
+# Cluster 정상 1.1.1 (B1에서 빌드한 바이너리)
+dashboard/volvo-digital-dash/make-payload.sh ~/build-dash/VolvoDigitalDashModels /tmp/cluster-payload
+# Cluster 결함 1.1.1-fault (Scenario B 전용, DEMO/TEST FAULT INJECTION ONLY)
+mkdir -p ~/build-dash-fault && cd ~/build-dash-fault && \
+  qmake ~/CAPSTONE_OTA/dashboard/volvo-digital-dash/upstream/QtDash/VolvoDigitalDashModels/app/app.pro CAPSTONE_FAULT_SPEED_DIVISOR=10 && make -j4
+~/CAPSTONE_OTA/dashboard/volvo-digital-dash/customization/make-fault-payload.sh ~/build-dash-fault/VolvoDigitalDashModels /tmp/cluster-fault-payload
+```
+
+**2-0b. Central Pi 서비스**
+
+```bash
+sudo install -m 0644 ota/systemd/{central-control,capstone-ota-central-status}.service /etc/systemd/system/
+sudo install -m 0644 ota/tmpfiles/capstone-ota-ui.conf /etc/tmpfiles.d/ && sudo systemd-tmpfiles --create /etc/tmpfiles.d/capstone-ota-ui.conf
+sudo cp -a /tmp/central-payload/. /opt/central-control/slots/A/        # 공장 1.0.0, 처음 한 번
+sudo systemctl daemon-reload && sudo systemctl enable --now capstone-ota-central-status central-control
+cat /run/capstone-ota-ui/central-control.json                         # {"state":"stable","version":"1.0.0",...}
+candump -n 5 can0,100:7FF                                             # 0x100 heartbeat 1 s
+ls -l /run/central-control/ota.sock                                    # srw-rw---- central-control central-control
+```
 
 **공통:** 노트북에서 `ZONAL_OTA_GUIDE.md` §6으로 1.1.0(Central)과 1.1.1(Cluster)을 서명하고
 `vehicle-package`로 번들 2.0.0을 만듭니다. 상태 구독은 다음 명령으로 켭니다.
@@ -166,8 +187,8 @@ capstone-ota-publish vehicle-publish --broker 192.168.0.10 --ca ./pki/ca.crt --c
 
 **Scenario B — 런타임 결함 강제 (B4)**
 
-Cluster 1.1.1 빌드가 `functional` 응답에서 속도를 1/10로 보고하도록 만든 릴리스를
-사용합니다. 무하드웨어 테스트의 `speed_divisor=10`과 같은 결함입니다.
+2-0에서 만든 `/tmp/cluster-fault-payload`(결함 빌드)를 Cluster 1.1.1로 서명해 번들을 만듭니다.
+이 빌드는 실제 속도계 표시와 `functional` 응답이 함께 1/10입니다(65.0 km/h 요청 → 6.5 km/h 표시).
 
 기대 결과:
 - 화면: `B / OTA TRIAL / 1.1.1` → `A / RESTORED / 1.0.0` → `A / STABLE / 1.0.0`

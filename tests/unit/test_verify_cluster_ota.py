@@ -235,3 +235,20 @@ def test_explicit_required_gate_without_measures_fails():
 def test_main_requires_every_gate_declared_in_measures_file():
     data = V.load_measures(MEASURES)
     assert [g["id"] for g in data["gates"]] == list(V.GATE_TITLES)
+
+
+def test_gate_with_only_not_executed_members_is_incomplete_not_fail():
+    results = [{"vr": "VR-1", "gate": "A2", "status": "NOT_EXECUTED"}]
+    report = V.evaluate_gates(results, protected_diff_empty=True,
+                              full_regression={"tests": 5, "failures": 0, "errors": 0, "skipped": 0},
+                              required_gates=["A2"])
+    assert report["gates"][0]["status"] == "INCOMPLETE" and report["result"] == "INCOMPLETE"
+
+
+def test_unconditional_central_evidence_is_its_own_automated_measure():
+    data = V.load_measures(MEASURES)
+    always = {"tests/integration/test_application_contracts_system.py::test_real_central_contract_commits_with_harness_cluster",
+              "tests/integration/test_application_contracts_system.py::test_central_identity_loss_during_trial_rolls_back_and_recovers"}
+    for node in always:
+        kinds = {m["kind"] for m in data["measures"] if node in m["tests"]}
+        assert "automated" in kinds, node

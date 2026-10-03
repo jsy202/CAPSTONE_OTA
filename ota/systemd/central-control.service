@@ -14,6 +14,8 @@ ExecStartPre=-+/usr/bin/setpriv --reuid=capstone-ota --regid=capstone-ota --init
 ExecStart=/opt/central-control/active-slot/bin/central-control
 RuntimeDirectory=central-control
 RuntimeDirectoryMode=0750
+# Keep the maintenance flag (and socket dir) across the restart activate_trial performs.
+RuntimeDirectoryPreserve=restart
 Restart=on-failure
 RestartSec=2s
 NoNewPrivileges=true

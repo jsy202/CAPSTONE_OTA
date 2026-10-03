@@ -212,3 +212,62 @@ def test_malformed_requests_get_no_response(tmp_path, raw):
     central, _ = app(tmp_path)
     assert C.handle_request(raw, central) is None
     assert central.maintenance is False
+
+
+# --- final review fixes ------------------------------------------------------
+
+import errno
+
+
+def test_heartbeat_counter_rolls_over_255_to_0(tmp_path):
+    central, transport = app(tmp_path)
+    run(central, 300.0, step=0.5)                     # 300 heartbeats
+    beats = [HeartbeatFrame.decode(f).counter for f in transport.ids(0x100)]
+    assert 255 in beats and beats[beats.index(255) + 1] == 0
+    assert all((b - a) % 256 == 1 for a, b in zip(beats, beats[1:]))
+
+
+class FlakyTransport(Transport):
+    def __init__(self, failures):
+        super().__init__()
+        self.failures = failures
+
+    def send(self, frame):
+        if self.failures:
+            self.failures -= 1
+            raise OSError(errno.ENOBUFS, "No buffer space available")
+        super().send(frame)
+
+
+def test_transient_can_send_error_keeps_running_and_counters_contiguous(tmp_path):
+    transport = FlakyTransport(failures=3)
+    central = C.CentralControl(transport, identity_file(tmp_path), start=0.0)
+    run(central, 2.0)
+    vehicle = [VehicleStatusFrame.decode(f).counter for f in transport.ids(0x200)]
+    assert vehicle[0] == 0 and all((b - a) % 256 == 1 for a, b in zip(vehicle, vehicle[1:]))
+    assert len(transport.ids(0x100)) >= 1
+    assert central.send_errors == 3
+
+
+def test_deeply_nested_request_gets_no_response_and_does_not_raise(tmp_path):
+    central, _ = app(tmp_path)
+    assert C.handle_request(b"[" * 2000 + b"\n", central) is None
+    assert C.handle_request(b'{"a":' * 1500 + b"\n", central) is None
+
+
+def test_maintenance_survives_application_restart(tmp_path):
+    state = tmp_path / "state"
+    state.mkdir()
+    first = C.CentralControl(Transport(), identity_file(tmp_path), start=0.0, state_dir=state)
+    first.set_maintenance(True)
+    restarted = C.CentralControl(Transport(), identity_file(tmp_path), start=0.0, state_dir=state)
+    assert restarted.maintenance is True
+    restarted.set_maintenance(False)
+    assert C.CentralControl(Transport(), identity_file(tmp_path), start=0.0, state_dir=state).maintenance is False
+
+
+def test_unreadable_maintenance_state_starts_disabled(tmp_path):
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "maintenance").write_text("garbage")
+    assert C.CentralControl(Transport(), identity_file(tmp_path), start=0.0, state_dir=state).maintenance is False
