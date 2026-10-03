@@ -167,3 +167,48 @@ def test_maintenance_switches_vehicle_to_stationary_and_keeps_heartbeat(tmp_path
 def test_periods_must_be_positive(tmp_path):
     with pytest.raises(ValueError):
         C.CentralControl(Transport(), identity_file(tmp_path), heartbeat_period=0, start=0.0)
+
+
+# --- maintenance IPC request handling (Task 2) ------------------------------
+
+def request(op="maintenance", payload=None, rid="ab12", schema=1, **extra):
+    body = {"schema_version": schema, "request_id": rid, "operation": op,
+            "payload": {"enabled": True} if payload is None else payload, **extra}
+    return (json.dumps(body) + "\n").encode()
+
+
+def response(raw):
+    assert raw is not None and raw.endswith(b"\n") and len(raw) <= 4096
+    return json.loads(raw)
+
+
+def test_maintenance_on_and_off_are_confirmed(tmp_path):
+    central, _ = app(tmp_path)
+    reply = response(C.handle_request(request(payload={"enabled": True}), central))
+    assert reply == {"schema_version": 1, "request_id": "ab12", "ok": True, "result": {"enabled": True}}
+    assert central.maintenance is True
+    reply = response(C.handle_request(request(payload={"enabled": False}, rid="ff"), central))
+    assert reply["result"] == {"enabled": False} and reply["request_id"] == "ff" and central.maintenance is False
+
+
+@pytest.mark.parametrize("raw", [
+    request(op="reboot"), request(payload={"enabled": 1}), request(payload={"enabled": True, "x": 1}),
+    request(payload={}), request(payload=[]),
+])
+def test_rejected_operation_or_payload_answers_not_ok_and_changes_nothing(tmp_path, raw):
+    central, _ = app(tmp_path)
+    reply = response(C.handle_request(raw, central))
+    assert reply["ok"] is False and reply["result"] == {} and reply["request_id"] == "ab12"
+    assert central.maintenance is False
+
+
+@pytest.mark.parametrize("raw", [
+    b"{corrupt\n", b"[]\n", b"\xff\xfe\n", request()[:-1], b"x" * 5000 + b"\n",
+    request(schema=True), request(schema=2), request(rid=""), request(rid="zz"), request(rid="a" * 65),
+    request(extra_field=1),
+    b'{"schema_version":1,"request_id":"ab","request_id":"cd","operation":"maintenance","payload":{"enabled":true}}\n',
+])
+def test_malformed_requests_get_no_response(tmp_path, raw):
+    central, _ = app(tmp_path)
+    assert C.handle_request(raw, central) is None
+    assert central.maintenance is False

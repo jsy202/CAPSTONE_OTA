@@ -14,6 +14,12 @@ streams keep flowing because trial and recovery verification observe them.
 """
 from __future__ import annotations
 
+import json
+import os
+import re
+import selectors
+import socket
+import stat
 import time
 from pathlib import Path
 from typing import Callable, Protocol
@@ -98,3 +104,129 @@ class CentralControl:
             self._vehicle_counter = (self._vehicle_counter + 1) % 256
             self._next_vehicle = self._advance(self._next_vehicle, self.vehicle_period, now)
         return min(self._next_heartbeat, self._next_vehicle)
+
+
+# --- maintenance IPC (ApplicationIpc v1 server side) ------------------------
+
+MAX_MESSAGE = 4096
+CONNECTION_DEADLINE_S = 2.0
+_REQUEST_ID = re.compile(r"[0-9a-f]{1,64}\Z")
+_ENVELOPE = {"schema_version", "request_id", "operation", "payload"}
+
+
+def _unique(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON field")
+        result[key] = value
+    return result
+
+
+def _reply(request_id: str, ok: bool, result: dict) -> bytes:
+    return json.dumps({"schema_version": 1, "request_id": request_id, "ok": ok, "result": result},
+                      separators=(",", ":")).encode() + b"\n"
+
+
+def handle_request(raw: bytes, app: CentralControl) -> bytes | None:
+    """Answer one request line; None means close without a response."""
+    if len(raw) > MAX_MESSAGE or not raw.endswith(b"\n"):
+        return None
+    try:
+        request = json.loads(raw.decode("utf-8", errors="strict"), object_pairs_hook=_unique)
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if (not isinstance(request, dict) or set(request) != _ENVELOPE
+            or type(request["schema_version"]) is not int or request["schema_version"] != 1
+            or not isinstance(request["request_id"], str) or not _REQUEST_ID.fullmatch(request["request_id"])):
+        return None
+    payload = request["payload"]
+    if (request["operation"] != "maintenance" or not isinstance(payload, dict)
+            or set(payload) != {"enabled"} or type(payload["enabled"]) is not bool):
+        return _reply(request["request_id"], False, {})
+    app.set_maintenance(payload["enabled"])
+    return _reply(request["request_id"], True, {"enabled": app.maintenance})
+
+
+class MaintenanceServer:
+    """Non-blocking Unix socket server driven by the application's selector loop.
+
+    The socket is 0660 so only the application account and its group (the
+    coordinator's supplementary group) can connect. An existing path is only
+    replaced when it is a stale socket; any other file type aborts startup.
+    """
+
+    def __init__(self, path: Path, app: CentralControl, *, clock: Callable[[], float] = time.monotonic):
+        self.path, self.app, self.clock = Path(path), app, clock
+        try:
+            mode = os.lstat(self.path).st_mode
+        except FileNotFoundError:
+            mode = None
+        if mode is not None:
+            if not stat.S_ISSOCK(mode):
+                raise RuntimeError(f"refusing to replace non-socket {self.path}")
+            self.path.unlink()
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        old = os.umask(0o117)
+        try:
+            self.sock.bind(str(self.path))
+        finally:
+            os.umask(old)
+        os.chmod(self.path, 0o660)
+        self.sock.listen(8)
+        self.sock.setblocking(False)
+        self.selector = selectors.DefaultSelector()
+        self.selector.register(self.sock, selectors.EVENT_READ, None)
+        self.connections: dict[socket.socket, tuple[bytearray, float]] = {}
+
+    def _drop(self, conn: socket.socket) -> None:
+        self.selector.unregister(conn)
+        self.connections.pop(conn, None)
+        conn.close()
+
+    def service(self, timeout: float) -> None:
+        """Handle ready events for at most timeout seconds; never blocks on a client."""
+        for key, _ in self.selector.select(max(0.0, timeout)):
+            if key.data is None:
+                try:
+                    conn, _ = self.sock.accept()
+                except BlockingIOError:
+                    continue
+                conn.setblocking(False)
+                self.connections[conn] = (bytearray(), self.clock() + CONNECTION_DEADLINE_S)
+                self.selector.register(conn, selectors.EVENT_READ, "client")
+                continue
+            conn = key.fileobj
+            buffer, _ = self.connections[conn]
+            try:
+                chunk = conn.recv(MAX_MESSAGE + 1 - len(buffer))
+            except (BlockingIOError, InterruptedError):
+                continue
+            except OSError:
+                self._drop(conn)
+                continue
+            buffer += chunk
+            if not chunk or b"\n" in buffer or len(buffer) > MAX_MESSAGE:
+                line = bytes(buffer[:buffer.index(b"\n") + 1]) if b"\n" in buffer else bytes(buffer)
+                reply = handle_request(line, self.app) if chunk else None
+                if reply is not None:
+                    try:
+                        conn.sendall(reply)
+                    except OSError:
+                        pass
+                self._drop(conn)
+        now = self.clock()
+        for conn, (_, deadline) in list(self.connections.items()):
+            if now >= deadline:
+                self._drop(conn)
+
+    def close(self) -> None:
+        for conn in list(self.connections):
+            self._drop(conn)
+        self.selector.close()
+        self.sock.close()
+        try:
+            if stat.S_ISSOCK(os.lstat(self.path).st_mode):
+                self.path.unlink()
+        except FileNotFoundError:
+            pass
