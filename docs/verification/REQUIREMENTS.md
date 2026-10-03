@@ -31,6 +31,21 @@ Reference: Tailored from Automotive SPICE 4.0 (SWE.4-6, SUP.1/8/9), ISO 26262-6 
 | VR-HW-001 | On the two-Pi rig the Cluster display shows STABLE 1.0.0 -> OTA TRIAL 1.1.1 -> RESTORED/STABLE 1.0.0 | hardware system test | HW | hardware |
 | VR-HW-002 | On target hardware speed/RPM/gear/warning indicators behave exactly as before the patch | hardware regression | HW | hardware |
 | VR-HW-003 | The patched app builds for the Pi (Qt/ARM) and the Qt tests pass on target | target build | HW | hardware |
+| VR-APP-001 | Central publishes a valid 0x100 heartbeat every heartbeat period (1 s default) | SWE.4 unit + SWE.5 timing | A1 | automated |
+| VR-APP-002 | Central heartbeat version/state follow the active A/B application, never hard-coded | SWE.4 unit + SWE.6 system | A1 | automated |
+| VR-APP-003 | Central heartbeat and vehicle counters are contiguous modulo 256 and do not burst after a stall | SWE.4 unit | A1 | automated |
+| VR-APP-004 | Central publishes deterministic in-contract vehicle status on 0x200 at the vehicle period (100 ms default) | SWE.4 unit + SWE.5 timing | A1 | automated |
+| VR-APP-005 | Central maintenance IPC conforms to ApplicationIpc v1 and keeps CAN traffic flowing | SWE.5 interface | A3 | automated |
+| VR-APP-006 | Cluster vehicle IPC updates the real dashboard models the QML scene renders | SWE.5 component (real binary) | A2 | conditional |
+| VR-APP-007 | Cluster functional IPC returns the values the application actually interpreted | SWE.5 component (real binary) | A2 | conditional |
+| VR-APP-008 | The functional response is never a blind echo of the request | SWE.4 unit + mutation | A2 | conditional |
+| VR-APP-009 | Malformed, oversized, partial or silent IPC peers neither crash nor block either application | SWE.5 robustness (fault injection) | A8 | conditional |
+| VR-APP-010 | A DEMO/TEST fault build produces a real display/model mismatch that the validator reports as FUNCTIONAL_VALUE_MISMATCH | SWE.6 system (fault injection) | A5 | conditional |
+| VR-APP-011 | The normal application set passes trial verification and commits | SWE.6 system | A4 | conditional |
+| VR-APP-012 | A trial application failure rolls back the whole vehicle | SWE.6 system (fault injection) | A6 | conditional |
+| VR-APP-013 | Recovery verification confirms the previous stable application set with the real applications | SWE.6 system | A7 | conditional |
+| VR-APP-014 | Application IPC sockets and units do not weaken the existing privilege boundaries | SWE.5 configuration + security | A8 | conditional |
+| VR-APP-015 | The Central application ships as a reproducible slot payload | SUP.8-inspired configuration | A3 | automated |
 
 ## VR-UI-001 — Stable application shows STABLE and the stable SW version
 
@@ -345,3 +360,188 @@ Reference: Tailored from Automotive SPICE 4.0 (SWE.4-6, SUP.1/8/9), ISO 26262-6 
 - **Pass/Fail criterion:** PASS only with recorded target build log
 - **Gate:** HW
 - **Automated test / evidence:** none — manual hardware validation
+
+## VR-APP-001 — Central publishes a valid 0x100 heartbeat every heartbeat period (1 s default)
+
+- **Test case:** TC-APP-HB-001
+- **Verification level:** SWE.4 unit + SWE.5 timing (ISO 26262-6: Software unit verification)
+- **Verification method:** fake-clock unit tests and a wall-clock run of the real loop
+- **Techniques:** requirements-based, boundary, timing
+- **Precondition:** identity known; default or harness periods
+- **Expected result:** 10 heartbeats in 10 s (fake clock); wall-clock median within ±20 % and no gap above 2× nominal; frames decode with the framework codec
+- **Pass/Fail criterion:** PASS if counts are exact and cadence is inside the acceptance band
+- **Gate:** A1
+- **Automated test / evidence:** `tests/unit/test_central_control.py::test_exact_frame_counts_over_ten_seconds`; `tests/unit/test_central_control.py::test_heartbeat_carries_identity_and_protocol`; `tests/integration/test_central_control_app.py::test_wall_clock_cadence_within_tolerance`; `tests/unit/test_central_control.py::test_periods_must_be_positive`
+
+## VR-APP-002 — Central heartbeat version/state follow the active A/B application, never hard-coded
+
+- **Test case:** TC-APP-ID-001
+- **Verification level:** SWE.4 unit + SWE.6 system
+- **Verification method:** identity partitions, re-read per heartbeat, and the real coordinator's heartbeat evidence
+- **Techniques:** requirements-based, equivalence partitioning, fault injection
+- **Precondition:** sanitized status file from capstone-ota-ui-status
+- **Expected result:** stable/trial map to STABLE/TRIAL with the slot version; unknown/missing/non-numeric suppress the heartbeat
+- **Pass/Fail criterion:** PASS if every partition maps as specified and the trial evidence expects 1.1.0
+- **Gate:** A1
+- **UN R156 concept referenced:** R156: SW identification (RXSWIN-like version visibility)
+- **Automated test / evidence:** `tests/unit/test_central_control.py::test_identity_partitions`; `tests/unit/test_central_control.py::test_missing_or_corrupt_identity_is_none`; `tests/unit/test_central_control.py::test_identity_is_reread_every_heartbeat`; `tests/unit/test_central_control.py::test_unknown_identity_suppresses_heartbeat_but_not_vehicle`; `tests/integration/test_application_contracts_system.py::test_real_central_contract_commits_with_harness_cluster`
+
+## VR-APP-003 — Central heartbeat and vehicle counters are contiguous modulo 256 and do not burst after a stall
+
+- **Test case:** TC-APP-CNT-001
+- **Verification level:** SWE.4 unit
+- **Verification method:** fake-clock unit tests over 300 frames and a 5 s stall
+- **Techniques:** boundary, state transition
+- **Precondition:** running scheduler
+- **Expected result:** every step +1 mod 256 through 255→0; one frame per stream after a stall
+- **Pass/Fail criterion:** PASS if no gap or duplicate occurs
+- **Gate:** A1
+- **Automated test / evidence:** `tests/unit/test_central_control.py::test_counters_are_contiguous_through_rollover`; `tests/unit/test_central_control.py::test_no_burst_after_stall`
+
+## VR-APP-004 — Central publishes deterministic in-contract vehicle status on 0x200 at the vehicle period (100 ms default)
+
+- **Test case:** TC-APP-VEH-001
+- **Verification level:** SWE.4 unit + SWE.5 timing
+- **Verification method:** profile boundary tests, fake-clock counts, wall-clock cadence
+- **Techniques:** requirements-based, boundary, timing
+- **Precondition:** running scheduler
+- **Expected result:** 100 frames in 10 s; values at phase boundaries as specified and always inside CanContract
+- **Pass/Fail criterion:** PASS if values and counts are exact and cadence is inside the band
+- **Gate:** A1
+- **Automated test / evidence:** `tests/unit/test_central_control.py::test_profile_phase_boundaries`; `tests/unit/test_central_control.py::test_profile_is_deterministic_and_inside_contract`; `tests/unit/test_central_control.py::test_exact_frame_counts_over_ten_seconds`; `tests/integration/test_central_control_app.py::test_wall_clock_cadence_within_tolerance`
+
+## VR-APP-005 — Central maintenance IPC conforms to ApplicationIpc v1 and keeps CAN traffic flowing
+
+- **Test case:** TC-APP-IPC-001
+- **Verification level:** SWE.5 interface
+- **Verification method:** handler unit tests and the framework's own ApplicationIpc client against the running server
+- **Techniques:** interface, positive, negative
+- **Precondition:** server bound at a temporary path
+- **Expected result:** maintenance on/off confirmed with the echoed request id; unknown operation REJECTED; heartbeats continue and vehicle output switches to the stationary profile
+- **Pass/Fail criterion:** PASS if the real client accepts every reply and traffic never stops
+- **Gate:** A3
+- **Automated test / evidence:** `tests/unit/test_central_control.py::test_maintenance_on_and_off_are_confirmed`; `tests/unit/test_central_control.py::test_rejected_operation_or_payload_answers_not_ok_and_changes_nothing`; `tests/integration/test_central_control_app.py::test_real_application_ipc_client_toggles_maintenance`; `tests/integration/test_central_control_app.py::test_unknown_operation_is_rejected_by_the_real_client_contract`; `tests/integration/test_central_control_app.py::test_run_serves_maintenance_while_sending`; `tests/unit/test_central_control.py::test_maintenance_switches_vehicle_to_stationary_and_keeps_heartbeat`
+
+## VR-APP-006 — Cluster vehicle IPC updates the real dashboard models the QML scene renders
+
+- **Test case:** TC-APP-CLV-001
+- **Verification level:** SWE.5 component (real binary)
+- **Verification method:** Qt unit tests on model property paths and the real patched binary driven by ApplicationIpc
+- **Techniques:** interface, requirements-based
+- **Precondition:** patched Qt app running offscreen
+- **Expected result:** vehicle sample written through speedoModel/rpmModel/lamp models; the following functional read-back reflects model state
+- **Pass/Fail criterion:** PASS if both Qt and real-binary cases pass; NOT_EXECUTED without Qt
+- **Gate:** A2
+- **Automated test / evidence:** `tests/integration/test_dashboard_customization.py::test_qt_application_contract_tests_pass_when_qt_available`; `tests/integration/test_cluster_app_ipc.py::test_vehicle_sample_then_functional_reflects_functional_values`
+
+## VR-APP-007 — Cluster functional IPC returns the values the application actually interpreted
+
+- **Test case:** TC-APP-CLF-001
+- **Verification level:** SWE.5 component (real binary)
+- **Verification method:** real patched binary answering both probe challenges
+- **Techniques:** requirements-based, interface
+- **Precondition:** normal build
+- **Expected result:** (650,3000,D,1) and (0,800,P,0) read back exactly from the models
+- **Pass/Fail criterion:** PASS if results equal the interpreted model state
+- **Gate:** A2
+- **Automated test / evidence:** `tests/integration/test_cluster_app_ipc.py::test_normal_build_reports_interpreted_values_equal_to_challenge`; `tests/integration/test_cluster_app_ipc.py::test_second_challenge_is_also_interpreted`; `tests/integration/test_dashboard_customization.py::test_qt_application_contract_tests_pass_when_qt_available`
+
+## VR-APP-008 — The functional response is never a blind echo of the request
+
+- **Test case:** TC-APP-ECHO-001
+- **Verification level:** SWE.4 unit + mutation
+- **Verification method:** Qt test with a clamping model (expects 500 for a 650 request) and the real fault binary (expects 65)
+- **Techniques:** negative, mutation
+- **Precondition:** clamping fake model; fault build
+- **Expected result:** response follows model state, not the request; an echo mutant fails the test
+- **Pass/Fail criterion:** PASS if responses differ from the request exactly where the model differs
+- **Gate:** A2
+- **Automated test / evidence:** `tests/integration/test_dashboard_customization.py::test_qt_application_contract_tests_pass_when_qt_available`; `tests/integration/test_cluster_app_ipc.py::test_fault_build_misinterprets_speed_in_the_real_model`
+
+## VR-APP-009 — Malformed, oversized, partial or silent IPC peers neither crash nor block either application
+
+- **Test case:** TC-APP-ROB-001
+- **Verification level:** SWE.5 robustness (fault injection)
+- **Verification method:** Central handler partitions and live server, real Qt binary under garbage and silent clients
+- **Techniques:** negative, fault injection, boundary
+- **Precondition:** running servers
+- **Expected result:** no response for malformed envelopes; other clients served within 1-1.5 s; silent peers dropped at the 2 s deadline; processes stay alive
+- **Pass/Fail criterion:** PASS if service continues in every case
+- **Gate:** A8
+- **Automated test / evidence:** `tests/unit/test_central_control.py::test_malformed_requests_get_no_response`; `tests/integration/test_central_control_app.py::test_silent_client_does_not_block_others`; `tests/integration/test_central_control_app.py::test_partial_client_is_dropped_after_deadline`; `tests/integration/test_cluster_app_ipc.py::test_malformed_and_silent_clients_do_not_stop_service`
+
+## VR-APP-010 — A DEMO/TEST fault build produces a real display/model mismatch that the validator reports as FUNCTIONAL_VALUE_MISMATCH
+
+- **Test case:** TC-APP-FAULT-001
+- **Verification level:** SWE.6 system (fault injection)
+- **Verification method:** real fault binary in Cluster slot B over the real zonal path
+- **Techniques:** fault injection, requirements-based
+- **Precondition:** binary built with qmake CAPSTONE_FAULT_SPEED_DIVISOR=10
+- **Expected result:** speedometer model holds 6.5 km/h; validator expects 650, observes 65; FUNCTIONAL_VALUE_MISMATCH
+- **Pass/Fail criterion:** PASS only if the mismatch comes from the real binary (a normal binary in its place makes the test fail)
+- **Gate:** A5
+- **UN R156 concept referenced:** R156: dependencies between updated systems verified
+- **Automated test / evidence:** `tests/integration/test_application_contracts_system.py::test_real_fault_build_is_detected_and_whole_vehicle_rolls_back`; `tests/integration/test_cluster_app_ipc.py::test_fault_build_misinterprets_speed_in_the_real_model`; `tests/integration/test_dashboard_customization.py::test_fault_define_exists_only_behind_explicit_qmake_variable`; `tests/integration/test_dashboard_customization.py::test_normal_payload_refuses_a_fault_injection_binary`; `tests/integration/test_dashboard_customization.py::test_fault_payload_requires_marker_and_is_labelled`
+
+## VR-APP-011 — The normal application set passes trial verification and commits
+
+- **Test case:** TC-APP-NORM-001
+- **Verification level:** SWE.6 system
+- **Verification method:** real Central + real Qt Cluster + real coordinator/zone agent; Central-only variant without Qt
+- **Techniques:** requirements-based, positive
+- **Precondition:** signed bundle 2.0.0 (Central 1.1.0, Cluster 1.1.1)
+- **Expected result:** COMMITTED; all functional checks passed; badge stable→trial; maintenance [on, off] via real IPC
+- **Pass/Fail criterion:** PASS if COMMITTED with every functional check passed
+- **Gate:** A4
+- **UN R156 concept referenced:** R156: update verification evidence
+- **Automated test / evidence:** `tests/integration/test_application_contracts_system.py::test_real_apps_normal_update_commits`; `tests/integration/test_application_contracts_system.py::test_real_central_contract_commits_with_harness_cluster`
+
+## VR-APP-012 — A trial application failure rolls back the whole vehicle
+
+- **Test case:** TC-APP-RB-001
+- **Verification level:** SWE.6 system (fault injection)
+- **Verification method:** real fault binary; real Central with its identity removed during trial
+- **Techniques:** fault injection, recovery
+- **Precondition:** trial active
+- **Expected result:** ROLLED_BACK; both ECUs on slot A; the Cluster relaunched from slot A
+- **Pass/Fail criterion:** PASS if both ECUs are restored in both scenarios
+- **Gate:** A6
+- **UN R156 concept referenced:** R156: failed update recovery; R156: previous software version restoration
+- **Automated test / evidence:** `tests/integration/test_application_contracts_system.py::test_real_fault_build_is_detected_and_whole_vehicle_rolls_back`; `tests/integration/test_application_contracts_system.py::test_central_identity_loss_during_trial_rolls_back_and_recovers`
+
+## VR-APP-013 — Recovery verification confirms the previous stable application set with the real applications
+
+- **Test case:** TC-APP-REC-001
+- **Verification level:** SWE.6 system
+- **Verification method:** recovery-scope evidence after rollback and after power loss
+- **Techniques:** recovery, requirements-based
+- **Precondition:** rollback executed
+- **Expected result:** recovery functional checks and Central STABLE heartbeats pass; verification scopes [false, true]
+- **Pass/Fail criterion:** PASS if recovery verification passed before ROLLED_BACK
+- **Gate:** A7
+- **UN R156 concept referenced:** R156: interrupted update recovery
+- **Automated test / evidence:** `tests/integration/test_application_contracts_system.py::test_real_fault_build_is_detected_and_whole_vehicle_rolls_back`; `tests/integration/test_application_contracts_system.py::test_real_apps_power_loss_during_verification_recovers`; `tests/integration/test_application_contracts_system.py::test_central_identity_loss_during_trial_rolls_back_and_recovers`; `tests/unit/test_coordinator.py::test_failed_recovery_never_reports_successful_rollback`
+
+## VR-APP-014 — Application IPC sockets and units do not weaken the existing privilege boundaries
+
+- **Test case:** TC-APP-SEC-001
+- **Verification level:** SWE.5 configuration + security
+- **Verification method:** socket mode, special-file refusal, unit hardening, group-only reachability
+- **Techniques:** negative, interface
+- **Precondition:** units in ota/systemd; servers bound
+- **Expected result:** sockets 0660; non-socket paths never deleted; apps run as their own accounts with existing hardening; snapshot drops root via setpriv
+- **Pass/Fail criterion:** PASS if no privilege is widened
+- **Gate:** A8
+- **Automated test / evidence:** `tests/integration/test_central_control_app.py::test_socket_is_owner_and_group_only`; `tests/integration/test_central_control_app.py::test_server_refuses_to_replace_non_socket_path`; `tests/integration/test_central_control_app.py::test_stale_socket_is_replaced`; `tests/integration/test_central_control_assets.py::test_central_app_runs_unprivileged_with_identity_snapshot`; `tests/integration/test_central_control_assets.py::test_central_status_watcher_is_unprivileged_and_hardened`; `tests/integration/test_central_control_assets.py::test_coordinator_can_reach_central_socket_by_group_only`; `tests/integration/test_cluster_app_ipc.py::test_socket_is_owner_and_group_only`
+
+## VR-APP-015 — The Central application ships as a reproducible slot payload
+
+- **Test case:** TC-APP-PKG-001
+- **Verification level:** SUP.8-inspired configuration
+- **Verification method:** payload script and launcher tests
+- **Techniques:** interface
+- **Precondition:** repository sources
+- **Expected result:** bin/central-control + lib/central_control.py, refuses non-empty output, module runs
+- **Pass/Fail criterion:** PASS if the payload matches the sources
+- **Gate:** A3
+- **Automated test / evidence:** `tests/integration/test_central_control_app.py::test_payload_script_builds_slot_payload`; `tests/integration/test_central_control_app.py::test_launcher_runs_module_help`

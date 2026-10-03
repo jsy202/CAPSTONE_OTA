@@ -201,3 +201,37 @@ def test_environment_summary_never_records_local_paths(tmp_path):
     assert str(tmp_path) not in json.dumps(summary)
     assert summary["qt"] == "5.15.2" and summary["upstream_import"] == "provided"
     assert V.environment_summary(None, None)["qt"] is None
+
+
+# --- application contract gates (A1-A9) --------------------------------------
+
+def test_application_contract_gates_exist_and_a9_is_regression_plus_change_impact():
+    assert [g for g in V.GATE_TITLES if g.startswith("A")] == [f"A{i}" for i in range(1, 10)]
+    results = [{"vr": f"VR-{g}", "gate": g, "status": "PASS"} for g in V.GATE_TITLES if g not in ("G6", "A9")]
+    ok = V.evaluate_gates(results, protected_diff_empty=True,
+                          full_regression={"tests": 5, "failures": 0, "errors": 0, "skipped": 0})
+    assert ok["result"] == "PASS"
+    bad = V.evaluate_gates(results, protected_diff_empty=False,
+                           full_regression={"tests": 5, "failures": 0, "errors": 0, "skipped": 0})
+    assert {g["id"] for g in bad["gates"] if g["status"] == "FAIL"} == {"G6", "A9"}
+
+
+def test_environment_summary_reports_cluster_apps_without_paths(tmp_path, monkeypatch):
+    monkeypatch.setenv("CAPSTONE_CLUSTER_APP", str(tmp_path / "normal"))
+    monkeypatch.setenv("CAPSTONE_CLUSTER_FAULT_APP", str(tmp_path / "fault"))
+    summary = V.environment_summary(None, None)
+    assert summary["cluster_apps"] == "normal+fault" and str(tmp_path) not in json.dumps(summary)
+
+
+def test_explicit_required_gate_without_measures_fails():
+    results = [{"vr": "VR-1", "gate": "G1", "status": "PASS"}]
+    report = V.evaluate_gates(results, protected_diff_empty=True,
+                              full_regression={"tests": 5, "failures": 0, "errors": 0, "skipped": 0},
+                              required_gates=["G1", "A1"])
+    assert report["result"] == "FAIL"
+    assert [g["id"] for g in report["gates"]] == ["G1", "A1"]
+
+
+def test_main_requires_every_gate_declared_in_measures_file():
+    data = V.load_measures(MEASURES)
+    assert [g["id"] for g in data["gates"]] == list(V.GATE_TITLES)
