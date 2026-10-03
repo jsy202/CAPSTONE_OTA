@@ -284,3 +284,50 @@ def test_unknown_now_clears_restored_at():
 def test_malformed_previous_restored_at_is_not_carried(bad):
     status = decide(SlotSnapshot(SlotState(), "A"), "1.0.0", _prev("stable", "1.0.0", bad), 200.0)
     assert status["restored_at"] is None
+
+
+# --- final review fixes ------------------------------------------------------
+
+def test_read_previous_never_blocks_on_fifo(tmp_path):
+    out = tmp_path / "digital-cluster.json"
+    os.mkfifo(out)
+    assert read_previous(out) is None  # must return immediately, not block
+
+
+def test_read_previous_does_not_follow_symlink(tmp_path):
+    target = tmp_path / "elsewhere.json"
+    target.write_text(json.dumps(STABLE_1))
+    out = tmp_path / "digital-cluster.json"
+    out.symlink_to(target)
+    assert read_previous(out) is None
+
+
+def test_write_status_replaces_planted_fifo_or_symlink_without_following(tmp_path):
+    victim = tmp_path / "victim"
+    victim.write_text("keep")
+    for kind in ("fifo", "symlink"):
+        out = tmp_path / f"{kind}.json"
+        os.mkfifo(out) if kind == "fifo" else out.symlink_to(victim)
+        assert write_status(out, STABLE_1) is True
+        assert out.is_file() and not out.is_symlink()
+    assert victim.read_text() == "keep"
+
+
+def test_failed_snapshot_removes_stale_status(tmp_path, monkeypatch):
+    root, out = installed_root(tmp_path), tmp_path / "status.json"
+    write_status(out, {**STABLE_1, "state": "trial", "version": "1.1.1"})
+    def fail(*args, **kwargs):
+        raise OSError("disk full")
+    monkeypatch.setattr(ui_status.tempfile, "mkstemp", fail)
+    assert main(["--install-root", str(root), "--initial-version", "1.0.0", "--output", str(out)]) == 0
+    assert not out.exists()  # the UI then shows unknown instead of a stale TRIAL
+
+
+def test_failed_watch_iteration_removes_stale_status(tmp_path, monkeypatch):
+    root, out = installed_root(tmp_path), tmp_path / "status.json"
+    write_status(out, {**STABLE_1, "state": "trial", "version": "1.1.1"})
+    def fail(*args, **kwargs):
+        raise OSError("disk full")
+    monkeypatch.setattr(ui_status.tempfile, "mkstemp", fail)
+    watch(root, "1.0.0", out, 1.0, iterations=1, sleep=lambda _: None)
+    assert not out.exists()

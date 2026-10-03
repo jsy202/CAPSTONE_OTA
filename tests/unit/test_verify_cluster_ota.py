@@ -98,10 +98,19 @@ def test_one_failed_measure_fails_its_gate_and_the_result():
     assert [g["id"] for g in report["gates"] if g["status"] == "FAIL"] == ["G4"]
 
 
-def test_not_executed_measure_is_listed_but_does_not_fail_gate_with_executed_passes():
+def test_not_executed_measure_makes_the_result_incomplete_never_pass():
     report = _gates(GATES + [("G2", "NOT_EXECUTED")])
-    assert report["result"] == "PASS"
+    assert report["result"] == "INCOMPLETE"
     assert report["not_executed"] == ["VR-6"]
+    assert [g["status"] for g in report["gates"] if g["id"] == "G2"] == ["INCOMPLETE"]
+
+
+def test_fail_outranks_incomplete():
+    assert _gates(GATES + [("G2", "NOT_EXECUTED"), ("G4", "FAIL")])["result"] == "FAIL"
+
+
+def test_exit_codes_distinguish_pass_incomplete_fail():
+    assert (V.EXIT_CODES["PASS"], V.EXIT_CODES["INCOMPLETE"], V.EXIT_CODES["FAIL"]) == (0, 2, 1)
 
 
 def test_gate_with_only_not_executed_measures_fails():
@@ -166,3 +175,16 @@ def test_committed_requirements_document_matches_measures():
     expected = V.requirements_markdown(V.load_measures(MEASURES))
     assert (ROOT / "docs" / "verification" / "REQUIREMENTS.md").read_text() == expected, \
         "regenerate with: python3 scripts/verify_cluster_ota.py --write-requirements"
+
+
+def test_evidence_check_rejects_stale_source_hash(junit, tmp_path):
+    import hashlib
+    (tmp_path / "src.qml").write_text("v2")
+    good = hashlib.sha256(b"v2").hexdigest()
+    check = {"path": "e.json", "expect": {"failed": False}, "sha256_of": {"badge": "src.qml"}}
+    (tmp_path / "e.json").write_text(json.dumps({"failed": False, "source_sha256": {"badge": good}}))
+    m = measure(["tests/unit/test_a.py::test_ok"], evidence=[check])
+    assert V.measure_result(m, junit, tmp_path)["status"] == "PASS"
+    (tmp_path / "src.qml").write_text("v3")
+    result = V.measure_result(m, junit, tmp_path)
+    assert result["status"] == "FAIL" and "stale" in result["detail"]

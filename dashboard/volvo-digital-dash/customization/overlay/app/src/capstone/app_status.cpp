@@ -2,18 +2,23 @@
 
 #include <QDateTime>
 #include <QFile>
-#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QSet>
 #include <QtMath>
 
+#include <cerrno>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 namespace {
 const char DEFAULT_STATUS_PATH[] = "/run/capstone-ota-ui/digital-cluster.json";
 const qint64 MAX_STATUS_BYTES = 4096;
 const qint64 RESTORED_BANNER_MS = 15000;
 const int POLL_INTERVAL_MS = 1000;
+const double MAX_RESTORED_AT_S = 1e12;  // year ~33658: bounds the ms conversion
 
 bool validVersion(const QString &version)
 {
@@ -64,7 +69,10 @@ AppStatus::Snapshot AppStatus::evaluate(const QByteArray &json, qint64 nowMs)
     const QJsonValue restoredAt = object.value(QStringLiteral("restored_at"));
     if (!restoredAt.isNull() && !restoredAt.isDouble())
         return unknown();
-    if (state == QLatin1String("stable") && restoredAt.isDouble() && qIsFinite(restoredAt.toDouble())) {
+    if (restoredAt.isDouble() && !(qIsFinite(restoredAt.toDouble()) && restoredAt.toDouble() >= 0.0
+                                   && restoredAt.toDouble() < MAX_RESTORED_AT_S))
+        return unknown();
+    if (state == QLatin1String("stable") && restoredAt.isDouble()) {
         const qint64 age = nowMs - qint64(restoredAt.toDouble() * 1000.0);
         if (age >= 0 && age < RESTORED_BANNER_MS)
             return {QStringLiteral("restored"), version.toString()};
@@ -102,13 +110,21 @@ QString AppStatus::detailFor(const QString &state, const QString &version)
 
 void AppStatus::refresh()
 {
+    // Runs on the GUI thread: never follow a planted link, never block on a
+    // FIFO or device, never read more than the schema allows.
     Snapshot next = unknown();
-    if (QFileInfo::exists(mPath)) {
-        QFile file(mPath);
-        if (file.open(QIODevice::ReadOnly))
-            next = evaluate(file.read(MAX_STATUS_BYTES + 1), QDateTime::currentMSecsSinceEpoch());
+    const int fd = ::open(QFile::encodeName(mPath).constData(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) {
+        if (errno == ENOENT)
+            next = fromEnvironment();
     } else {
-        next = fromEnvironment();
+        struct stat info;
+        if (::fstat(fd, &info) == 0 && S_ISREG(info.st_mode)) {
+            QFile file;
+            if (file.open(fd, QIODevice::ReadOnly, QFileDevice::DontCloseHandle))
+                next = evaluate(file.read(MAX_STATUS_BYTES + 1), QDateTime::currentMSecsSinceEpoch());
+        }
+        ::close(fd);
     }
     if (!(next == mSnapshot)) {
         mSnapshot = next;

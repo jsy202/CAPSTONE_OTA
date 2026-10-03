@@ -11,7 +11,9 @@ logic: results come only from pytest and from evidence files.
 Rules that keep the verdict honest:
   * a referenced test that does not exist is FAIL (broken traceability)
   * a skipped test is NOT_EXECUTED, never PASS
-  * a gate needs at least one executed PASS and no FAIL
+  * a gate needs at least one executed PASS and no FAIL; a gate with any
+    NOT_EXECUTED measure is INCOMPLETE, and so is the overall result
+  * results: PASS (exit 0), INCOMPLETE (exit 2), FAIL (exit 1); FAIL wins
   * hardware measures are PENDING_HARDWARE and are listed, not passed
 
 usage: scripts/verify_cluster_ota.py [--qt-dir DIR] [--upstream-dir DIR]
@@ -20,6 +22,7 @@ usage: scripts/verify_cluster_ota.py [--qt-dir DIR] [--upstream-dir DIR]
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -70,6 +73,14 @@ def _check_evidence(check: dict, root: Path) -> str | None:
     for key, expected in check.get("expect", {}).items():
         if data.get(key) != expected:
             return f"evidence {check['path']}: {key}={data.get(key)!r}, expected {expected!r}"
+    recorded = data.get("source_sha256", {})
+    for key, source in check.get("sha256_of", {}).items():
+        try:
+            current = hashlib.sha256((root / source).read_bytes()).hexdigest()
+        except OSError:
+            return f"evidence source missing: {source}"
+        if recorded.get(key) != current:
+            return f"evidence {check['path']} is stale for {source} (re-run the capture)"
     return None
 
 
@@ -99,6 +110,8 @@ def measure_result(measure: dict, junit: dict[str, list[str]], root: Path) -> di
     return {**result, "status": "PASS", "detail": f"{sum(len(o) for o in cases.values())} cases passed", "cases": cases}
 
 
+EXIT_CODES = {"PASS": 0, "INCOMPLETE": 2, "FAIL": 1}
+
 GATE_TITLES = {
     "G1": "Unit verification (SWE.4)",
     "G2": "Status propagation / component integration (SWE.5)",
@@ -125,13 +138,15 @@ def evaluate_gates(results: list[dict], *, protected_diff_empty: bool, full_regr
         else:
             failed_members = [r["vr"] for r in members if r["status"] == "FAIL"]
             executed = [r for r in members if r["status"] == "PASS"]
-            status = "FAIL" if failed_members or not executed else "PASS"
+            not_executed = [r for r in members if r["status"] == "NOT_EXECUTED"]
+            status = "FAIL" if failed_members or not executed else "INCOMPLETE" if not_executed else "PASS"
             detail = f"{len(executed)} PASS, {len(failed_members)} FAIL, " \
                      f"{sum(r['status'] == 'NOT_EXECUTED' for r in members)} NOT_EXECUTED"
         gates.append({"id": gate_id, "title": title, "status": status, "detail": detail, "failed": failed_members})
     return {
         "gates": gates,
-        "result": "PASS" if all(g["status"] == "PASS" for g in gates) else "FAIL",
+        "result": ("FAIL" if any(g["status"] == "FAIL" for g in gates)
+                   else "INCOMPLETE" if any(g["status"] == "INCOMPLETE" for g in gates) else "PASS"),
         "not_executed": [r["vr"] for r in results if r["status"] == "NOT_EXECUTED"],
         "pending_hardware": [r["vr"] for r in results if r["status"] == "PENDING_HARDWARE"],
     }
@@ -272,7 +287,10 @@ def main(argv: list[str] | None = None) -> int:
         if r["status"] == "NOT_EXECUTED":
             print(f"[NOT EXECUTED] {r['vr']} {r['title']} ({r['detail']})")
     print()
-    print(f"VERIFICATION RESULT: {report['result']}")
+    if report["result"] == "INCOMPLETE":
+        print("VERIFICATION RESULT: INCOMPLETE (measures NOT EXECUTED in this environment; see above)")
+    else:
+        print(f"VERIFICATION RESULT: {report['result']}")
 
     payload = {"schema_version": 1, "generated_at": stamp, "result": report["result"], "gates": report["gates"],
                "not_executed": report["not_executed"], "pending_hardware": report["pending_hardware"],
@@ -294,7 +312,7 @@ def main(argv: list[str] | None = None) -> int:
             shutil.copy2(out / name, args.snapshot / name)
         shutil.copytree(evidence, args.snapshot / "evidence", dirs_exist_ok=True)
     print(f"evidence: {out}")
-    return 0 if report["result"] == "PASS" else 1
+    return EXIT_CODES[report["result"]]
 
 
 if __name__ == "__main__":

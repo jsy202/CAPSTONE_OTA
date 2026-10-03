@@ -5,6 +5,9 @@ from pathlib import Path
 
 OTA = Path(__file__).parents[2] / "ota"
 HELPER = "/opt/capstone-ota/venv/bin/capstone-ota-ui-status"
+# The snapshot needs only the journal owner's rights; '+' is used solely to
+# leave the app's own sandbox, then setpriv drops root before the helper runs.
+DROP = "/usr/bin/setpriv --reuid=capstone-ota --regid=capstone-ota --init-groups --no-new-privs --"
 ARGS = ("--install-root /opt/digital-cluster --initial-version 1.0.0 "
         "--output /run/capstone-ota-ui/digital-cluster.json")
 
@@ -16,11 +19,12 @@ def _lines(name):
 
 def test_cluster_app_snapshots_status_without_blocking_or_widening_access():
     lines = _lines("systemd/digital-cluster.service")
-    assert f"ExecStartPre=-+{HELPER} {ARGS}" in lines
+    assert f"ExecStartPre=-+{DROP} {HELPER} {ARGS}" in lines
     assert "ExecStart=/opt/digital-cluster/active-slot/bin/digital-dash" in lines
     assert "User=digital-dash" in lines
     assert not any(line.startswith("ReadWritePaths") for line in lines)
-    assert lines.index(f"ExecStartPre=-+{HELPER} {ARGS}") < lines.index(
+    assert not any(line.startswith("ExecStartPre=") and DROP not in line for line in lines)
+    assert lines.index(f"ExecStartPre=-+{DROP} {HELPER} {ARGS}") < lines.index(
         "ExecStart=/opt/digital-cluster/active-slot/bin/digital-dash")
 
 

@@ -2,6 +2,8 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QSignalSpy>
+#include <QElapsedTimer>
+#include <sys/stat.h>
 
 #include "app_status.h"
 
@@ -91,6 +93,9 @@ private slots:
         QTest::newRow("array") << QByteArray("[]");
         QTest::newRow("empty") << QByteArray();
         QTest::newRow("oversized") << QByteArray(5000, ' ') + status("stable", "1.0.0");
+        QTest::newRow("huge restored_at") << status("stable", "1.0.0", "1e300");
+        QTest::newRow("negative restored_at") << status("stable", "1.0.0", "-5");
+        QTest::newRow("string restored_at") << status("stable", "1.0.0", "\"now\"");
     }
     void invalidInputFailsClosedToUnknown()
     {
@@ -187,6 +192,34 @@ private slots:
         QVERIFY(model.bannerActive());
         QTRY_COMPARE_WITH_TIMEOUT(model.state(), QString("stable"), 3000);
         QVERIFY(!model.bannerActive());
+    }
+
+    void fifoStatusPathNeverBlocksTheGuiThread()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("digital-cluster.json");
+        QCOMPARE(::mkfifo(path.toLocal8Bit().constData(), 0600), 0);
+        qputenv("CAPSTONE_APP_STATUS_FILE", path.toUtf8());
+        QElapsedTimer timer;
+        timer.start();
+        AppStatus model;           // must not block opening the FIFO
+        QVERIFY(timer.elapsed() < 500);
+        QCOMPARE(model.state(), QString("unknown"));
+    }
+
+    void symlinkStatusPathIsNotFollowed()
+    {
+        QTemporaryDir dir;
+        const QString target = dir.filePath("elsewhere.json");
+        QFile file(target);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(status("trial", "1.1.1"));
+        file.close();
+        const QString path = dir.filePath("digital-cluster.json");
+        QVERIFY(QFile::link(target, path));
+        qputenv("CAPSTONE_APP_STATUS_FILE", path.toUtf8());
+        AppStatus model;
+        QCOMPARE(model.state(), QString("unknown"));
     }
 
     void unreadablePathDoesNotCrash()

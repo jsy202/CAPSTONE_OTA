@@ -14,7 +14,7 @@ Reference: Tailored from Automotive SPICE 4.0 (SWE.4-6, SUP.1/8/9), ISO 26262-6 
 | VR-UI-005Q | Qt AppStatus model and badge fail closed and propagate properties (Qt 5.15 build) | SWE.4 unit + SWE.5 component | G2 | conditional |
 | VR-UI-006 | The privileged slot journal is never exposed to the Cluster application | SWE.6 software + configuration | G7 | automated |
 | VR-UI-007 | A status-display failure never blocks the Cluster application or the OTA services | SWE.5 integration (fault injection) | G2 | automated |
-| VR-UI-008 | The badge keeps the original cluster usable: no lamp or gauge covered, legible, never red, no input capture | SWE.5 component + desktop system check | G2 | automated |
+| VR-UI-008 | Badge keeps the original cluster usable on the desktop x86_64 capture: no upstream content under the plate (one reviewed decorative overlap), legible, never red, no input capture | SWE.5 component + desktop system check | G2 | automated |
 | VR-UI-009 | Customization is reproducible on the pinned upstream and preserves provenance | SUP.8-inspired configuration check | G2 | automated |
 | VR-UI-009U | The patch applies to a real pinned upstream import and refuses re-application | SUP.8-inspired configuration check | G2 | conditional |
 | VR-OTA-001 | Software versions before and after an update are identifiable on the vehicle | SWE.4/5 (existing + new) | G1 | automated |
@@ -94,13 +94,13 @@ Reference: Tailored from Automotive SPICE 4.0 (SWE.4-6, SUP.1/8/9), ISO 26262-6 
 - **Expected result:** helper publishes unknown/null; previous status stays intact on an interrupted write; no exception escapes
 - **Pass/Fail criterion:** PASS if every partition yields unknown (never a guessed version) and no crash
 - **Gate:** G1
-- **Automated test / evidence:** `tests/unit/test_ui_status.py::test_unreadable_state_is_unknown`; `tests/unit/test_ui_status.py::test_missing_selector_is_unknown`; `tests/unit/test_ui_status.py::test_stable_journal_with_foreign_selected_slot_is_unknown`; `tests/unit/test_ui_status.py::test_invalid_initial_version_fallback_is_unknown`; `tests/unit/test_ui_status.py::test_corrupt_or_partially_written_journal_reads_no_state`; `tests/unit/test_ui_status.py::test_foreign_selector_target_reads_no_slot`; `tests/unit/test_ui_status.py::test_missing_journal_reads_no_state`; `tests/unit/test_ui_status.py::test_missing_install_root_reads_nothing`; `tests/unit/test_ui_status.py::test_selector_to_missing_slot_directory_reads_no_slot`; `tests/unit/test_ui_status.py::test_absolute_selector_is_rejected_like_the_installer`; `tests/unit/test_ui_status.py::test_interrupted_write_keeps_previous_status_and_no_temporary`; `tests/unit/test_ui_status.py::test_read_previous_rejects_non_v1`; `tests/unit/test_ui_status.py::test_malformed_previous_restored_at_is_not_carried`
+- **Automated test / evidence:** `tests/unit/test_ui_status.py::test_unreadable_state_is_unknown`; `tests/unit/test_ui_status.py::test_missing_selector_is_unknown`; `tests/unit/test_ui_status.py::test_stable_journal_with_foreign_selected_slot_is_unknown`; `tests/unit/test_ui_status.py::test_invalid_initial_version_fallback_is_unknown`; `tests/unit/test_ui_status.py::test_corrupt_or_partially_written_journal_reads_no_state`; `tests/unit/test_ui_status.py::test_foreign_selector_target_reads_no_slot`; `tests/unit/test_ui_status.py::test_missing_journal_reads_no_state`; `tests/unit/test_ui_status.py::test_missing_install_root_reads_nothing`; `tests/unit/test_ui_status.py::test_selector_to_missing_slot_directory_reads_no_slot`; `tests/unit/test_ui_status.py::test_absolute_selector_is_rejected_like_the_installer`; `tests/unit/test_ui_status.py::test_interrupted_write_keeps_previous_status_and_no_temporary`; `tests/unit/test_ui_status.py::test_read_previous_rejects_non_v1`; `tests/unit/test_ui_status.py::test_malformed_previous_restored_at_is_not_carried`; `tests/unit/test_ui_status.py::test_read_previous_never_blocks_on_fifo`; `tests/unit/test_ui_status.py::test_read_previous_does_not_follow_symlink`; `tests/unit/test_ui_status.py::test_failed_snapshot_removes_stale_status`; `tests/unit/test_ui_status.py::test_failed_watch_iteration_removes_stale_status`
 
 ## VR-UI-005Q — Qt AppStatus model and badge fail closed and propagate properties (Qt 5.15 build)
 
 - **Test case:** TC-UI-FAILSAFE-002
 - **Verification level:** SWE.4 unit + SWE.5 component (ISO 26262-6: Software unit verification; software integration)
-- **Verification method:** Qt Test (33 cases) and QML TestCase (14 cases) built with a real Qt 5.15.2 toolchain
+- **Verification method:** Qt Test (38 cases) and QML TestCase (14 cases) built with a real Qt 5.15.2 toolchain
 - **Techniques:** negative, fault injection, boundary, interface
 - **Precondition:** CAPSTONE_QT_DIR points at a Qt 5.15 prefix
 - **Expected result:** all Qt unit and QML component cases pass
@@ -115,10 +115,10 @@ Reference: Tailored from Automotive SPICE 4.0 (SWE.4-6, SUP.1/8/9), ISO 26262-6 
 - **Verification method:** system test over the full OTA path + deployment asset inspection
 - **Techniques:** requirements-based, negative, interface
 - **Precondition:** full rollback lifecycle; production unit files
-- **Expected result:** state.json stays 0600; status file has only 4 display keys and mode 0644; app unit gains no ReadWritePaths; watcher runs as capstone-ota, not root
+- **Expected result:** state.json stays 0600; status file has only 4 display keys and mode 0644; app unit gains no ReadWritePaths; snapshot drops root via setpriv to capstone-ota; watcher runs as capstone-ota; planted symlink/FIFO never followed
 - **Pass/Fail criterion:** PASS if no OTA identifier/digest leaks and no privilege is widened
 - **Gate:** G7
-- **Automated test / evidence:** `tests/integration/test_ui_status_system.py::test_ui_status_never_exposes_privileged_journal`; `tests/integration/test_ui_status_assets.py::test_cluster_app_snapshots_status_without_blocking_or_widening_access`; `tests/integration/test_ui_status_assets.py::test_watch_service_is_unprivileged_and_hardened`; `tests/unit/test_ui_status.py::test_read_snapshot_never_writes`
+- **Automated test / evidence:** `tests/integration/test_ui_status_system.py::test_ui_status_never_exposes_privileged_journal`; `tests/integration/test_ui_status_assets.py::test_cluster_app_snapshots_status_without_blocking_or_widening_access`; `tests/integration/test_ui_status_assets.py::test_watch_service_is_unprivileged_and_hardened`; `tests/unit/test_ui_status.py::test_read_snapshot_never_writes`; `tests/unit/test_ui_status.py::test_write_status_replaces_planted_fifo_or_symlink_without_following`
 
 ## VR-UI-007 — A status-display failure never blocks the Cluster application or the OTA services
 
@@ -132,17 +132,17 @@ Reference: Tailored from Automotive SPICE 4.0 (SWE.4-6, SUP.1/8/9), ISO 26262-6 
 - **Gate:** G2
 - **Automated test / evidence:** `tests/unit/test_ui_status.py::test_main_snapshot_returns_zero_when_output_directory_missing`; `tests/unit/test_ui_status.py::test_watch_survives_corrupt_state_and_recovers`; `tests/unit/test_ui_status.py::test_watch_continues_when_output_write_fails`; `tests/unit/test_ui_status.py::test_write_status_does_not_create_missing_directory`; `tests/integration/test_ui_status_assets.py::test_tmpfiles_owns_runtime_directory`; `tests/integration/test_ui_status_assets.py::test_status_initial_version_matches_zone_agent`
 
-## VR-UI-008 — The badge keeps the original cluster usable: no lamp or gauge covered, legible, never red, no input capture
+## VR-UI-008 — Badge keeps the original cluster usable on the desktop x86_64 capture: no upstream content under the plate (one reviewed decorative overlap), legible, never red, no input capture
 
 - **Test case:** TC-UI-VIS-001
 - **Verification level:** SWE.5 component + desktop system check (ISO 26262-6: Testing of the embedded software (desktop, not target))
-- **Verification method:** static checks, clearance-measurement unit tests and the desktop capture of the real patched app in 11 layouts
+- **Verification method:** static checks, clearance/coverage unit tests, and the desktop capture of the real patched app vs the unpatched baseline in 11 layouts (Qt 5.15.2 x86_64, Xvfb)
 - **Techniques:** requirements-based, interface, boundary, review
 - **Precondition:** patched upstream built with Qt 5.15.2 on x86_64, run under Xvfb
-- **Expected result:** badge plate x>=1150 with >=2 px clearance in every layout (one reviewed decorative overlap); state sequence visible
-- **Pass/Fail criterion:** PASS if static checks pass and the committed capture evidence reports failed=false
+- **Expected result:** baseline content under the 124x50 plate = 0 px and >=2 px left clearance in every layout except the reviewed decorative frame line of OriginalEarly240Layout; capture evidence matches the current badge sources
+- **Pass/Fail criterion:** PASS if static/unit cases pass and the committed capture evidence reports failed=false, baseline_compared=true and source hashes equal the current files
 - **Gate:** G2
-- **Automated test / evidence:** `tests/integration/test_dashboard_customization.py::test_badge_uses_spec_colors_never_red_and_never_takes_input`; `tests/integration/test_dashboard_customization.py::test_badge_and_model_hard_code_no_version_or_state_value`; `tests/integration/test_dashboard_customization.py::test_model_pins_source_path_limits_and_timing`; `tests/integration/test_dashboard_customization.py::test_clearance_passes_when_last_lamp_ends_left_of_plate`; `tests/integration/test_dashboard_customization.py::test_clearance_fails_when_upstream_content_touches_plate`; `tests/integration/test_dashboard_customization.py::test_reviewed_decorative_overlaps_are_explicit_and_few`; evidence `docs/verification/evidence/desktop-qt/capture.json` expects {"failed": false}
+- **Automated test / evidence:** `tests/integration/test_dashboard_customization.py::test_badge_uses_spec_colors_never_red_and_never_takes_input`; `tests/integration/test_dashboard_customization.py::test_badge_and_model_hard_code_no_version_or_state_value`; `tests/integration/test_dashboard_customization.py::test_model_pins_source_path_limits_and_timing`; `tests/integration/test_dashboard_customization.py::test_clearance_passes_when_last_lamp_ends_left_of_plate`; `tests/integration/test_dashboard_customization.py::test_clearance_fails_when_upstream_content_touches_plate`; `tests/integration/test_dashboard_customization.py::test_reviewed_decorative_overlaps_are_explicit_and_few`; `tests/integration/test_dashboard_customization.py::test_covered_content_counts_baseline_pixels_under_plate_and_strips`; `tests/integration/test_dashboard_customization.py::test_capture_records_hashes_of_the_badge_sources`; evidence `docs/verification/evidence/desktop-qt/capture.json` expects {"failed": false, "baseline_compared": true}
 
 ## VR-UI-009 — Customization is reproducible on the pinned upstream and preserves provenance
 

@@ -1,0 +1,81 @@
+{
+  "coordinator_phases": [
+    "PREPARING",
+    "READY",
+    "ACTIVATING",
+    "VERIFYING",
+    "COMMITTED"
+  ],
+  "display_sequence": [
+    [
+      "stable",
+      "1.0.0"
+    ],
+    [
+      "trial",
+      "1.1.1"
+    ],
+    [
+      "stable",
+      "1.1.1"
+    ]
+  ],
+  "final_slots": {
+    "central-control": [
+      "B",
+      "B",
+      "1.1.0"
+    ],
+    "digital-cluster": [
+      "B",
+      "B",
+      "1.1.1"
+    ]
+  },
+  "requirement": "VR-UI-003",
+  "scenario": "normal update",
+  "timeline": [
+    {
+      "restored": false,
+      "source": "boot",
+      "state": "stable",
+      "version": "1.0.0"
+    },
+    {
+      "restored": false,
+      "source": "PREPARING",
+      "state": "stable",
+      "version": "1.0.0"
+    },
+    {
+      "restored": false,
+      "source": "READY",
+      "state": "stable",
+      "version": "1.0.0"
+    },
+    {
+      "restored": false,
+      "source": "ACTIVATING",
+      "state": "stable",
+      "version": "1.0.0"
+    },
+    {
+      "restored": false,
+      "source": "app-restart",
+      "state": "trial",
+      "version": "1.1.1"
+    },
+    {
+      "restored": false,
+      "source": "VERIFYING",
+      "state": "trial",
+      "version": "1.1.1"
+    },
+    {
+      "restored": false,
+      "source": "COMMITTED",
+      "state": "stable",
+      "version": "1.1.1"
+    }
+  ]
+}

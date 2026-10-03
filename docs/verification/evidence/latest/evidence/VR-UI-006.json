@@ -1,0 +1,12 @@
+{
+  "journal_mode": "0o600",
+  "requirement": "VR-UI-006",
+  "status_keys": [
+    "restored_at",
+    "schema_version",
+    "state",
+    "version"
+  ],
+  "status_mode": "0o644",
+  "transaction_id_leaked": false
+}

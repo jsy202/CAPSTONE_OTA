@@ -56,7 +56,7 @@ def test_qt_unit_and_component_tests_pass_when_qt_available():
     result = subprocess.run([str(CUSTOM / "qt-tests/run-qt-tests.sh"), qt],
                             capture_output=True, text=True, timeout=600)
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-4000:]
-    assert "Totals: 33 passed, 0 failed" in result.stdout
+    assert "Totals: 38 passed, 0 failed" in result.stdout
     assert "Totals: 14 passed, 0 failed" in result.stdout
 
 
@@ -155,3 +155,31 @@ def test_reviewed_decorative_overlaps_are_explicit_and_few():
     module = _capture_module()
     assert set(module.REVIEWED_DECORATIVE) <= set(module.SCREENS)
     assert len(module.REVIEWED_DECORATIVE) <= 1
+
+
+def _blank(width=1280, height=480):
+    return bytearray(width * height * 3)
+
+
+def _paint(rgb, x0, y0, x1, y1, width=1280, color=b"\x30\x30\x30"):
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            rgb[(y * width + x) * 3:(y * width + x) * 3 + 3] = color
+
+
+def test_covered_content_counts_baseline_pixels_under_plate_and_strips():
+    module = _capture_module()
+    rgb = _blank()
+    assert module.covered_content(1280, 480, bytes(rgb)) == {"plate_px": 0, "strip_px": 0}
+    _paint(rgb, 1200, 440, 1210, 450)       # dim unlit lamp under the plate area
+    _paint(rgb, 100, 0, 110, 2)             # content touching the top edge
+    result = module.covered_content(1280, 480, bytes(rgb))
+    assert result == {"plate_px": 100, "strip_px": 20}
+
+
+def test_capture_records_hashes_of_the_badge_sources():
+    module = _capture_module()
+    hashes = module.source_hashes()
+    import hashlib
+    assert hashes["StatusBadge.qml"] == hashlib.sha256((OVERLAY / "StatusBadge.qml").read_bytes()).hexdigest()
+    assert set(hashes) == {"StatusBadge.qml", "app_status.cpp"}

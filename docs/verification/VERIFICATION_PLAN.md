@@ -92,14 +92,18 @@
 - 측정 항목 중 FAIL 0건
 - 전체 회귀 failure/error 0건
 - 보호 경로 무변경
-- NOT_EXECUTED와 PENDING_HARDWARE 항목은 보고서에 명시하고, PASS로 집계하지 않음
+- 자동 측정 항목에 NOT_EXECUTED가 0건 (Qt 툴체인과 upstream import가 있는 환경에서 실행)
+- NOT_EXECUTED가 있으면 결과는 **INCOMPLETE**(exit 2)이고 PASS로 보고하지 않음
+- PENDING_HARDWARE 항목은 보고서에 따로 명시함. 최종 판정 문구는 "PASS WITH HARDWARE VALIDATION PENDING"
 
 ## 8. Pass/Fail 판정 규칙 (자동화됨)
 
 - 측정 항목은 연결된 모든 테스트 케이스(parameter 포함)가 통과해야 PASS입니다.
 - Traceability에 적힌 테스트가 존재하지 않으면 **FAIL**입니다(추적성 깨짐).
 - skip된 테스트는 **NOT_EXECUTED**입니다. PASS로 세지 않습니다.
-- Gate는 FAIL이 0건이고 실행된 PASS가 1건 이상이어야 PASS입니다.
+- Gate는 FAIL이 0건이고 실행된 PASS가 1건 이상이며 NOT_EXECUTED가 0건이어야 PASS입니다.
+  NOT_EXECUTED가 있으면 INCOMPLETE입니다.
+- 전체 결과는 PASS(exit 0), INCOMPLETE(exit 2), FAIL(exit 1) 중 하나이고, FAIL이 다른 결과보다 우선합니다.
 - G6는 전체 회귀 failure/error 0건과 보호 경로 무변경을 모두 만족해야 합니다.
 - 하드웨어 항목은 PENDING_HARDWARE로 따로 표시합니다.
 

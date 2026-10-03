@@ -1,0 +1,35 @@
+{
+  "after_boot": [
+    [
+      "stable",
+      "1.0.0"
+    ]
+  ],
+  "before_power_loss": [
+    [
+      "stable",
+      "1.0.0"
+    ],
+    [
+      "trial",
+      "1.1.1"
+    ]
+  ],
+  "final_phase": "ROLLED_BACK",
+  "final_slots": {
+    "central-control": [
+      "A",
+      "A",
+      null
+    ],
+    "digital-cluster": [
+      "A",
+      "A",
+      null
+    ]
+  },
+  "last_error": "UPDATE_INTERRUPTED",
+  "recovery_verification_passed": true,
+  "requirement": "VR-OTA-005",
+  "scenario": "power loss during VERIFYING"
+}

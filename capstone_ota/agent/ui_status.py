@@ -14,6 +14,7 @@ import json
 import math
 import os
 import re
+import stat
 import sys
 import tempfile
 import time
@@ -99,14 +100,34 @@ def _encode(status: dict) -> bytes:
     return (json.dumps(status, sort_keys=True, separators=(",", ":")) + "\n").encode()
 
 
+def _read_regular(path: Path, limit: int) -> bytes | None:
+    """Read at most limit+1 bytes of a regular file without following links.
+
+    The output directory belongs to another account; a planted symlink, FIFO
+    or device must never be followed, block, or be read without bound.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        return os.read(fd, limit + 1)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
 def read_previous(path: Path) -> dict | None:
     """Return the last published v1 status, or None when absent or invalid."""
+    raw = _read_regular(Path(path), MAX_STATUS_BYTES)
+    if raw is None or len(raw) > MAX_STATUS_BYTES:
+        return None
     try:
-        raw = Path(path).read_bytes()
-        if len(raw) > MAX_STATUS_BYTES:
-            return None
         status = json.loads(raw)
-    except (OSError, ValueError):
+    except ValueError:
         return None
     if (not isinstance(status, dict) or set(status) != _KEYS
             or type(status["schema_version"]) is not int or status["schema_version"] != SCHEMA_VERSION):
@@ -121,11 +142,8 @@ def write_status(path: Path, status: dict) -> bool:
     """
     path = Path(path)
     data = _encode(status)
-    try:
-        if path.read_bytes() == data:
-            return False
-    except OSError:
-        pass
+    if _read_regular(path, MAX_STATUS_BYTES) == data:
+        return False
     fd, name = tempfile.mkstemp(prefix=f".{path.stem}.", dir=path.parent)
     temporary = Path(name)
     try:
@@ -161,8 +179,16 @@ def watch(install_root: Path, initial_version: str, output: Path, interval: floa
             try:
                 write_status(output, _status("unknown", None))
             except Exception:
-                pass
+                _discard(output)
         sleep(interval)
+
+
+def _discard(output: Path) -> None:
+    """Never leave a stale state on screen: no file means unknown in the UI."""
+    try:
+        Path(output).unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -183,4 +209,5 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         # Snapshot runs as ExecStartPre; it must never block the application.
         print(f"capstone-ota-ui-status: cannot publish {args.output}: {exc}", file=sys.stderr)
+        _discard(args.output)
     return 0

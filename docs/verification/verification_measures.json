@@ -193,7 +193,11 @@
         "tests/unit/test_ui_status.py::test_absolute_selector_is_rejected_like_the_installer",
         "tests/unit/test_ui_status.py::test_interrupted_write_keeps_previous_status_and_no_temporary",
         "tests/unit/test_ui_status.py::test_read_previous_rejects_non_v1",
-        "tests/unit/test_ui_status.py::test_malformed_previous_restored_at_is_not_carried"
+        "tests/unit/test_ui_status.py::test_malformed_previous_restored_at_is_not_carried",
+        "tests/unit/test_ui_status.py::test_read_previous_never_blocks_on_fifo",
+        "tests/unit/test_ui_status.py::test_read_previous_does_not_follow_symlink",
+        "tests/unit/test_ui_status.py::test_failed_snapshot_removes_stale_status",
+        "tests/unit/test_ui_status.py::test_failed_watch_iteration_removes_stale_status"
       ],
       "evidence_checks": []
     },
@@ -212,7 +216,7 @@
         "boundary",
         "interface"
       ],
-      "method": "Qt Test (33 cases) and QML TestCase (14 cases) built with a real Qt 5.15.2 toolchain",
+      "method": "Qt Test (38 cases) and QML TestCase (14 cases) built with a real Qt 5.15.2 toolchain",
       "precondition": "CAPSTONE_QT_DIR points at a Qt 5.15 prefix",
       "expected": "all Qt unit and QML component cases pass",
       "pass_fail": "PASS if both Qt binaries report 0 failures; NOT_EXECUTED without a Qt toolchain",
@@ -237,13 +241,14 @@
       ],
       "method": "system test over the full OTA path + deployment asset inspection",
       "precondition": "full rollback lifecycle; production unit files",
-      "expected": "state.json stays 0600; status file has only 4 display keys and mode 0644; app unit gains no ReadWritePaths; watcher runs as capstone-ota, not root",
+      "expected": "state.json stays 0600; status file has only 4 display keys and mode 0644; app unit gains no ReadWritePaths; snapshot drops root via setpriv to capstone-ota; watcher runs as capstone-ota; planted symlink/FIFO never followed",
       "pass_fail": "PASS if no OTA identifier/digest leaks and no privilege is widened",
       "tests": [
         "tests/integration/test_ui_status_system.py::test_ui_status_never_exposes_privileged_journal",
         "tests/integration/test_ui_status_assets.py::test_cluster_app_snapshots_status_without_blocking_or_widening_access",
         "tests/integration/test_ui_status_assets.py::test_watch_service_is_unprivileged_and_hardened",
-        "tests/unit/test_ui_status.py::test_read_snapshot_never_writes"
+        "tests/unit/test_ui_status.py::test_read_snapshot_never_writes",
+        "tests/unit/test_ui_status.py::test_write_status_replaces_planted_fifo_or_symlink_without_following"
       ],
       "evidence_checks": []
     },
@@ -278,7 +283,7 @@
     {
       "vr": "VR-UI-008",
       "tc": "TC-UI-VIS-001",
-      "title": "The badge keeps the original cluster usable: no lamp or gauge covered, legible, never red, no input capture",
+      "title": "Badge keeps the original cluster usable on the desktop x86_64 capture: no upstream content under the plate (one reviewed decorative overlap), legible, never red, no input capture",
       "level": "SWE.5 component + desktop system check",
       "iso26262_6": "Testing of the embedded software (desktop, not target)",
       "r156_concepts": [],
@@ -290,23 +295,30 @@
         "boundary",
         "review"
       ],
-      "method": "static checks, clearance-measurement unit tests and the desktop capture of the real patched app in 11 layouts",
+      "method": "static checks, clearance/coverage unit tests, and the desktop capture of the real patched app vs the unpatched baseline in 11 layouts (Qt 5.15.2 x86_64, Xvfb)",
       "precondition": "patched upstream built with Qt 5.15.2 on x86_64, run under Xvfb",
-      "expected": "badge plate x>=1150 with >=2 px clearance in every layout (one reviewed decorative overlap); state sequence visible",
-      "pass_fail": "PASS if static checks pass and the committed capture evidence reports failed=false",
+      "expected": "baseline content under the 124x50 plate = 0 px and >=2 px left clearance in every layout except the reviewed decorative frame line of OriginalEarly240Layout; capture evidence matches the current badge sources",
+      "pass_fail": "PASS if static/unit cases pass and the committed capture evidence reports failed=false, baseline_compared=true and source hashes equal the current files",
       "tests": [
         "tests/integration/test_dashboard_customization.py::test_badge_uses_spec_colors_never_red_and_never_takes_input",
         "tests/integration/test_dashboard_customization.py::test_badge_and_model_hard_code_no_version_or_state_value",
         "tests/integration/test_dashboard_customization.py::test_model_pins_source_path_limits_and_timing",
         "tests/integration/test_dashboard_customization.py::test_clearance_passes_when_last_lamp_ends_left_of_plate",
         "tests/integration/test_dashboard_customization.py::test_clearance_fails_when_upstream_content_touches_plate",
-        "tests/integration/test_dashboard_customization.py::test_reviewed_decorative_overlaps_are_explicit_and_few"
+        "tests/integration/test_dashboard_customization.py::test_reviewed_decorative_overlaps_are_explicit_and_few",
+        "tests/integration/test_dashboard_customization.py::test_covered_content_counts_baseline_pixels_under_plate_and_strips",
+        "tests/integration/test_dashboard_customization.py::test_capture_records_hashes_of_the_badge_sources"
       ],
       "evidence_checks": [
         {
           "path": "docs/verification/evidence/desktop-qt/capture.json",
           "expect": {
-            "failed": false
+            "failed": false,
+            "baseline_compared": true
+          },
+          "sha256_of": {
+            "StatusBadge.qml": "dashboard/volvo-digital-dash/customization/overlay/app/StatusBadge.qml",
+            "app_status.cpp": "dashboard/volvo-digital-dash/customization/overlay/app/src/capstone/app_status.cpp"
           }
         }
       ]
