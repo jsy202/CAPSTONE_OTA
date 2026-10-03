@@ -136,3 +136,27 @@
 | G6 | Full regression + change impact PASS | 예 |
 | G7 | Privilege / security regression PASS | 예 |
 | HW | Raspberry Pi 하드웨어 검증 | 대기 (PASS로 집계 안 함) |
+
+## 12. Application Contract 검증 (Part B, stacked branch)
+
+| Gate | 내용 | 주요 증적 |
+|---|---|---|
+| A1 | Central unit: heartbeat, counter, identity, profile, scheduler(fake clock) | `tests/unit/test_central_control.py` |
+| A2 | Cluster IPC와 모델 통합 (Qt Test, 실제 바이너리) | `cluster_signals_test`, `test_cluster_app_ipc.py` |
+| A3 | 프로토콜 적합성: 실제 `ApplicationIpc` 클라이언트, 코덱, wall-clock cadence, maintenance 유지 | `test_central_control_app.py` |
+| A4 | 정상 호환성 검증 (실제 앱) | `test_application_contracts_system.py` |
+| A5 | 의미 결함 검출 (실제 결함 빌드) | 같은 파일, `test_cluster_app_ipc.py` |
+| A6 | Whole-vehicle rollback (실제 앱) | 같은 파일 |
+| A7 | Recovery verification (실제 앱) | 같은 파일 |
+| A8 | 보안·견고성: 소켓 권한, 특수 파일, 잘못된 IPC 상대, CAN 오류 | unit, integration, asset tests |
+| A9 | 전체 회귀 + 변경 영향 (G6와 같은 규칙) | verifier |
+
+**Timing 수용 기준:**
+- unit 테스트는 fake clock으로 정확한 프레임 수를 확인합니다.
+- wall-clock 테스트는 실제 루프를 3 s 동안 0.1 s/0.05 s 주기로 실행하고, 중앙값이 명목 주기 ±20 % 안이고 가장 긴 간격이 명목 주기의 2배 이하이면 통과입니다.
+- 근거: validator의 `max_missed_heartbeats`와 `heartbeat_timeout_s`보다 충분히 엄격하고, CI 스케줄링 지연은 허용하는 수준입니다.
+
+**추가 fault injection:**
+- Central: heartbeat 중단(identity 손실), counter 넘김, 잘못된 identity 분할, 잘못된·중첩·부분·무응답 IPC, CAN 전송 오류, 재시작 시 maintenance 유지
+- Cluster: 잘못된 envelope, 범위 밖 값, 모델 없음, 무응답·과대 입력 상대, 결함 빌드
+- 기존 OTA fault 테스트는 다시 만들지 않고 추적성에 연결했습니다.

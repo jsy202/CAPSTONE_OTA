@@ -65,7 +65,10 @@ slots) is consumed unchanged.
 ### 3.4 Maintenance semantics
 - While maintenance is enabled, vehicle output switches to the **stationary safe profile** `(0, 800, PARK, 0)`. 0x200 keeps flowing at the same period.
 - Heartbeats never stop. The validator needs both streams during verification, and stopping them would turn every update into a rollback.
-- The maintenance flag lives in memory only. A restarted app starts with maintenance off; the coordinator re-sends maintenance on every phase.
+- The maintenance flag is persisted in `/run/central-control/maintenance`, and the unit sets `RuntimeDirectoryPreserve=restart`.
+  - The coordinator enables maintenance **once**, before activation, and `activate_trial` then restarts Central. The flag must therefore survive that restart.
+  - An unreadable flag starts disabled.
+  - This was revised after the final review (RA-1); the earlier "re-sent every phase" premise was wrong.
 
 ### 3.5 Maintenance IPC server
 - **Socket:**

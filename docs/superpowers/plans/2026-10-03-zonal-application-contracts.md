@@ -44,16 +44,16 @@
 - `read_identity(path) -> tuple[ApplicationState, tuple[int, int, int]] | None`
 - `CentralControl(transport, identity_path, *, heartbeat_period=1.0, vehicle_period=0.1, protocol=(1, 0), clock=time.monotonic)` with `.tick(now) -> float` (next deadline), `.maintenance` (bool), `.set_maintenance(bool)`
 
-- [ ] Write the failing tests:
+- [x] Write the failing tests:
   - profile at the phase boundaries (0, 3, 10, 15, 20 s wraps to 0), all values inside `CanContract`, identical output for identical t
   - identity: stable/trial/unknown/missing/non-numeric/uint8 overflow
   - tick with a fake clock: exact counts over 10 s (10 heartbeats, 100 vehicle frames), contiguous counters through 255→0, no burst after a 5 s stall
   - no heartbeat while the identity is unknown, but vehicle frames continue
   - maintenance switches the vehicle frames to the stationary profile and keeps heartbeats
-- [ ] Run → FAIL (module missing)
-- [ ] Implement
-- [ ] Run → PASS
-- [ ] Commit `feat: add Central Control heartbeat, vehicle profile and identity`
+- [x] Run → FAIL (module missing)
+- [x] Implement
+- [x] Run → PASS
+- [x] Commit `feat: add Central Control heartbeat, vehicle profile and identity`
 
 ### Task 2: Central maintenance IPC
 **Files:** Modify `central_control.py`, test files
@@ -62,19 +62,19 @@
 - `handle_request(raw: bytes, app: CentralControl) -> bytes | None`
 - `MaintenanceServer(path, app, *, group=None)` with `.fileno()`, `.service(deadline_clock)` (non-blocking accept/read, per-connection deadline)
 
-- [ ] Failing unit tests for `handle_request`:
+- [x] Failing unit tests for `handle_request`:
   - valid on/off
   - echoed id
   - unknown operation → `ok:false`
   - wrong payload type, bool schema, duplicate keys, invalid UTF-8, >4096 bytes, no newline, non-object → `None`
-- [ ] Failing integration tests with the real `ApplicationIpc(...).set_maintenance` against a server in a thread:
+- [x] Failing integration tests with the real `ApplicationIpc(...).set_maintenance` against a server in a thread:
   - on/off confirmed
   - socket mode 0660
   - a regular file or symlink at the path → startup refused, file untouched
   - a silent client does not block a second client (served within 1 s)
-- [ ] Implement with `selectors` and non-blocking sockets
-- [ ] PASS
-- [ ] Commit `feat: add Central Control maintenance IPC`
+- [x] Implement with `selectors` and non-blocking sockets
+- [x] PASS
+- [x] Commit `feat: add Central Control maintenance IPC`
 
 ### Task 3: Central runtime, packaging, systemd
 **Files:**
@@ -83,14 +83,14 @@
 
 **Produces:** `main(argv)` with flags `--can can0 --identity … --socket … --heartbeat-period --vehicle-period`. `run(app, server, transport_send)` loops until a stop event.
 
-- [ ] Failing tests:
+- [x] Failing tests:
   - wall-clock cadence: real `run()` for 3 s on a fake transport at 0.1/0.05 s; median ±20 %, max gap ≤ 2×
   - frames decode with the real codecs
   - payload script builds `bin/central-control` + `lib/central_control.py`, executable, and refuses a non-empty output
   - unit asset tests: `ExecStartPre=-+/usr/bin/setpriv …central-control.json`; `ExecStart` unchanged; `User=central-control`; `RestrictAddressFamilies=AF_UNIX AF_CAN`; no `ReadWritePaths`; watch unit hardened as `User=capstone-ota`
-- [ ] Implement
-- [ ] PASS
-- [ ] Commit `feat: package and deploy the Central Control application`
+- [x] Implement
+- [x] PASS
+- [x] Commit `feat: package and deploy the Central Control application`
 
 ### Task 4: Cluster interpreter and IPC protocol (Qt, pure)
 **Files:** Create `customization/overlay/app/inc/capstone/cluster_signals.h`, `src/capstone/cluster_signals.cpp`, `customization/qt-tests/cluster_signals_test.{pro,cpp}`
@@ -101,59 +101,59 @@
 - `class ModelAccess` (interface over QObject property access, resolved by context-property name)
 - `QByteArray handleIpcRequest(const QByteArray&, ClusterSignalInterpreter&, ModelAccess&)` (empty = close without response)
 
-- [ ] Failing Qt tests with test-local QObject models exposing the upstream property names:
+- [x] Failing Qt tests with test-local QObject models exposing the upstream property names:
   - 650 → speedo 65.0 kph / 40.39 mph and back to 650
   - rpm round-trip
   - warnings mask ↔ 8 lamps
   - gear kept
   - functional response built from the models after a model-side rewrite (the model clamps speed → the response shows the clamped value, proving no echo)
   - malformed envelopes (same partitions as Central), unknown op, missing model → `ok:false`
-- [ ] Implement
-- [ ] PASS
-- [ ] Commit `feat: interpret Cluster IPC signals through the dashboard models`
+- [x] Implement
+- [x] PASS
+- [x] Commit `feat: interpret Cluster IPC signals through the dashboard models`
 
 ### Task 5: Cluster IPC server, patch, fault build
 **Files:**
 - Create: `customization/overlay/app/{inc,src}/capstone/cluster_ipc_server.*`, `customization/make-fault-payload.sh`
 - Modify: the patch, `qt-tests` (fault build target), `tests/integration/test_dashboard_customization.py` (new expectations)
 
-- [ ] Failing tests:
+- [x] Failing tests:
   - Qt: QLocalServer test — a silent client plus a second client served; oversized input closed; stale socket replaced only when it is a socket
   - fault-build Qt test: `faultDivisor()==10` and 650 → model 6.5 kph → observe 65
   - static: the patch adds `cluster_ipc_server`, `QT += network`, the fault define only under `!isEmpty(CAPSTONE_FAULT_SPEED_DIVISOR)`; still 4 files, add-only
-- [ ] Implement, regenerate the patch from a pristine import, update `run-qt-tests.sh` to build normal + fault test binaries
-- [ ] Build the patched upstream normal and fault variants with `-Werror`
-- [ ] PASS
-- [ ] Commit `feat: serve Cluster vehicle and functional IPC from the dashboard`
+- [x] Implement, regenerate the patch from a pristine import, update `run-qt-tests.sh` to build normal + fault test binaries
+- [x] Build the patched upstream normal and fault variants with `-Werror`
+- [x] PASS
+- [x] Commit `feat: serve Cluster vehicle and functional IPC from the dashboard`
 
 ### Task 6: Real Qt app IPC component test (conditional on `CAPSTONE_CLUSTER_APP` / `CAPSTONE_CLUSTER_FAULT_APP`)
 **Files:** `tests/integration/test_cluster_app_ipc.py`
 
-- [ ] Tests (start the binary offscreen with a temp socket):
+- [x] Tests (start the binary offscreen with a temp socket):
   - `ApplicationIpc.observe_functional_test(650,3000,D,1)` → exact
   - fault binary → speed 65
   - a vehicle sample, then functional → the response reflects the functional values
   - a malformed client and a silent client do not stop service
   - the process stays alive
-- [ ] Commit `test: verify the real Cluster app IPC contract`
+- [x] Commit `test: verify the real Cluster app IPC contract`
 
 ### Task 7: Hardware-free system E2E with the real apps
 **Files:** `tests/integration/test_application_contracts_system.py`
 
 Use the existing `Vehicle` with monkeypatched `zonal_harness.CentralApp` (real `CentralControl` loop on the virtual port, identity from `run_once` on the central root at boot and restart) and `zonal_harness.ClusterApp` (real `ApplicationIpc` to the Qt process; the restart hook relaunches `active-slot/bin/application`).
 
-- [ ] Tests:
+- [x] Tests:
   - real Central + harness Cluster (unconditional) → COMMITTED; central heartbeats TRIAL 1.1.0 in the evidence; maintenance through real IPC `[on, off]`
   - real Central + real Qt normal → COMMITTED
   - real Central + real Qt fault build in slot B → `FUNCTIONAL_VALUE_MISMATCH`, ROLLED_BACK, recovery passed, both A
   - Central identity unknown during trial → `HEARTBEAT_*` → ROLLED_BACK
-- [ ] Commit `test: run the zonal OTA end to end with the real applications`
+- [x] Commit `test: run the zonal OTA end to end with the real applications`
 
 ### Task 8: Verification measures, gates A1–A9, docs
 **Files:** `verification_measures.json`, `scripts/verify_cluster_ota.py`, its unit tests, the REQUIREMENTS regeneration, `VERIFICATION_PLAN/REPORT`, `ZONAL_OTA_GUIDE.md` §5, `CLUSTER_STATUS_HARDWARE_ACCEPTANCE.md` Part 2, README
 
-- [ ] Failing unit test: gates A1–A9 exist; A9 behaves like G6
-- [ ] Add VR-APP-001..014 with tests
-- [ ] Run the verifier with Qt/upstream/apps
-- [ ] Update the docs from the real results
-- [ ] Commit
+- [x] Failing unit test: gates A1–A9 exist; A9 behaves like G6
+- [x] Add VR-APP-001..014 with tests
+- [x] Run the verifier with Qt/upstream/apps
+- [x] Update the docs from the real results
+- [x] Commit
