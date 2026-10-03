@@ -105,6 +105,11 @@ sudo install -d -m 0755 -o capstone-ota -g capstone-ota /opt/digital-cluster
 sudo install -m 0640 -o root -g capstone-ota ota/config/cluster-zonal.example.json /etc/capstone-ota/zonal.json
 sudo install -m 0644 ota/systemd/capstone-ota-zone-agent.service ota/systemd/digital-cluster.service /etc/systemd/system/
 sudo install -m 0644 ota/polkit/50-capstone-ota-zonal.rules /etc/polkit-1/rules.d/
+# 화면 상태 배지(표시 전용): 상태 파일 디렉터리와 commit 감시 서비스
+sudo install -m 0644 ota/tmpfiles/capstone-ota-ui.conf /etc/tmpfiles.d/
+sudo systemd-tmpfiles --create /etc/tmpfiles.d/capstone-ota-ui.conf
+sudo install -m 0644 ota/systemd/capstone-ota-ui-status.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now capstone-ota-ui-status
 ```
 
 - 설정 파일은 엄격하게 검증됩니다. `device_id`, `ecu_id`, `can0`, `500000`,
@@ -112,6 +117,8 @@ sudo install -m 0644 ota/polkit/50-capstone-ota-zonal.rules /etc/polkit-1/rules.
 - `stable-bundle.json`은 처음 설치한 두 앱의 버전 집합입니다.
   `ota/config/stable-bundle.example.json`의 버전/프로토콜을 실제 공장 버전으로 맞추고,
   `capstone-ota-zone-agent.service`의 `--initial-version`도 같은 Cluster 버전으로 맞춥니다.
+  `digital-cluster.service`와 `capstone-ota-ui-status.service`의 `--initial-version`도 같은 값이어야
+  합니다(`tests/integration/test_ui_status_assets.py`가 확인).
 - 슬롯 디렉터리는 agent/coordinator가 처음 실행될 때 `slots/A`와 `active-slot`으로
   만들어집니다. 공장 버전 애플리케이션을 `slots/A`에 넣은 뒤 서비스를 켭니다.
 - 시작 순서: `can0`·`eth0` 준비 → 애플리케이션 서비스 → `capstone-ota-zone-agent`
@@ -139,6 +146,23 @@ IPC는 연결당 한 줄 JSON 요청/응답입니다.
 합니다. 이 값이 런타임 의미 결함을 잡는 근거입니다. 신호 단위는 속도 0.1 km/h,
 RPM, 기어(P=0, R=1, N=2, D=3), 경고 비트마스크이며, 모든 CAN 프레임의 byte 7은
 CRC-8/SMBUS입니다(`capstone_ota/common/can_protocol.py`).
+
+### 5.1 화면 상태 배지 (OTA 계약 변경 없음)
+
+Cluster 앱은 OTA IPC나 CAN을 통해 상태를 받지 않습니다.
+- **상태 파일 생성:** 읽기 전용 헬퍼 `capstone-ota-ui-status`가 slot journal(`0600`)과
+  `active-slot`을 읽어 `/run/capstone-ota-ui/digital-cluster.json`(`0644`)을 씁니다.
+- **실행 시점:** `digital-cluster.service`의 `ExecStartPre=-+`로 앱이 시작되기 직전에 한 번 실행합니다.
+  commit처럼 앱이 재시작되지 않는 변화는 `capstone-ota-ui-status.service`가 1초 주기로 반영합니다.
+- **앱 쪽:** 패치된 앱의 `AppStatus`가 이 파일을 1초마다 읽어 우하단 배지를 그립니다.
+- **실패 시:** 헬퍼가 실패해도 앱은 시작됩니다(`-`). 파일이 없거나 손상되면 `SW STATUS —`로 표시합니다.
+
+```json
+{"schema_version":1,"state":"trial","version":"1.1.1","restored_at":null}
+```
+
+데스크톱에서 OTA 없이 시연할 때는 상태 파일이 없을 때만
+`CAPSTONE_APP_STATE=trial CAPSTONE_APP_VERSION=1.1.1`을 사용합니다.
 
 ## 6. 패키징과 배포 (노트북)
 
@@ -203,7 +227,14 @@ journalctl -u capstone-ota-zone-agent -u digital-cluster -o short-iso > cluster-
 sudo cat /var/lib/capstone-ota/vehicle.json > vehicle-<scenario>.json  # 전이·증거·오류 코드
 sudo cat /opt/central-control/state.json /opt/digital-cluster/state.json  # 슬롯 상태
 readlink /opt/central-control/active-slot /opt/digital-cluster/active-slot
+cat /run/capstone-ota-ui/digital-cluster.json                    # 화면 배지가 표시한 상태
+journalctl -u capstone-ota-ui-status -o short-iso > ui-status-<scenario>.log
 ```
+
+화면 배지의 기대 순서는 다음과 같습니다.
+- 시나리오 1: `STABLE SW 1.0.0` → `OTA TRIAL SW 1.1.1` → `STABLE SW 1.1.1`
+- 시나리오 3, 4: `STABLE SW 1.0.0` → `OTA TRIAL SW 1.1.1` → `RESTORED SW 1.0.0`(15 s) → `STABLE SW 1.0.0`
+- 시나리오 5: 재부팅 후 `STABLE SW 1.0.0`. `/run`이 비워지므로 RESTORED는 표시되지 않습니다.
 
 `vehicle.json`의 `events`에는 전이마다 타임스탬프, ECU별 슬롯, 오류, 검증 증거가
 남습니다. 화면 표시값은 사진/영상으로 함께 남기세요.
@@ -217,6 +248,9 @@ readlink /opt/central-control/active-slot /opt/digital-cluster/active-slot
 | 인증서 스크립트, systemd/network 설정 파일 구문 | 실행/정적 검사 |
 | Raspberry Pi 두 대, MCP2515, 실제 SocketCAN, systemd/polkit 동작 | **미실행** |
 | Central Control 앱, Qt Cluster IPC·CAN 연동 | **미구현** (5절 계약) |
+| 화면 상태 배지: 헬퍼, systemd 자산, 실제 slot 생애주기, 전체 OTA 경로 상태 전이 | 실행됨 (`scripts/verify-cluster-ota-demo.sh`, Gate G1–G7) |
+| 화면 상태 배지: Qt 단위/QML 컴포넌트 테스트, 패치된 upstream 데스크톱 빌드·화면 캡처 | 실행됨 (Qt 5.15.2 x86_64, Xvfb). Pi/ARM 아님 |
+| 화면 상태 배지: Raspberry Pi 실제 화면 | **미실행** (`docs/RPI_VALIDATION_CHECKLIST.md` B1–B8) |
 
 무하드웨어 테스트는 CAN 주기를 50/100 ms로 줄인 계약을 사용합니다. 실제 기본값은
 heartbeat 1 s, 차량 신호 100 ms이며, 검증 창은 5초입니다.

@@ -160,3 +160,9 @@ def test_protected_change_is_reported_once_and_fails(tmp_path, monkeypatch):
     unchanged, detail = V.protected_paths_unchanged(["core"], "main")
     assert unchanged is False
     assert detail.count("core/x.py") == 1
+
+
+def test_committed_requirements_document_matches_measures():
+    expected = V.requirements_markdown(V.load_measures(MEASURES))
+    assert (ROOT / "docs" / "verification" / "REQUIREMENTS.md").read_text() == expected, \
+        "regenerate with: python3 scripts/verify_cluster_ota.py --write-requirements"

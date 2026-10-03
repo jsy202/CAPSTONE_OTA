@@ -152,6 +152,21 @@ Cluster의 IPC/CAN 연동은 앱 쪽 구현이 필요합니다. 설치·계약·
 [ZONAL_OTA_GUIDE.md](docs/ZONAL_OTA_GUIDE.md)에 있습니다. Uptane을 참고했지만 준수
 구현은 아닙니다.
 
+### Cluster 화면의 OTA 상태 배지와 검증 증적
+
+Cluster 화면 우하단에 지금 실행 중인 소프트웨어의 상태와 버전을 표시합니다.
+`STABLE SW 1.0.0` → `OTA TRIAL SW 1.1.1` → (rollback 시) `RESTORED`·`STABLE SW 1.0.0` 순서로 바뀝니다.
+OTA 코드는 바꾸지 않았고, 읽기 전용 헬퍼가 slot journal을 표시용 상태 파일로 옮깁니다.
+upstream 앱에는 고정 커밋 위에 add-only 패치로 적용합니다.
+
+```bash
+scripts/verify-cluster-ota-demo.sh      # Gate G1–G7 판정, 요구사항별 PASS/FAIL, 증적 생성
+```
+
+요구사항, Traceability, Fault Injection, 결과와 남은 하드웨어 검증은
+[docs/verification/](docs/verification/VERIFICATION_REPORT.md)에 있습니다. Automotive SPICE /
+ISO 26262-6 / UN R156의 검증 개념을 프로젝트 규모에 맞게 참고했으며, 준수나 인증을 주장하지 않습니다.
+
 ## Volvo240-DigitalDash
 
 기준 앱은 `whitfijs-jw/Volvo240-DigitalDash`의 MIT 라이선스 Qt/C++/QML

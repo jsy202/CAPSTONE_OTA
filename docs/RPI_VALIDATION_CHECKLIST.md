@@ -57,6 +57,22 @@ systemctl is-active capstone-ota-agent.service digital-dash.service
 sudo python3 -m json.tool /var/lib/capstone-ota/state.json
 ```
 
+## Zonal Cluster 상태 배지 (VR-HW-001~003)
+
+Zonal 두 Pi 구성에서 실행합니다. 자동화 결과는 `docs/verification/VERIFICATION_REPORT.md`에
+있고, 이 표의 하드웨어 항목은 아직 **PENDING HARDWARE VALIDATION**입니다.
+
+| # | 확인 항목과 방법 | 기대 결과 | 판정 | 결과/증거 |
+|---|---|---|---|---|
+| B1 | Cluster Pi에서 `customization/qt-tests/run-qt-tests.sh <Pi Qt prefix>` | Qt 33/33, QML 14/14 통과 (VR-HW-003) | PENDING | |
+| B2 | 패치된 앱 빌드·설치 후 `systemctl status digital-cluster capstone-ota-ui-status` | 두 서비스 active, `cat /run/capstone-ota-ui/digital-cluster.json` = stable 1.0.0 | PENDING | |
+| B3 | 화면 촬영: 공장 상태 | 우하단 `STABLE` / `SW 1.0.0`, 경고등 줄 가림 없음 | PENDING | |
+| B4 | 런타임 결함 시나리오(`speed_divisor=10`)를 영상으로 촬영 | `OTA TRIAL SW 1.1.1` + cyan 테두리 선 → `RESTORED SW 1.0.0` (amber, 15 s) → `STABLE SW 1.0.0` (VR-HW-001) | PENDING | |
+| B5 | 정상 업데이트 시나리오 촬영 | `OTA TRIAL SW 1.1.1` → 앱 재시작 없이 1~2 s 안에 `STABLE SW 1.1.1` | PENDING | |
+| B6 | 같은 차량 신호로 패치 전후 앱 비교 (속도·RPM·기어·경고등) | 동작 동일, 배지가 지시등·게이지를 가리지 않음 (VR-HW-002) | PENDING | |
+| B7 | 180° 회전 화면에서 배지 위치 | 물리 화면의 우하단, 글자 정방향 | PENDING | |
+| B8 | 카메라 1~2 m 거리에서 판독 | 상태 단어와 `SW x.y.z`를 읽을 수 있음 | PENDING | |
+
 ## 로그 수집
 
 시험이 끝나면 시간 범위를 실제 값으로 바꿔 보관합니다.

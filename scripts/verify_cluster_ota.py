@@ -172,6 +172,32 @@ def _matrix(data: dict, results: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def requirements_markdown(data: dict) -> str:
+    """Render the verification requirements document from the measures file."""
+    lines = ["# Verification Requirements (generated)", "",
+             "Generated from `docs/verification/verification_measures.json` by "
+             "`scripts/verify_cluster_ota.py --write-requirements`; a unit test fails if this file drifts.", "",
+             f"Reference: {data['references']}", "",
+             "| ID | Requirement | Level | Gate | Kind |", "|---|---|---|---|---|"]
+    lines += [f"| {m['vr']} | {m['title']} | {m['level']} | {m['gate']} | {m['kind']} |" for m in data["measures"]]
+    for m in data["measures"]:
+        lines += ["", f"## {m['vr']} — {m['title']}", "",
+                  f"- **Test case:** {m['tc']}",
+                  f"- **Verification level:** {m['level']}" + (f" (ISO 26262-6: {m['iso26262_6']})" if m.get("iso26262_6") else ""),
+                  f"- **Verification method:** {m['method']}",
+                  f"- **Techniques:** {', '.join(m['techniques'])}",
+                  f"- **Precondition:** {m['precondition']}",
+                  f"- **Expected result:** {m['expected']}",
+                  f"- **Pass/Fail criterion:** {m['pass_fail']}",
+                  f"- **Gate:** {m['gate']}"]
+        if m.get("r156_concepts"):
+            lines.append(f"- **UN R156 concept referenced:** {'; '.join(m['r156_concepts'])}")
+        tests = [f"`{t}`" for t in m["tests"]] + [f"evidence `{c['path']}` expects {json.dumps(c['expect'])}"
+                                                  for c in m.get("evidence_checks", [])]
+        lines.append("- **Automated test / evidence:** " + ("; ".join(tests) if tests else "none — manual hardware validation"))
+    return "\n".join(lines) + "\n"
+
+
 def _highlights(evidence_dir: Path, vr: str) -> list[str]:
     path = evidence_dir / f"{vr}.json"
     if not path.exists():
@@ -189,9 +215,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path)
     parser.add_argument("--snapshot", type=Path, help="also copy summary, matrix and results here")
     parser.add_argument("--base-ref", default=os.environ.get("CAPSTONE_BASE_REF", "main"))
+    parser.add_argument("--write-requirements", action="store_true",
+                        help="regenerate docs/verification/REQUIREMENTS.md and exit")
     args = parser.parse_args(argv)
 
     data = load_measures(MEASURES)
+    if args.write_requirements:
+        (MEASURES.parent / "REQUIREMENTS.md").write_text(requirements_markdown(data))
+        return 0
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out = args.out or ROOT / "verification-results" / stamp
     evidence = out / "evidence"
