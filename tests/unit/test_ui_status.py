@@ -146,3 +146,97 @@ def test_read_snapshot_never_writes(tmp_path):
     before = {p: p.lstat().st_mtime_ns for p in root.rglob("*")}
     read_snapshot(root)
     assert {p: p.lstat().st_mtime_ns for p in root.rglob("*")} == before
+
+
+# --- output, CLI and watch (Task 2) ----------------------------------------
+
+import json
+import stat
+
+from capstone_ota.agent import ui_status
+from capstone_ota.agent.ui_status import main, read_previous, run_once, watch, write_status
+
+
+STABLE_1 = {"schema_version": 1, "state": "stable", "version": "1.0.0", "restored_at": None}
+
+
+def test_write_status_is_atomic_0644_and_skips_identical(tmp_path):
+    out = tmp_path / "digital-cluster.json"
+    assert write_status(out, STABLE_1) is True
+    assert stat.S_IMODE(out.stat().st_mode) == 0o644
+    assert json.loads(out.read_text()) == STABLE_1
+    before = out.stat().st_mtime_ns
+    assert write_status(out, dict(STABLE_1)) is False
+    assert out.stat().st_mtime_ns == before
+    assert [p.name for p in tmp_path.iterdir()] == ["digital-cluster.json"]
+
+
+def test_write_status_does_not_create_missing_directory(tmp_path):
+    with pytest.raises(OSError):
+        write_status(tmp_path / "missing" / "x.json", STABLE_1)
+    assert not (tmp_path / "missing").exists()
+
+
+def test_interrupted_write_keeps_previous_status_and_no_temporary(tmp_path, monkeypatch):
+    # Fault injection: the process dies between writing the temp file and rename.
+    out = tmp_path / "digital-cluster.json"
+    write_status(out, STABLE_1)
+    def crash(*args, **kwargs):
+        raise OSError("power cut before rename")
+    monkeypatch.setattr(ui_status.os, "replace", crash)
+    with pytest.raises(OSError):
+        write_status(out, {**STABLE_1, "state": "trial", "version": "1.1.1"})
+    assert json.loads(out.read_text()) == STABLE_1
+    assert [p.name for p in tmp_path.iterdir()] == ["digital-cluster.json"]
+
+
+@pytest.mark.parametrize("content", ["garbage", "", "[]", json.dumps({**STABLE_1, "schema_version": 2}),
+                                     json.dumps({**STABLE_1, "pad": "x" * 5000}),
+                                     json.dumps({**STABLE_1, "schema_version": True}), b"\xff\xfe"])
+def test_read_previous_rejects_non_v1(tmp_path, content):
+    out = tmp_path / "digital-cluster.json"
+    out.write_bytes(content if isinstance(content, bytes) else content.encode())
+    assert read_previous(out) is None
+
+
+def test_read_previous_missing_is_none(tmp_path):
+    assert read_previous(tmp_path / "absent.json") is None
+
+
+def test_run_once_writes_current_status(tmp_path):
+    root, out = installed_root(tmp_path), tmp_path / "status.json"
+    assert run_once(root, "1.0.0", out, now=lambda: 5.0) == STABLE_1
+    assert read_previous(out) == STABLE_1
+
+
+def test_main_snapshot_returns_zero_when_output_directory_missing(tmp_path, capsys):
+    root = installed_root(tmp_path)
+    code = main(["--install-root", str(root), "--initial-version", "1.0.0",
+                 "--output", str(tmp_path / "missing" / "x.json")])
+    assert code == 0
+    assert "x.json" in capsys.readouterr().err
+
+
+def test_main_snapshot_writes_status(tmp_path):
+    root, out = installed_root(tmp_path), tmp_path / "status.json"
+    assert main(["--install-root", str(root), "--initial-version", "1.0.0", "--output", str(out)]) == 0
+    assert read_previous(out)["state"] == "stable"
+
+
+def test_watch_survives_corrupt_state_and_recovers(tmp_path):
+    root, out = installed_root(tmp_path), tmp_path / "status.json"
+    good = (root / "state.json").read_text()
+    seen = []
+    def sleep(_):
+        seen.append(read_previous(out)["state"])
+        (root / "state.json").write_text(good)
+    (root / "state.json").write_text("{corrupt")
+    watch(root, "1.0.0", out, 1.0, iterations=2, sleep=sleep)
+    assert seen == ["unknown", "stable"]
+
+
+def test_watch_continues_when_output_write_fails(tmp_path):
+    root = installed_root(tmp_path)
+    calls = []
+    watch(root, "1.0.0", tmp_path / "missing" / "x.json", 1.0, iterations=3, sleep=calls.append)
+    assert calls == [1.0, 1.0, 1.0]

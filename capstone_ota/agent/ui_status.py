@@ -9,10 +9,16 @@ cannot be established fails closed to "unknown", never to a guessed version.
 """
 from __future__ import annotations
 
+import argparse
+import json
 import os
 import re
+import sys
+import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from capstone_ota.common.can_protocol import ApplicationState
 from capstone_ota.common.errors import OtaError
@@ -21,6 +27,8 @@ from .slots import SlotState
 
 
 SCHEMA_VERSION = 1
+MAX_STATUS_BYTES = 4096
+_KEYS = {"schema_version", "state", "version", "restored_at"}
 _VERSION = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+-]{0,63}\Z")
 _SELECTORS = {"slots/A": "A", "slots/B": "B"}
 _STABLE = ApplicationState.STABLE.name.lower()
@@ -66,3 +74,94 @@ def decide(snapshot: SlotSnapshot, initial_version: str, previous: dict | None, 
     if not isinstance(version, str) or not _VERSION.fullmatch(version):
         return _status("unknown", None)
     return _status(name, version)
+
+
+def _encode(status: dict) -> bytes:
+    return (json.dumps(status, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def read_previous(path: Path) -> dict | None:
+    """Return the last published v1 status, or None when absent or invalid."""
+    try:
+        raw = Path(path).read_bytes()
+        if len(raw) > MAX_STATUS_BYTES:
+            return None
+        status = json.loads(raw)
+    except (OSError, ValueError):
+        return None
+    if (not isinstance(status, dict) or set(status) != _KEYS
+            or type(status["schema_version"]) is not int or status["schema_version"] != SCHEMA_VERSION):
+        return None
+    return status
+
+
+def write_status(path: Path, status: dict) -> bool:
+    """Atomically publish status (0644); False when content is unchanged.
+
+    The output directory is owned by tmpfiles and is never created here.
+    """
+    path = Path(path)
+    data = _encode(status)
+    try:
+        if path.read_bytes() == data:
+            return False
+    except OSError:
+        pass
+    fd, name = tempfile.mkstemp(prefix=f".{path.stem}.", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            os.fchmod(stream.fileno(), 0o644)
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return True
+
+
+def run_once(install_root: Path, initial_version: str, output: Path,
+             now: Callable[[], float] = time.time) -> dict:
+    status = decide(read_snapshot(install_root), initial_version, read_previous(output), now())
+    write_status(output, status)
+    return status
+
+
+def watch(install_root: Path, initial_version: str, output: Path, interval: float, *,
+          iterations: int | None = None, sleep: Callable[[float], None] = time.sleep,
+          now: Callable[[], float] = time.time) -> None:
+    """Poll until stopped; a failed iteration publishes unknown and continues."""
+    count = 0
+    while iterations is None or count < iterations:
+        count += 1
+        try:
+            run_once(install_root, initial_version, output, now)
+        except Exception as exc:
+            print(f"capstone-ota-ui-status: {exc}", file=sys.stderr)
+            try:
+                write_status(output, _status("unknown", None))
+            except Exception:
+                pass
+        sleep(interval)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Publish read-only Cluster UI status")
+    parser.add_argument("--install-root", type=Path, required=True)
+    parser.add_argument("--initial-version", required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--watch", action="store_true")
+    parser.add_argument("--interval", type=float, default=1.0)
+    args = parser.parse_args(argv)
+    if args.watch:
+        if args.interval <= 0:
+            parser.error("--interval must be positive")
+        watch(args.install_root, args.initial_version, args.output, args.interval)
+        return 0
+    try:
+        run_once(args.install_root, args.initial_version, args.output)
+    except Exception as exc:
+        # Snapshot runs as ExecStartPre; it must never block the application.
+        print(f"capstone-ota-ui-status: cannot publish {args.output}: {exc}", file=sys.stderr)
+    return 0
