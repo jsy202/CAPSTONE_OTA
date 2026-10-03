@@ -233,7 +233,7 @@ journalctl -u capstone-ota-ui-status -o short-iso > ui-status-<scenario>.log
 
 화면 배지의 기대 순서는 다음과 같습니다.
 - 시나리오 1: `STABLE SW 1.0.0` → `OTA TRIAL SW 1.1.1` → `STABLE SW 1.1.1`
-- 시나리오 3, 4: `STABLE SW 1.0.0` → `OTA TRIAL SW 1.1.1` → `RESTORED SW 1.0.0`(15 s) → `STABLE SW 1.0.0`
+- 시나리오 3, 4: `STABLE SW 1.0.0` → `OTA TRIAL SW 1.1.1` → `RESTORED SW 1.0.0`(최대 15 s) → `STABLE SW 1.0.0`
 - 시나리오 5: 재부팅 후 `STABLE SW 1.0.0`. `/run`이 비워지므로 RESTORED는 표시되지 않습니다.
 
 `vehicle.json`의 `events`에는 전이마다 타임스탬프, ECU별 슬롯, 오류, 검증 증거가

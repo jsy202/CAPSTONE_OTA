@@ -52,7 +52,7 @@
   - `decide(snapshot: SlotSnapshot, initial_version: str, previous: dict | None, now: float) -> dict`
   - `SCHEMA_VERSION = 1`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 from dataclasses import replace
@@ -87,17 +87,17 @@ def test_unreadable_state_is_unknown():
 #   valid installer root (ABSlotInstaller init) -> state.phase == "stable", selected_slot == "A"
 ```
 
-- [ ] **Step 2: Run** `python3 -m pytest tests/unit/test_ui_status.py -q`. Expected: FAIL (`ModuleNotFoundError: capstone_ota.agent.ui_status`).
+- [x] **Step 2: Run** `python3 -m pytest tests/unit/test_ui_status.py -q`. Expected: FAIL (`ModuleNotFoundError: capstone_ota.agent.ui_status`).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   - `read_snapshot` uses `SlotState.load(install_root / "state.json")` and `os.readlink(install_root / "active-slot")`. It accepts only the targets `slots/A` and `slots/B`, or the absolute `install_root/slots/A|B`; `_select` writes a relative or absolute link, so check both. Any `OtaError`/`OSError` returns `None` for that field.
   - `decide` returns `unknown` whenever either field is `None`.
   - `restored_at` stays `None` in this task; Task 3 adds the rule.
   - The module docstring states that it is read-only and mirrors `zonal.py` `publish_heartbeat`.
 
-- [ ] **Step 4: Run** the Step 2 command. Expected: all PASS.
+- [x] **Step 4: Run** the Step 2 command. Expected: all PASS.
 
-- [ ] **Step 5: Commit** `feat: derive cluster UI status from slot state`
+- [x] **Step 5: Commit** `feat: derive cluster UI status from slot state`
 
 ### Task 2: Atomic status output, snapshot/watch CLI, real lifecycle
 
@@ -115,14 +115,14 @@ def test_unreadable_state_is_unknown():
   - `watch(install_root, initial_version, output, interval: float, *, iterations: int | None = None, sleep=time.sleep, now=time.time) -> None`
   - `main(argv: list[str] | None = None) -> int`, with CLI `--install-root --initial-version --output [--watch] [--interval]`
 
-- [ ] **Step 1: Write failing unit tests**
+- [x] **Step 1: Write failing unit tests**
   - `test_write_status_is_atomic_0644_and_skips_identical`: the first call returns `True` and the file mode is `0o644`; a second identical call returns `False` and the `st_mtime_ns` is unchanged.
   - `test_write_status_does_not_create_missing_directory`: `write_status(tmp_path/"missing"/"x.json", ...)` raises `OSError`, and the directory does not exist afterwards.
   - `test_main_snapshot_returns_zero_when_output_directory_missing`: `main([... "--output", str(tmp_path/"missing/x.json")]) == 0`.
   - `test_watch_survives_corrupt_state_and_recovers`: corrupt `state.json` → the output state is `unknown`; restore a valid state → `stable`, with `iterations=2` and a no-op sleep.
   - `test_read_previous_rejects_non_v1`: `read_previous` returns `None` for garbage, a file over 4096 bytes, or `schema_version != 1`.
 
-- [ ] **Step 2: Write the failing lifecycle test** in `tests/integration/test_ui_status_lifecycle.py`.
+- [x] **Step 2: Write the failing lifecycle test** in `tests/integration/test_ui_status_lifecycle.py`.
   - Use a real `ABSlotInstaller(root, services, service_unit="digital-cluster.service")`.
   - Use a fake `services.restart_and_wait_healthy` that calls `run_once(root, "1.0.0", out)` and records `read_previous(out)`. This simulates `ExecStartPre` at app restart.
   - `test_trial_then_rollback_shows_1_0_0_1_1_1_1_0_0`:
@@ -131,17 +131,17 @@ def test_unreadable_state_is_unknown():
     - `rollback(TX)` → the restart snapshot is `("stable","1.0.0")`
   - `test_commit_reaches_stable_new_version_via_watch`: after the trial, `commit(TX)` and then `watch(..., iterations=1)` → `("stable","1.1.1")`.
 
-- [ ] **Step 3: Run** `python3 -m pytest tests/unit/test_ui_status.py tests/integration/test_ui_status_lifecycle.py -q`. Expected: FAIL (missing functions).
+- [x] **Step 3: Run** `python3 -m pytest tests/unit/test_ui_status.py tests/integration/test_ui_status_lifecycle.py -q`. Expected: FAIL (missing functions).
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
   - `write_status`: `mkstemp(dir=path.parent, prefix=".digital-cluster.")`, `fchmod 0o644`, write `json.dumps(status, sort_keys=True, separators=(",", ":")) + "\n"`, `fsync`, `os.replace`. Return `False` when the existing content is byte-identical.
   - `run_once`: `read_snapshot` → `decide(previous=read_previous(output))` → `write_status`.
   - `main`, snapshot mode: catch every exception, print to stderr, return 0.
   - `watch`: loop with per-iteration `try/except Exception` that writes `unknown` best-effort and continues.
 
-- [ ] **Step 5: Run** the Step 3 command. Expected: PASS.
+- [x] **Step 5: Run** the Step 3 command. Expected: PASS.
 
-- [ ] **Step 6: Commit** `feat: publish cluster UI status snapshots and watch updates`
+- [x] **Step 6: Commit** `feat: publish cluster UI status snapshots and watch updates`
 
 ### Task 3: Secondary goal — `restored_at` after a visible rollback
 
@@ -152,7 +152,7 @@ def test_unreadable_state_is_unknown():
 **Interfaces:**
 - Consumes: `decide`, `run_once`, `watch` from Tasks 1–2. No signature changes.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   - Unit `test_trial_to_stable_with_different_version_sets_restored_at`: `previous={"state":"trial","version":"1.1.1",...}` and a stable `1.0.0` snapshot at `now=100.0` → `restored_at == 100.0`.
   - Unit `test_restored_at_carries_over_while_stable_same_version`: previous stable `1.0.0` with `restored_at=100.0`, `now=200.0` → `100.0`.
   - Unit `test_commit_same_version_never_sets_restored_at`: previous trial `1.1.1`, now stable `1.1.1` → `None`.
@@ -160,16 +160,16 @@ def test_unreadable_state_is_unknown():
   - Lifecycle: extend the rollback test so the post-rollback snapshot has a float `restored_at`. The commit test asserts `restored_at is None`.
   - Lifecycle `test_staged_abort_never_shows_rollback`: `stage` then `rollback` (no restart). `watch(iterations=1)` → stable `1.0.0` with `restored_at is None`.
 
-- [ ] **Step 2: Run** the Task 2 Step 3 command. Expected: the new tests FAIL.
+- [x] **Step 2: Run** the Task 2 Step 3 command. Expected: the new tests FAIL.
 
-- [ ] **Step 3: Implement** the spec §4.1 rule in `decide`:
+- [x] **Step 3: Implement** the spec §4.1 rule in `decide`:
   - Set `restored_at = now` when `previous.state == "trial"`, the new state is `stable`, and `version != previous.version`.
   - Carry over `previous.restored_at` when the previous and new state are both `stable` with the same version.
   - Otherwise `None`.
 
-- [ ] **Step 4: Run** the Task 2 Step 3 command. Expected: PASS.
+- [x] **Step 4: Run** the Task 2 Step 3 command. Expected: PASS.
 
-- [ ] **Step 5: Commit** `feat: mark visible rollback restores in cluster UI status`
+- [x] **Step 5: Commit** `feat: mark visible rollback restores in cluster UI status`
 
 ### Task 4: systemd and tmpfiles assets
 
@@ -181,7 +181,7 @@ def test_unreadable_state_is_unknown():
 **Interfaces:**
 - Consumes: the CLI from Task 2.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   - `digital-cluster.service` contains exactly this line: `ExecStartPre=-+/opt/capstone-ota/venv/bin/capstone-ota-ui-status --install-root /opt/digital-cluster --initial-version 1.0.0 --output /run/capstone-ota-ui/digital-cluster.json`.
   - It still contains `ExecStart=/opt/digital-cluster/active-slot/bin/digital-dash` and no `ReadWritePaths`.
   - `capstone-ota-ui-status.service` has:
@@ -190,13 +190,13 @@ def test_unreadable_state_is_unknown():
   - The `--initial-version` value in both units equals the one in `capstone-ota-zone-agent.service`, parsed by regex.
   - The tmpfiles line is exactly `d /run/capstone-ota-ui 0755 capstone-ota capstone-ota -`.
 
-- [ ] **Step 2: Run** `python3 -m pytest tests/integration/test_ui_status_assets.py -q`. Expected: FAIL.
+- [x] **Step 2: Run** `python3 -m pytest tests/integration/test_ui_status_assets.py -q`. Expected: FAIL.
 
-- [ ] **Step 3: Write the unit files and the tmpfiles line.** Add a comment above `ExecStartPre` explaining `-` (never block the app) and `+` (read the 0600 slot state).
+- [x] **Step 3: Write the unit files and the tmpfiles line.** Add a comment above `ExecStartPre` explaining `-` (never block the app) and `+` (read the 0600 slot state).
 
-- [ ] **Step 4: Run** the Step 2 command and `python3 -m pytest tests/integration/test_config_assets.py -q`. Expected: PASS.
+- [x] **Step 4: Run** the Step 2 command and `python3 -m pytest tests/integration/test_config_assets.py -q`. Expected: PASS.
 
-- [ ] **Step 5: Commit** `feat: install cluster UI status snapshot and watch units`
+- [x] **Step 5: Commit** `feat: install cluster UI status snapshot and watch units`
 
 ### Task 5: Qt overlay — `AppStatus` model and `StatusBadge.qml`
 
@@ -218,34 +218,34 @@ def test_unreadable_state_is_unknown():
   - `static Snapshot fromEnvironment()`
   - QML: `StatusBadge { property var status }`
 
-- [ ] **Step 1: Write the Qt Test cases** in `qt-tests/app_status_test.cpp` (QTest; this cannot run on the dev PC):
+- [x] **Step 1: Write the Qt Test cases** in `qt-tests/app_status_test.cpp` (QTest; this cannot run on the dev PC):
   - `evaluate` with valid stable/trial JSON → state and version.
   - `restored_at = now-5 s` → `restored`; `now-16 s` → `stable`; a future `restored_at` → `stable`.
   - `schema_version 2`, `state "error"`, a 33-character version, a version containing `<b>` or `\n`, non-JSON input, or 5000 bytes → `unknown` with an empty version.
   - `fromEnvironment` with `CAPSTONE_APP_STATE=trial`, `CAPSTONE_APP_VERSION=1.1.1` → trial/1.1.1; an invalid env value → unknown.
   - `title`/`detail` strings for each state match Global Constraints exactly.
 
-- [ ] **Step 2: Write failing static pytest checks** in `test_dashboard_customization.py`:
+- [x] **Step 2: Write failing static pytest checks** in `test_dashboard_customization.py`:
   - All overlay and qt-test files exist.
   - `StatusBadge.qml` contains the four color literals and no `red`/`#FF0000`/`#f00`, has `enabled: false`, and contains no version-number literal (regex `\d+\.\d+\.\d+`).
   - `app_status.cpp` contains `CAPSTONE_APP_STATUS_FILE`, `/run/capstone-ota-ui/digital-cluster.json`, `4096`, `15000`, `1000`.
 
-- [ ] **Step 3: Run** `python3 -m pytest tests/integration/test_dashboard_customization.py -q`. Expected: FAIL.
+- [x] **Step 3: Run** `python3 -m pytest tests/integration/test_dashboard_customization.py -q`. Expected: FAIL.
 
-- [ ] **Step 4: Implement `AppStatus`**
+- [x] **Step 4: Implement `AppStatus`**
   - Uses `QFile`, `QJsonDocument`, `QRegularExpression` and `QDateTime::currentMSecsSinceEpoch()`. It emits `changed` only on difference.
   - Source order: file first; env only when the file does not exist.
   - Display states: `stable`, `trial`, `restored`, `unknown`. `bannerActive == (state == "restored")`.
 
-- [ ] **Step 5: Implement `StatusBadge.qml`** (QtQuick 2.15)
+- [x] **Step 5: Implement `StatusBadge.qml`** (QtQuick 2.15)
   - A plate anchored bottom-right with 12 px margins, height 64, radius 8, color `#CC111418`, and a 2 px border in the accent color (stable: `#30363D`). Inside it, the title at 22 px bold and the detail at 18 px.
   - The bottom strip: 4 px tall, full parent width, accent color, visible only for `trial`/`restored`.
   - Text and colors come from `status.state`, `status.title` and `status.detail` only.
   - If `status` is null, render `unknown`.
 
-- [ ] **Step 6: Run** the Step 3 command. Expected: PASS.
+- [x] **Step 6: Run** the Step 3 command. Expected: PASS.
 
-- [ ] **Step 7: Commit** `feat: add cluster status badge overlay for the Qt dashboard`
+- [x] **Step 7: Commit** `feat: add cluster status badge overlay for the Qt dashboard`
 
 ### Task 6: Reproducible upstream patch and apply script
 
@@ -258,29 +258,29 @@ def test_unreadable_state_is_unknown():
 - Consumes: Task 5 file names and the `AppStatus` constructor.
 - Produces: `apply-customization.sh <imported VolvoDigitalDashModels dir>`, which exits 0 on success and non-zero on a refused or failed application. Marker file: `<dir>/.capstone-customization-applied`.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   - The patch's `+++` targets are exactly the four allowed files.
   - The patch adds `setContextProperty("capstoneStatus"`, `StatusBadge {`, `<file>StatusBadge.qml</file>` and `app_status.cpp`.
   - The script is executable, uses `set -euo pipefail`, uses `patch -p1 --forward`, and contains the pinned commit hash.
   - A fake tree (a directory lacking `app/main.qml`) → the script exits non-zero and creates no marker.
   - Opt-in `test_patch_applies_to_pinned_upstream`, skipped unless `CAPSTONE_UPSTREAM_DIR` is set. It copies that import to tmp, runs the script (exit 0, marker present, `StatusBadge.qml` copied), then runs it again (non-zero, "already applied").
 
-- [ ] **Step 2: Run** the test file. Expected: FAIL.
+- [x] **Step 2: Run** the test file. Expected: FAIL.
 
-- [ ] **Step 3: Generate the patch** from a pristine pinned import:
+- [x] **Step 3: Generate the patch** from a pristine pinned import:
   - Run `import-upstream.sh` into the scratchpad, copy the tree, and make the four edits from spec §4.3.
   - The `main.qml` edit adds `StatusBadge { anchors.fill: parent; status: capstoneStatus; z: 100 }` after the `warningLightBar` `Loader` inside `gaugeItem`.
   - The `main.cpp` edit adds `#include <app_status.h>`, plus `AppStatus * capstoneStatus = new AppStatus(&app);` and the context property right after the `keyPressEmitter` line.
   - The `app.pro` edit adds `src/capstone/app_status.cpp`, `inc/capstone/app_status.h` and `INCLUDEPATH += inc/capstone`.
   - Produce the patch with `diff -ruN` from the parent of `app/`, so that it applies with `-p1` inside the import dir.
 
-- [ ] **Step 4: Implement `apply-customization.sh`**
+- [x] **Step 4: Implement `apply-customization.sh`**
   - Validate that the directory exists, that `app/main.qml` and `app/app.pro` exist, and that there is no marker.
   - Run `patch --dry-run` first, then copy `overlay/.` with `cp -R`, then `patch -p1 --forward`, then write a marker containing the pinned commit.
 
-- [ ] **Step 5: Run** the test file normally, then with `CAPSTONE_UPSTREAM_DIR=<scratch import>`. Expected: PASS, and the opt-in test PASSes locally.
+- [x] **Step 5: Run** the test file normally, then with `CAPSTONE_UPSTREAM_DIR=<scratch import>`. Expected: PASS, and the opt-in test PASSes locally.
 
-- [ ] **Step 6: Commit** `feat: apply cluster status badge to pinned upstream via patch`
+- [x] **Step 6: Commit** `feat: apply cluster status badge to pinned upstream via patch`
 
 ### Task 7: Documentation and final verification
 
@@ -290,14 +290,14 @@ def test_unreadable_state_is_unknown():
 - Modify: `README.md` (one paragraph in the Zonal section)
 - Modify: `docs/RPI_VALIDATION_CHECKLIST.md` (badge visible on camera; gauges/RPM/gear/warnings unchanged; 1.0.0→1.1.1→1.0.0 sequence; build and run `qt-tests`)
 
-- [ ] **Step 1: Write the docs**
+- [x] **Step 1: Write the docs**
   - §4 adds the `install` lines for the new unit and the tmpfiles conf, plus `systemd-tmpfiles --create` and `systemctl enable --now capstone-ota-ui-status`.
   - The demo row adds `cat /run/capstone-ota-ui/digital-cluster.json` to the evidence.
   - §8 marks the helper, units and patch as executed (A), the Qt build and screen as **not run**.
 
-- [ ] **Step 2: Run** `python3 -m pytest -q`. Expected: `651 + new` passed, 0 failed. Then run `git diff dca36a8 --stat -- capstone_ota/coordinator capstone_ota/common capstone_ota/agent/slots.py capstone_ota/agent/zonal.py capstone_ota/agent/zonal_cli.py tests/unit/test_slots.py tests/integration/test_zonal_end_to_end.py tests/integration/test_zonal_recovery.py`. Expected: empty output.
+- [x] **Step 2: Run** `python3 -m pytest -q`. Expected: `651 + new` passed, 0 failed. Then run `git diff dca36a8 --stat -- capstone_ota/coordinator capstone_ota/common capstone_ota/agent/slots.py capstone_ota/agent/zonal.py capstone_ota/agent/zonal_cli.py tests/unit/test_slots.py tests/integration/test_zonal_end_to_end.py tests/integration/test_zonal_recovery.py`. Expected: empty output.
 
-- [ ] **Step 3: Commit** `docs: describe cluster status badge install, demo and limits`
+- [x] **Step 3: Commit** `docs: describe cluster status badge install, demo and limits`
 
 ---
 
@@ -328,14 +328,14 @@ results).
 - Wrap `vehicle.coordinator.progress` so that every durable event also calls `watch(..., iterations=1)`. This emulates the watcher.
 - Record a timeline of `(source, coordinator_phase, state, version, restored)`.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   - `test_normal_update_display_sequence_stable_trial_stable_new`: the de-duplicated `(state,version)` timeline is `[("stable","1.0.0"),("trial","1.1.1"),("stable","1.1.1")]`. The coordinator ends `COMMITTED`, and `restored_at` is never set.
   - `test_runtime_defect_display_sequence_and_recovery_verification`: `speed_divisor=10` → the timeline is `[stable 1.0.0, trial 1.1.1, stable 1.0.0]`, and the last entry has `restored_at`. The coordinator ends `ROLLED_BACK` with `FUNCTIONAL_VALUE_MISMATCH`. The recovery verification evidence passed. Both slots are back on A.
   - `test_power_loss_during_verification_display_sequence`: power is cut in VERIFYING. Delete the status file at power-off, because `/run` does not survive a reboot. After `boot()` + `recover_on_startup()` the display is stable `1.0.0`, `restored_at` is None (documented limit), and the coordinator ends `ROLLED_BACK` with recovery passed.
   - `test_trial_display_version_matches_signed_bundle_target`: the trial UI version equals `coordinator.state.current_bundle` target `digital-cluster.software_version`.
   - `test_ui_status_never_exposes_privileged_journal`: after a full lifecycle, `state.json` is still mode `0o600`. The status file has exactly the keys `{schema_version,state,version,restored_at}` and contains neither the transaction UUID nor the trial digest.
-- [ ] **Step 2: Run them.** Expected: they FAIL only if Tasks 1–3 behavior is wrong. If they pass on first run, that is acceptable here: they are system-level acceptance tests over finished units. Record a ledger note, then prove sensitivity by temporarily breaking `decide`'s trial rule and watching them fail.
-- [ ] **Step 3: Commit** `test: verify cluster UI state transitions over the zonal OTA system`
+- [x] **Step 2: Run them.** Expected: they FAIL only if Tasks 1–3 behavior is wrong. If they pass on first run, that is acceptable here: they are system-level acceptance tests over finished units. Record a ledger note, then prove sensitivity by temporarily breaking `decide`'s trial rule and watching them fail.
+- [x] **Step 3: Commit** `test: verify cluster UI state transitions over the zonal OTA system`
 
 ### Task 9: Verification measures, gates, demo command and evidence
 
@@ -357,16 +357,16 @@ results).
 - Write `verification-results/<timestamp>/{results.json,summary.md,TRACEABILITY_MATRIX.md}`. The directory is git-ignored; a snapshot is copied to `docs/verification/evidence/`.
 - Print `VERIFICATION RESULT: PASS` or `FAIL`.
 
-- [ ] **Step 1: Failing unit tests** for `evaluate_gates`:
+- [x] **Step 1: Failing unit tests** for `evaluate_gates`:
   - all pass → PASS
   - one failing node → FAIL, naming that gate
   - a missing node → FAIL
   - a non-empty protected diff → FAIL
   - a `NOT_EXECUTED` measure (Qt/hardware) does not fail the automated gates but is listed as pending
-- [ ] **Step 2: Implement** with the stdlib only (`xml.etree`, `subprocess`, `json`).
-- [ ] **Step 3: Write the measures JSON.** Every VR maps to at least one existing test node. A unit test asserts that every node id is collected (`pytest --collect-only -q`).
-- [ ] **Step 4: Run** `scripts/verify-cluster-ota-demo.sh`. Expected: `VERIFICATION RESULT: PASS`.
-- [ ] **Step 5: Commit** `feat: add cluster OTA verification gates and evidence command`
+- [x] **Step 2: Implement** with the stdlib only (`xml.etree`, `subprocess`, `json`).
+- [x] **Step 3: Write the measures JSON.** Every VR maps to at least one existing test node. A unit test asserts that every node id is collected (`pytest --collect-only -q`).
+- [x] **Step 4: Run** `scripts/verify-cluster-ota-demo.sh`. Expected: `VERIFICATION RESULT: PASS`.
+- [x] **Step 5: Commit** `feat: add cluster OTA verification gates and evidence command`
 
 ### Task 7 additions
 

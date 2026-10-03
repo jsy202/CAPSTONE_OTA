@@ -121,11 +121,16 @@ differs from the previous trial version. This is the visible transition
 ### 4.2 systemd assets
 
 - **`digital-cluster.service`** gains
-  `ExecStartPre=-+/opt/capstone-ota/venv/bin/capstone-ota-ui-status ...`
-  - `+` runs the helper privileged, so it can read the `0600` state.
+  `ExecStartPre=-+/usr/bin/setpriv --reuid=capstone-ota --regid=capstone-ota --init-groups --no-new-privs -- /opt/capstone-ota/venv/bin/capstone-ota-ui-status ...`
+  (revised after the final review, finding R-1).
+  - `+` only leaves the unit's sandbox. `setpriv` then drops to `capstone-ota`,
+    the owner of the `0600` journal, so no root code touches the status directory.
   - `-` lets the app start even if the helper fails.
   - `ExecStart` and the hardening lines are unchanged, and the unit still has
     no `ReadWritePaths`.
+  - The helper and the app open the status file with
+    `O_NOFOLLOW|O_NONBLOCK` and accept only regular files. A failed write
+    removes the file, so the UI shows unknown rather than a stale state.
 - **`capstone-ota-ui-status.service`** (new) runs the helper with `--watch`
   as `User=capstone-ota`, which owns `state.json`. It is hardened with
   `ProtectSystem=strict`, `ReadWritePaths=/run/capstone-ota-ui`,
