@@ -1,0 +1,148 @@
+"""Unit verification (SWE.4) of the Cluster UI status decision and slot reader."""
+import os
+from dataclasses import replace
+
+import pytest
+
+from capstone_ota.agent.slots import ABSlotInstaller, SlotState
+from capstone_ota.agent.ui_status import SCHEMA_VERSION, SlotSnapshot, decide, read_snapshot
+
+
+TX = "00000000-0000-4000-8000-000000000001"
+TRIAL = SlotState(phase="trial", active_slot="B", trial_slot="B", transaction_id=TX,
+                  trial_version="1.1.1", trial_entrypoint="bin/digital-dash", trial_digest="0" * 64)
+UNKNOWN = {"schema_version": 1, "state": "unknown", "version": None, "restored_at": None}
+
+
+class Services:
+    def restart_and_wait_healthy(self, unit, timeout_seconds):
+        return True
+
+
+def installed_root(tmp_path):
+    root = tmp_path / "cluster"
+    entry = root / "slots" / "A" / "bin" / "digital-dash"
+    entry.parent.mkdir(parents=True)
+    entry.write_text("#!/bin/sh\n")
+    entry.chmod(0o755)
+    ABSlotInstaller(root, Services(), service_unit="digital-cluster.service")
+    return root
+
+
+# --- decide(): state partitions -------------------------------------------
+
+def test_schema_version_is_one():
+    assert SCHEMA_VERSION == 1
+
+
+def test_provisioned_stable_uses_initial_version():
+    assert decide(SlotSnapshot(SlotState(), "A"), "1.0.0", None, 0.0) == {
+        "schema_version": 1, "state": "stable", "version": "1.0.0", "restored_at": None}
+
+
+def test_recorded_stable_version_wins_over_initial_version():
+    stable = SlotState(stable_slot="B", active_slot="B", stable_version="1.1.1")
+    assert decide(SlotSnapshot(stable, "B"), "1.0.0", None, 0.0)["version"] == "1.1.1"
+
+
+def test_selected_trial_slot_reports_trial_version():
+    status = decide(SlotSnapshot(TRIAL, "B"), "1.0.0", None, 0.0)
+    assert (status["state"], status["version"]) == ("trial", "1.1.1")
+
+
+def test_activating_after_selector_switch_is_trial():
+    # ExecStartPre runs after the selector switch, before the "trial" write.
+    activating = replace(TRIAL, phase="activating", active_slot="A")
+    status = decide(SlotSnapshot(activating, "B"), "1.0.0", None, 0.0)
+    assert (status["state"], status["version"]) == ("trial", "1.1.1")
+
+
+def test_activating_before_selector_switch_is_still_stable():
+    activating = replace(TRIAL, phase="activating", active_slot="A")
+    status = decide(SlotSnapshot(activating, "A"), "1.0.0", None, 0.0)
+    assert (status["state"], status["version"]) == ("stable", "1.0.0")
+
+
+def test_rolling_back_with_stable_selected_is_stable_previous_version():
+    rolling = replace(TRIAL, phase="rolling_back")
+    status = decide(SlotSnapshot(rolling, "A"), "1.0.0", None, 0.0)
+    assert (status["state"], status["version"]) == ("stable", "1.0.0")
+
+
+def test_unreadable_state_is_unknown():
+    assert decide(SlotSnapshot(None, "A"), "1.0.0", None, 0.0) == UNKNOWN
+
+
+def test_missing_selector_is_unknown():
+    assert decide(SlotSnapshot(SlotState(), None), "1.0.0", None, 0.0) == UNKNOWN
+
+
+def test_stable_journal_with_foreign_selected_slot_is_unknown():
+    # Journal says no pending update on A, but B is selected: never guess.
+    assert decide(SlotSnapshot(SlotState(), "B"), "1.0.0", None, 0.0) == UNKNOWN
+
+
+@pytest.mark.parametrize("initial", ["", "-1.0", "1.0.0\n", "x" * 65, None])
+def test_invalid_initial_version_fallback_is_unknown(initial):
+    assert decide(SlotSnapshot(SlotState(), "A"), initial, None, 0.0) == UNKNOWN
+
+
+# --- read_snapshot(): metadata partitions ---------------------------------
+
+def test_valid_installer_root_is_read(tmp_path):
+    snapshot = read_snapshot(installed_root(tmp_path))
+    assert snapshot.state.phase == "stable" and snapshot.selected_slot == "A"
+
+
+def test_missing_install_root_reads_nothing(tmp_path):
+    assert read_snapshot(tmp_path / "absent") == SlotSnapshot(None, None)
+
+
+def test_missing_journal_reads_no_state(tmp_path):
+    root = installed_root(tmp_path)
+    (root / "state.json").unlink()
+    snapshot = read_snapshot(root)
+    assert snapshot.state is None and snapshot.selected_slot == "A"
+
+
+@pytest.mark.parametrize("content", ["{not json", '{"schema_version": 1, "phase": "sta', "", '{"schema_version": 2}'])
+def test_corrupt_or_partially_written_journal_reads_no_state(tmp_path, content):
+    root = installed_root(tmp_path)
+    (root / "state.json").write_text(content)
+    assert read_snapshot(root).state is None
+
+
+@pytest.mark.parametrize("target", ["slots/C", "/etc", "../cluster/slots/A/..", "slots"])
+def test_foreign_selector_target_reads_no_slot(tmp_path, target):
+    root = installed_root(tmp_path)
+    (root / "active-slot").unlink()
+    os.symlink(target, root / "active-slot")
+    assert read_snapshot(root).selected_slot is None
+
+
+def test_absolute_selector_is_rejected_like_the_installer(tmp_path):
+    # ABSlotInstaller._selected_slot accepts only relative slots/A|B.
+    root = installed_root(tmp_path)
+    (root / "active-slot").unlink()
+    os.symlink(root / "slots" / "A", root / "active-slot")
+    assert read_snapshot(root).selected_slot is None
+
+
+def test_selector_to_missing_slot_directory_reads_no_slot(tmp_path):
+    root = installed_root(tmp_path)
+    (root / "active-slot").unlink()
+    os.symlink("slots/B", root / "active-slot")
+    assert read_snapshot(root).selected_slot is None
+
+
+def test_missing_selector_reads_no_slot(tmp_path):
+    root = installed_root(tmp_path)
+    (root / "active-slot").unlink()
+    assert read_snapshot(root).selected_slot is None
+
+
+def test_read_snapshot_never_writes(tmp_path):
+    root = installed_root(tmp_path)
+    before = {p: p.lstat().st_mtime_ns for p in root.rglob("*")}
+    read_snapshot(root)
+    assert {p: p.lstat().st_mtime_ns for p in root.rglob("*")} == before
