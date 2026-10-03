@@ -183,3 +183,67 @@ def test_capture_records_hashes_of_the_badge_sources():
     import hashlib
     assert hashes["StatusBadge.qml"] == hashlib.sha256((OVERLAY / "StatusBadge.qml").read_bytes()).hexdigest()
     assert set(hashes) == {"StatusBadge.qml", "app_status.cpp"}
+
+
+# --- application contract wiring (zonal application contracts) --------------
+
+def _added_lines():
+    return [line[1:] for line in PATCH.read_text().splitlines() if line.startswith("+") and not line.startswith("+++")]
+
+
+def test_patch_wires_cluster_ipc_server_into_the_real_context():
+    added = "\n".join(_added_lines())
+    for needle in ("#include <cluster_ipc_server.h>", "#include <context_model_access.h>",
+                   "new ClusterIpcServer(new ContextModelAccess(ctxt)", "listenOrWarn()",
+                   "QT += network", "src/capstone/cluster_ipc_server.cpp", "src/capstone/cluster_signals.cpp"):
+        assert needle in added, needle
+
+
+def test_fault_define_exists_only_behind_explicit_qmake_variable():
+    added = _added_lines()
+    lines = [l.strip() for l in added]
+    define = next(i for i, l in enumerate(lines) if "DEFINES += CAPSTONE_FAULT_SPEED_DIVISOR" in l)
+    assert lines[define - 1].startswith("!isEmpty(CAPSTONE_FAULT_SPEED_DIVISOR)")
+    assert sum("CAPSTONE_FAULT_SPEED_DIVISOR=" in l and "DEFINES" in l for l in lines) == 1
+    sources = (OVERLAY / "src" / "capstone" / "cluster_signals.cpp").read_text()
+    assert "#ifdef CAPSTONE_FAULT_SPEED_DIVISOR" in sources and "static_assert(CAPSTONE_FAULT_SPEED_DIVISOR >= 2" in sources
+    server = (OVERLAY / "src" / "capstone" / "cluster_ipc_server.cpp").read_text()
+    marker = server.index("DEMO/TEST FAULT INJECTION BUILD")
+    assert server.rfind("#ifdef CAPSTONE_FAULT_SPEED_DIVISOR", 0, marker) > server.rfind("#endif", 0, marker)
+
+
+def _binary(tmp_path, name, marker=False):
+    path = tmp_path / name
+    path.write_bytes(b"\x7fELF" + (b"DEMO/TEST FAULT INJECTION BUILD" if marker else b"") + b"\0" * 16)
+    path.chmod(0o755)
+    return path
+
+
+def test_normal_payload_refuses_a_fault_injection_binary(tmp_path):
+    make = DASH / "make-payload.sh"
+    ok = subprocess.run([str(make), str(_binary(tmp_path, "good")), str(tmp_path / "p1")], capture_output=True)
+    assert ok.returncode == 0
+    bad = subprocess.run([str(make), str(_binary(tmp_path, "bad", marker=True)), str(tmp_path / "p2")],
+                         capture_output=True, text=True)
+    assert bad.returncode != 0 and "FAULT" in bad.stderr
+
+
+def test_fault_payload_requires_marker_and_is_labelled(tmp_path):
+    make = CUSTOM / "make-fault-payload.sh"
+    refused = subprocess.run([str(make), str(_binary(tmp_path, "good")), str(tmp_path / "p1")], capture_output=True)
+    assert refused.returncode != 0
+    done = subprocess.run([str(make), str(_binary(tmp_path, "bad", marker=True)), str(tmp_path / "p2")],
+                          capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert "DEMO/TEST FAULT INJECTION ONLY" in (tmp_path / "p2" / "FAULT-INJECTION-ONLY").read_text()
+
+
+def test_qt_application_contract_tests_pass_when_qt_available():
+    qt = os.environ.get("CAPSTONE_QT_DIR")
+    if not qt:
+        pytest.skip("CAPSTONE_QT_DIR not set: Qt toolchain unavailable")
+    result = subprocess.run([str(CUSTOM / "qt-tests/run-qt-tests.sh"), qt], capture_output=True, text=True, timeout=900)
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-4000:]
+    totals = [line for line in result.stdout.splitlines() if line.startswith("Totals:")]
+    assert len(totals) == 5, totals   # AppStatus, signals, signals (fault build), IPC server, QML
+    assert all(", 0 failed," in line for line in totals)

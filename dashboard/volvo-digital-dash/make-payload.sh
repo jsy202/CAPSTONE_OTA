@@ -13,6 +13,10 @@ if [[ ! -f $built_binary || -L $built_binary || ! -x $built_binary ]]; then
   echo "built binary must be an executable regular file" >&2
   exit 1
 fi
+if grep -aq "DEMO/TEST FAULT INJECTION BUILD" -- "$built_binary" && [[ ${CAPSTONE_ALLOW_FAULT_PAYLOAD:-} != 1 ]]; then
+  echo "refusing a DEMO/TEST FAULT INJECTION build; use customization/make-fault-payload.sh" >&2
+  exit 1
+fi
 if [[ -e $output_dir && -n $(find "$output_dir" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null) ]]; then
   echo "refusing to write into a non-empty output directory" >&2
   exit 1

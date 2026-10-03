@@ -1,15 +1,21 @@
 diff -ruN a/app/app.pro b/app/app.pro
 --- a/app/app.pro
 +++ b/app/app.pro
-@@ -499,3 +499,8 @@
+@@ -499,3 +499,14 @@
  }
  
  DISTFILES +=
 +
-+# CAPSTONE OTA status badge (local customization, see customization/ in CAPSTONE_OTA)
-+SOURCES += src/capstone/app_status.cpp
-+HEADERS += inc/capstone/app_status.h
++# CAPSTONE OTA status badge and application IPC (local customization, see customization/ in CAPSTONE_OTA)
++QT += network
++SOURCES += src/capstone/app_status.cpp src/capstone/cluster_signals.cpp src/capstone/cluster_ipc_server.cpp
++HEADERS += inc/capstone/app_status.h inc/capstone/cluster_signals.h inc/capstone/cluster_ipc_server.h inc/capstone/context_model_access.h
 +INCLUDEPATH += inc/capstone
++# DEMO/TEST FAULT INJECTION ONLY: qmake CAPSTONE_FAULT_SPEED_DIVISOR=10 builds a deliberately faulty Cluster.
++!isEmpty(CAPSTONE_FAULT_SPEED_DIVISOR) {
++    DEFINES += CAPSTONE_FAULT_SPEED_DIVISOR=$$CAPSTONE_FAULT_SPEED_DIVISOR
++    message("DEMO/TEST FAULT INJECTION BUILD: CAPSTONE_FAULT_SPEED_DIVISOR=$$CAPSTONE_FAULT_SPEED_DIVISOR")
++}
 diff -ruN a/app/main.qml b/app/main.qml
 --- a/app/main.qml
 +++ b/app/main.qml
@@ -41,21 +47,28 @@ diff -ruN a/app/qml.qrc b/app/qml.qrc
 diff -ruN a/app/src/main.cpp b/app/src/main.cpp
 --- a/app/src/main.cpp
 +++ b/app/src/main.cpp
-@@ -9,6 +9,7 @@
+@@ -9,6 +9,9 @@
  #include <QQmlComponent>
  #include <QQuickWindow>
  #include <key_press_emitter.h>
 +#include <app_status.h>
++#include <cluster_ipc_server.h>
++#include <context_model_access.h>
  
  #include <config.h>
  #include <QMetaType>
-@@ -45,6 +46,10 @@
+@@ -45,6 +48,15 @@
      KeyPressEmitter * sideScreenKeyPress = new KeyPressEmitter();
      ctxt->setContextProperty("keyPressEmitter", sideScreenKeyPress);
  
 +    // CAPSTONE OTA: display-only status of the running A/B application slot.
 +    AppStatus * capstoneStatus = new AppStatus(&app);
 +    ctxt->setContextProperty("capstoneStatus", capstoneStatus);
++
++    // CAPSTONE OTA: vehicle/functional IPC for the zone agent (ZONAL_OTA_GUIDE section 5).
++    // Values go through, and are read back from, the models the QML scene renders.
++    ClusterIpcServer * capstoneIpc = new ClusterIpcServer(new ContextModelAccess(ctxt), &app);
++    capstoneIpc->listenOrWarn();
 +
      // Initialize Dash
  #ifdef RASPBERRY_PI
