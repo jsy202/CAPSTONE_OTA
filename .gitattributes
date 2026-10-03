@@ -1,0 +1,2 @@
+# Upstream files use CRLF; the patch must keep its exact bytes.
+dashboard/volvo-digital-dash/customization/patches/*.patch -text

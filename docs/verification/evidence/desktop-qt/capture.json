@@ -1,0 +1,284 @@
+{
+  "failed": false,
+  "source_sha256": {
+    "StatusBadge.qml": "7de9344ab49779b4bf4d3f096efa2d9f3241970a980306cd0a715ea72f315ae5",
+    "app_status.cpp": "8ea00d828753f5cd7ebda91992aa67e8358ee30b53620cb7b15b07a9e9934475"
+  },
+  "baseline_compared": true,
+  "steps": [
+    {
+      "step": "1-stable-1.0.0",
+      "screen": "Original240Layout",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "baseline_plate_px": 0,
+      "baseline_strip_px": 0,
+      "verdict": "PASS"
+    },
+    {
+      "step": "2-trial-1.1.1",
+      "screen": "Original240Layout",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "baseline_plate_px": 0,
+      "baseline_strip_px": 0,
+      "verdict": "PASS"
+    },
+    {
+      "step": "3-restored-1.0.0",
+      "screen": "Original240Layout",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "baseline_plate_px": 0,
+      "baseline_strip_px": 0,
+      "verdict": "PASS"
+    },
+    {
+      "step": "4-stable-1.0.0",
+      "screen": "Original240Layout",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "baseline_plate_px": 0,
+      "baseline_strip_px": 0,
+      "verdict": "PASS"
+    },
+    {
+      "step": "5-corrupt",
+      "screen": "Original240Layout",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "baseline_plate_px": 0,
+      "baseline_strip_px": 0,
+      "verdict": "PASS"
+    },
+    {
+      "step": "layout BigTachLeft",
+      "screen": "BigTachLeft",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "baseline_plate_px": 0,
+      "baseline_strip_px": 0,
+      "verdict": "PASS"
+    },
+    {
+      "step": "layout Original240Layout",
+      "screen": "Original240Layout",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "baseline_plate_px": 0,
+      "baseline_strip_px": 0,
+      "verdict": "PASS"
+    },
+    {
+      "step": "layout Original740Layout",
+      "screen": "Original740Layout",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "baseline_plate_px": 0,
+      "baseline_strip_px": 0,
+      "verdict": "PASS"
+    },
+    {
+      "step": "layout Original240LayoutClock",
+      "screen": "Original240LayoutClock",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "baseline_plate_px": 0,
+      "baseline_strip_px": 0,
+      "verdict": "PASS"
+    },
+    {
+      "step": "layout Original850R",
+      "screen": "Original850R",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "baseline_plate_px": 0,
+      "baseline_strip_px": 0,
+      "verdict": "PASS"
+    },
+    {
+      "step": "layout OriginalRSportLayout",
+      "screen": "OriginalRSportLayout",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "baseline_plate_px": 0,
+      "baseline_strip_px": 0,
+      "verdict": "PASS"
+    },
+    {
+      "step": "layout Original544Layout",
+      "screen": "Original544Layout",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "baseline_plate_px": 0,
+      "baseline_strip_px": 0,
+      "verdict": "PASS"
+    },
+    {
+      "step": "layout OriginalP1800Layout",
+      "screen": "OriginalP1800Layout",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "baseline_plate_px": 0,
+      "baseline_strip_px": 0,
+      "verdict": "PASS"
+    },
+    {
+      "step": "layout OriginalEarly240Layout",
+      "screen": "OriginalEarly240Layout",
+      "plate_left": 1150,
+      "content_right_edge": 1149,
+      "gap_px": 0,
+      "overlap": true,
+      "baseline_plate_px": 583,
+      "baseline_strip_px": 0,
+      "verdict": "REVIEWED: panel frame line passes under the badge corner"
+    },
+    {
+      "step": "layout Original140RallyeLayout",
+      "screen": "Original140RallyeLayout",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "baseline_plate_px": 0,
+      "baseline_strip_px": 0,
+      "verdict": "PASS"
+    },
+    {
+      "step": "layout BigTachCenter",
+      "screen": "BigTachCenter",
+      "plate_left": 1150,
+      "content_right_edge": 1145,
+      "gap_px": 4,
+      "overlap": false,
+      "baseline_plate_px": 0,
+      "baseline_strip_px": 0,
+      "verdict": "PASS"
+    }
+  ],
+  "baseline": [
+    {
+      "screen": "BigTachLeft",
+      "plate_px": 0,
+      "strip_px": 0
+    },
+    {
+      "screen": "Original240Layout",
+      "plate_px": 0,
+      "strip_px": 0
+    },
+    {
+      "screen": "Original740Layout",
+      "plate_px": 0,
+      "strip_px": 0
+    },
+    {
+      "screen": "Original240LayoutClock",
+      "plate_px": 0,
+      "strip_px": 0
+    },
+    {
+      "screen": "Original850R",
+      "plate_px": 0,
+      "strip_px": 0
+    },
+    {
+      "screen": "OriginalRSportLayout",
+      "plate_px": 0,
+      "strip_px": 0
+    },
+    {
+      "screen": "Original544Layout",
+      "plate_px": 0,
+      "strip_px": 0
+    },
+    {
+      "screen": "OriginalP1800Layout",
+      "plate_px": 0,
+      "strip_px": 0
+    },
+    {
+      "screen": "OriginalEarly240Layout",
+      "plate_px": 583,
+      "strip_px": 0
+    },
+    {
+      "screen": "Original140RallyeLayout",
+      "plate_px": 0,
+      "strip_px": 0
+    },
+    {
+      "screen": "BigTachCenter",
+      "plate_px": 0,
+      "strip_px": 0
+    }
+  ],
+  "committed_files": [
+    "1-stable-1.0.0.png",
+    "2-trial-1.1.1.png",
+    "3-restored-1.0.0.png",
+    "4-stable-1.0.0.png",
+    "5-corrupt.png",
+    "all-layouts-trial.jpg",
+    "corners/1-stable-1.0.0.png",
+    "corners/2-trial-1.1.1.png",
+    "corners/3-restored-1.0.0.png",
+    "corners/4-stable-1.0.0.png",
+    "corners/5-corrupt.png",
+    "corners/baseline-BigTachCenter.png",
+    "corners/baseline-BigTachLeft.png",
+    "corners/baseline-Original140RallyeLayout.png",
+    "corners/baseline-Original240Layout.png",
+    "corners/baseline-Original240LayoutClock.png",
+    "corners/baseline-Original544Layout.png",
+    "corners/baseline-Original740Layout.png",
+    "corners/baseline-Original850R.png",
+    "corners/baseline-OriginalEarly240Layout.png",
+    "corners/baseline-OriginalP1800Layout.png",
+    "corners/baseline-OriginalRSportLayout.png",
+    "corners/patched-BigTachCenter.png",
+    "corners/patched-BigTachLeft.png",
+    "corners/patched-Original140RallyeLayout.png",
+    "corners/patched-Original240Layout.png",
+    "corners/patched-Original240LayoutClock.png",
+    "corners/patched-Original544Layout.png",
+    "corners/patched-Original740Layout.png",
+    "corners/patched-Original850R.png",
+    "corners/patched-OriginalEarly240Layout.png",
+    "corners/patched-OriginalP1800Layout.png",
+    "corners/patched-OriginalRSportLayout.png"
+  ],
+  "environment": {
+    "qt": "5.15.2 gcc_64 (aqtinstall, user-local)",
+    "display": "Xvfb 1280x800, window 1280x480, no 180-degree rotation",
+    "host": "Ubuntu 22.04 x86_64",
+    "upstream": "793452919127065536bcb7a08f98838fa963d75e"
+  }
+}

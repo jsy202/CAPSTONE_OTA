@@ -1,0 +1,51 @@
+{
+  "coordinator_phases": [
+    "PREPARING",
+    "READY",
+    "ACTIVATING",
+    "VERIFYING",
+    "ROLLING_BACK",
+    "RECOVERY_VERIFYING",
+    "ROLLED_BACK"
+  ],
+  "detected": "FUNCTIONAL_VALUE_MISMATCH",
+  "display_sequence": [
+    [
+      "stable",
+      "1.0.0"
+    ],
+    [
+      "trial",
+      "1.1.1"
+    ],
+    [
+      "stable",
+      "1.0.0"
+    ]
+  ],
+  "final_slots": {
+    "central-control": [
+      "A",
+      "A",
+      null
+    ],
+    "digital-cluster": [
+      "A",
+      "A",
+      null
+    ]
+  },
+  "injected_fault": {
+    "speed_divisor": 10
+  },
+  "recovery_verification_passed": true,
+  "requirement": "VR-OTA-003",
+  "scenario": "runtime semantic defect",
+  "trial_slots": {
+    "central-control": "B / 1.1.0",
+    "digital-cluster": "B / 1.1.1"
+  },
+  "verification_codes": [
+    "FUNCTIONAL_VALUE_MISMATCH"
+  ]
+}

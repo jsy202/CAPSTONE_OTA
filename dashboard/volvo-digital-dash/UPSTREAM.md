@@ -12,6 +12,21 @@
 `ea2c02060cc329cc83f6a77e8247b195b5defcd9`를
 `upstream/QtDash/eigen`에 체크아웃해야 합니다.
 
-이 저장소의 로컬 변경은 원본 앱 소스를 직접 수정하지 않습니다. ARM용으로 빌드된
-실행 파일을 `make-payload.sh`로 OTA payload 구조에 감싸는 방식으로 연동합니다.
+이 저장소는 원본 앱 소스를 복사하거나 직접 고쳐 보관하지 않습니다. 로컬 변경은
+`customization/`에만 있고, import한 뒤 다시 적용할 수 있습니다.
+
+```bash
+./import-upstream.sh                                   # 고정 커밋 가져오기(변경 없음)
+./customization/apply-customization.sh upstream/QtDash/VolvoDigitalDashModels
+```
+
+- `customization/overlay/`: 새 파일만 둡니다 (`AppStatus` C++ 모델, `StatusBadge.qml`).
+- `customization/patches/0001-capstone-ota-status-badge.patch`: upstream 파일 4개
+  (`app/src/main.cpp`, `app/main.qml`, `app/qml.qrc`, `app/app.pro`)에 **줄 추가만** 합니다.
+  upstream이 CRLF를 쓰므로 `.gitattributes`로 패치 바이트를 보존합니다.
+- 적용 스크립트는 import가 아닌 트리나 두 번째 적용을 거부하고, 고정 커밋을
+  `.capstone-customization-applied`에 기록합니다.
+- `customization/qt-tests/`: Qt Test, QML TestCase, 데스크톱 화면 캡처 도구입니다.
+
+빌드한 ARM 실행 파일은 이전과 같이 `make-payload.sh`로 OTA payload에 감쌉니다.
 

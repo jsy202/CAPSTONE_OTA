@@ -11,3 +11,4 @@ dist/
 *.key
 *.pem
 secrets/
+verification-results/

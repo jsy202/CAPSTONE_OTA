@@ -1,0 +1,7 @@
+{
+  "displayed_trial_versions": [
+    "1.1.1"
+  ],
+  "requirement": "VR-OTA-002",
+  "signed_bundle_cluster_version": "1.1.1"
+}

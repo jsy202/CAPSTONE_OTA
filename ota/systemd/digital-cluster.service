@@ -6,6 +6,12 @@ After=graphical.target
 Type=simple
 User=digital-dash
 Group=digital-cluster
+# Display-only status for the on-screen badge. '+' only leaves this unit's
+# sandbox; setpriv then drops to capstone-ota (owner of the 0600 slot journal)
+# before the read-only helper runs, so no root code touches the status
+# directory. '-' guarantees a helper failure never blocks the application.
+# The app itself gains no access to OTA state.
+ExecStartPre=-+/usr/bin/setpriv --reuid=capstone-ota --regid=capstone-ota --init-groups --no-new-privs -- /opt/capstone-ota/venv/bin/capstone-ota-ui-status --install-root /opt/digital-cluster --initial-version 1.0.0 --output /run/capstone-ota-ui/digital-cluster.json
 # Releases must use entrypoint bin/digital-dash; the slot selector is atomic.
 ExecStart=/opt/digital-cluster/active-slot/bin/digital-dash
 RuntimeDirectory=digital-cluster

@@ -1,0 +1,714 @@
+{
+  "schema_version": 1,
+  "generated_at": "20261003T094743Z",
+  "result": "PASS",
+  "gates": [
+    {
+      "id": "G1",
+      "title": "Unit verification (SWE.4)",
+      "status": "PASS",
+      "detail": "4 PASS, 0 FAIL, 0 NOT_EXECUTED",
+      "failed": []
+    },
+    {
+      "id": "G2",
+      "title": "Status propagation / component integration (SWE.5)",
+      "status": "PASS",
+      "detail": "5 PASS, 0 FAIL, 0 NOT_EXECUTED",
+      "failed": []
+    },
+    {
+      "id": "G3",
+      "title": "Normal OTA commit state transition (SWE.6)",
+      "status": "PASS",
+      "detail": "3 PASS, 0 FAIL, 0 NOT_EXECUTED",
+      "failed": []
+    },
+    {
+      "id": "G4",
+      "title": "Fault-injection rollback (SWE.6)",
+      "status": "PASS",
+      "detail": "5 PASS, 0 FAIL, 0 NOT_EXECUTED",
+      "failed": []
+    },
+    {
+      "id": "G5",
+      "title": "Recovery verification (SWE.6)",
+      "status": "PASS",
+      "detail": "2 PASS, 0 FAIL, 0 NOT_EXECUTED",
+      "failed": []
+    },
+    {
+      "id": "G6",
+      "title": "Full regression + change impact",
+      "status": "PASS",
+      "detail": "766 tests, 0 failures, 0 errors, 0 skipped; protected OTA paths unchanged",
+      "failed": []
+    },
+    {
+      "id": "G7",
+      "title": "Privilege / security regression",
+      "status": "PASS",
+      "detail": "3 PASS, 0 FAIL, 0 NOT_EXECUTED",
+      "failed": []
+    }
+  ],
+  "not_executed": [],
+  "pending_hardware": [
+    "VR-HW-001",
+    "VR-HW-002",
+    "VR-HW-003"
+  ],
+  "full_regression": {
+    "tests": 766,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "change_impact": {
+    "protected_paths_unchanged": true,
+    "detail": "dca36a81ed6e"
+  },
+  "environment": {
+    "python": "3.10.12",
+    "platform": "linux",
+    "qt": "5.15.2",
+    "upstream_import": "provided"
+  },
+  "measures": [
+    {
+      "vr": "VR-UI-001",
+      "tc": "TC-UI-STABLE-001",
+      "title": "Stable application shows STABLE and the stable SW version",
+      "gate": "G1",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "4 cases passed",
+      "cases": {
+        "tests/unit/test_ui_status.py::test_provisioned_stable_uses_initial_version": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_recorded_stable_version_wins_over_initial_version": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_valid_installer_root_is_read": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_run_once_writes_current_status": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-UI-002",
+      "tc": "TC-UI-TRIAL-001",
+      "title": "Running trial slot shows OTA TRIAL and the trial SW version from app launch",
+      "gate": "G1",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "4 cases passed",
+      "cases": {
+        "tests/unit/test_ui_status.py::test_selected_trial_slot_reports_trial_version": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_activating_after_selector_switch_is_trial": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_activating_before_selector_switch_is_still_stable": [
+          "passed"
+        ],
+        "tests/integration/test_ui_status_lifecycle.py::test_trial_then_rollback_shows_1_0_0_1_1_1_1_0_0": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-UI-003",
+      "tc": "TC-UI-COMMIT-001",
+      "title": "After commit the display becomes STABLE with the new version without an application restart",
+      "gate": "G3",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "3 cases passed",
+      "cases": {
+        "tests/integration/test_ui_status_lifecycle.py::test_commit_reaches_stable_new_version_via_watch": [
+          "passed"
+        ],
+        "tests/integration/test_ui_status_system.py::test_normal_update_display_sequence_stable_trial_stable_new": [
+          "passed"
+        ],
+        "tests/integration/test_zonal_end_to_end.py::test_signed_bundle_commits_both_applications_together": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-UI-004",
+      "tc": "TC-UI-ROLLBACK-001",
+      "title": "After rollback the display returns to the previous stable version and briefly shows RESTORED",
+      "gate": "G4",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "5 cases passed",
+      "cases": {
+        "tests/unit/test_ui_status.py::test_trial_to_stable_with_different_version_sets_restored_at": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_restored_at_carries_over_while_stable_same_version": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_commit_same_version_never_sets_restored_at": [
+          "passed"
+        ],
+        "tests/integration/test_ui_status_lifecycle.py::test_staged_abort_never_shows_rollback": [
+          "passed"
+        ],
+        "tests/integration/test_ui_status_system.py::test_runtime_defect_display_sequence_and_recovery_verification": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-UI-005",
+      "tc": "TC-UI-FAILSAFE-001",
+      "title": "Corrupt, missing, partial or inconsistent metadata shows UNKNOWN and never crashes",
+      "gate": "G1",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "37 cases passed",
+      "cases": {
+        "tests/unit/test_ui_status.py::test_unreadable_state_is_unknown": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_missing_selector_is_unknown": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_stable_journal_with_foreign_selected_slot_is_unknown": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_invalid_initial_version_fallback_is_unknown": [
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_corrupt_or_partially_written_journal_reads_no_state": [
+          "passed",
+          "passed",
+          "passed",
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_foreign_selector_target_reads_no_slot": [
+          "passed",
+          "passed",
+          "passed",
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_missing_journal_reads_no_state": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_missing_install_root_reads_nothing": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_selector_to_missing_slot_directory_reads_no_slot": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_absolute_selector_is_rejected_like_the_installer": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_interrupted_write_keeps_previous_status_and_no_temporary": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_read_previous_rejects_non_v1": [
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_malformed_previous_restored_at_is_not_carried": [
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_read_previous_never_blocks_on_fifo": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_read_previous_does_not_follow_symlink": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_failed_snapshot_removes_stale_status": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_failed_watch_iteration_removes_stale_status": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-UI-005Q",
+      "tc": "TC-UI-FAILSAFE-002",
+      "title": "Qt AppStatus model and badge fail closed and propagate properties (Qt 5.15 build)",
+      "gate": "G2",
+      "kind": "conditional",
+      "status": "PASS",
+      "detail": "1 cases passed",
+      "cases": {
+        "tests/integration/test_dashboard_customization.py::test_qt_unit_and_component_tests_pass_when_qt_available": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-UI-006",
+      "tc": "TC-UI-SEC-001",
+      "title": "The privileged slot journal is never exposed to the Cluster application",
+      "gate": "G7",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "5 cases passed",
+      "cases": {
+        "tests/integration/test_ui_status_system.py::test_ui_status_never_exposes_privileged_journal": [
+          "passed"
+        ],
+        "tests/integration/test_ui_status_assets.py::test_cluster_app_snapshots_status_without_blocking_or_widening_access": [
+          "passed"
+        ],
+        "tests/integration/test_ui_status_assets.py::test_watch_service_is_unprivileged_and_hardened": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_read_snapshot_never_writes": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_write_status_replaces_planted_fifo_or_symlink_without_following": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-UI-007",
+      "tc": "TC-UI-ISOL-001",
+      "title": "A status-display failure never blocks the Cluster application or the OTA services",
+      "gate": "G2",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "6 cases passed",
+      "cases": {
+        "tests/unit/test_ui_status.py::test_main_snapshot_returns_zero_when_output_directory_missing": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_watch_survives_corrupt_state_and_recovers": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_watch_continues_when_output_write_fails": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_write_status_does_not_create_missing_directory": [
+          "passed"
+        ],
+        "tests/integration/test_ui_status_assets.py::test_tmpfiles_owns_runtime_directory": [
+          "passed"
+        ],
+        "tests/integration/test_ui_status_assets.py::test_status_initial_version_matches_zone_agent": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-UI-008",
+      "tc": "TC-UI-VIS-001",
+      "title": "Badge keeps the original cluster usable on the desktop x86_64 capture: no upstream content under the plate (one reviewed decorative overlap), legible, never red, no input capture",
+      "gate": "G2",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "8 cases passed",
+      "cases": {
+        "tests/integration/test_dashboard_customization.py::test_badge_uses_spec_colors_never_red_and_never_takes_input": [
+          "passed"
+        ],
+        "tests/integration/test_dashboard_customization.py::test_badge_and_model_hard_code_no_version_or_state_value": [
+          "passed"
+        ],
+        "tests/integration/test_dashboard_customization.py::test_model_pins_source_path_limits_and_timing": [
+          "passed"
+        ],
+        "tests/integration/test_dashboard_customization.py::test_clearance_passes_when_last_lamp_ends_left_of_plate": [
+          "passed"
+        ],
+        "tests/integration/test_dashboard_customization.py::test_clearance_fails_when_upstream_content_touches_plate": [
+          "passed"
+        ],
+        "tests/integration/test_dashboard_customization.py::test_reviewed_decorative_overlaps_are_explicit_and_few": [
+          "passed"
+        ],
+        "tests/integration/test_dashboard_customization.py::test_covered_content_counts_baseline_pixels_under_plate_and_strips": [
+          "passed"
+        ],
+        "tests/integration/test_dashboard_customization.py::test_capture_records_hashes_of_the_badge_sources": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-UI-009",
+      "tc": "TC-UI-CM-001",
+      "title": "Customization is reproducible on the pinned upstream and preserves provenance",
+      "gate": "G2",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "5 cases passed",
+      "cases": {
+        "tests/integration/test_dashboard_customization.py::test_patch_touches_only_the_four_allowed_upstream_files": [
+          "passed"
+        ],
+        "tests/integration/test_dashboard_customization.py::test_patch_wires_model_badge_resource_and_sources": [
+          "passed"
+        ],
+        "tests/integration/test_dashboard_customization.py::test_apply_script_is_strict_and_pinned": [
+          "passed"
+        ],
+        "tests/integration/test_dashboard_customization.py::test_apply_refuses_a_tree_that_is_not_an_import": [
+          "passed"
+        ],
+        "tests/integration/test_dashboard_customization.py::test_overlay_and_qt_test_files_exist": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-UI-009U",
+      "tc": "TC-UI-CM-002",
+      "title": "The patch applies to a real pinned upstream import and refuses re-application",
+      "gate": "G2",
+      "kind": "conditional",
+      "status": "PASS",
+      "detail": "1 cases passed",
+      "cases": {
+        "tests/integration/test_dashboard_customization.py::test_patch_applies_to_pinned_upstream_and_refuses_reapplication": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-OTA-001",
+      "tc": "TC-OTA-ID-001",
+      "title": "Software versions before and after an update are identifiable on the vehicle",
+      "gate": "G1",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "4 cases passed",
+      "cases": {
+        "tests/unit/test_zonal_agent.py::test_heartbeat_tracks_trial_and_commit_numeric_version_and_rollover": [
+          "passed"
+        ],
+        "tests/unit/test_zonal_agent.py::test_initial_application_version_protects_provisioned_slot_from_downgrade": [
+          "passed"
+        ],
+        "tests/unit/test_zonal_agent.py::test_interrupted_activation_metadata_cannot_advertise_stale_stable_version": [
+          "passed"
+        ],
+        "tests/unit/test_ui_status.py::test_provisioned_stable_uses_initial_version": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-OTA-002",
+      "tc": "TC-OTA-BIND-001",
+      "title": "The trial software version equals the signed vehicle bundle target and the bundle cannot be altered",
+      "gate": "G3",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "3 cases passed",
+      "cases": {
+        "tests/integration/test_ui_status_system.py::test_trial_display_version_matches_signed_bundle_target": [
+          "passed"
+        ],
+        "tests/unit/test_vehicle_bundle.py::test_changed_bundle_cannot_use_original_signature": [
+          "passed"
+        ],
+        "tests/unit/test_signing.py::test_generic_document_signature_rejects_tampering_and_wrong_key": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-OTA-003",
+      "tc": "TC-OTA-FI-SEM-001",
+      "title": "A runtime semantic incompatibility rolls back both ECUs (whole-vehicle)",
+      "gate": "G4",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "4 cases passed",
+      "cases": {
+        "tests/integration/test_zonal_end_to_end.py::test_runtime_semantic_defect_rolls_back_whole_bundle": [
+          "passed"
+        ],
+        "tests/integration/test_ui_status_system.py::test_runtime_defect_display_sequence_and_recovery_verification": [
+          "passed"
+        ],
+        "tests/unit/test_compatibility.py::test_configured_can_error_budget_never_masks_functional_failure": [
+          "passed"
+        ],
+        "tests/unit/test_compatibility.py::test_no_functional_challenges_never_counts_as_verification": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-OTA-004",
+      "tc": "TC-OTA-REC-001",
+      "title": "ROLLED_BACK is reported only after recovery verification passes; failed recovery is never a success",
+      "gate": "G5",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "5 cases passed",
+      "cases": {
+        "tests/unit/test_coordinator.py::test_failed_recovery_never_reports_successful_rollback": [
+          "passed"
+        ],
+        "tests/unit/test_coordinator.py::test_remote_rollback_failure_is_recovery_failed_even_with_healthy_probe": [
+          "passed"
+        ],
+        "tests/unit/test_compatibility.py::test_recovery_requires_stable_heartbeats": [
+          "passed"
+        ],
+        "tests/unit/test_coordinator.py::test_cluster_rollback_reply_must_confirm_restored_stable_slot": [
+          "passed"
+        ],
+        "tests/integration/test_ui_status_system.py::test_runtime_defect_display_sequence_and_recovery_verification": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-OTA-005",
+      "tc": "TC-OTA-FI-PWR-001",
+      "title": "Power interruption during verification recovers the previous version set after boot",
+      "gate": "G5",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "14 cases passed",
+      "cases": {
+        "tests/integration/test_zonal_recovery.py::test_restart_during_verification_restores_both_stable_slots": [
+          "passed"
+        ],
+        "tests/integration/test_ui_status_system.py::test_power_loss_during_verification_display_sequence": [
+          "passed"
+        ],
+        "tests/unit/test_coordinator.py::test_restart_rolls_back_whole_bundle_and_resumes_idempotently": [
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed"
+        ],
+        "tests/unit/test_slots.py::test_startup_recovery_aborts_every_uncommitted_phase": [
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-OTA-006",
+      "tc": "TC-OTA-FI-INT-001",
+      "title": "Tampered artifacts and invalid signatures are rejected before any slot changes",
+      "gate": "G4",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "10 cases passed",
+      "cases": {
+        "tests/integration/test_zonal_end_to_end.py::test_tampered_archive_aborts_before_either_slot_changes": [
+          "passed"
+        ],
+        "tests/integration/test_zonal_end_to_end.py::test_unsigned_command_is_rejected_without_journal_change": [
+          "passed"
+        ],
+        "tests/unit/test_zonal_agent.py::test_archive_hash_mismatch_of_equal_length_cannot_stage": [
+          "passed"
+        ],
+        "tests/unit/test_signing.py::test_modified_signature_and_wrong_key_are_rejected": [
+          "passed"
+        ],
+        "tests/unit/test_updater.py::test_modified_artifact_is_rejected_before_staging": [
+          "passed"
+        ],
+        "tests/unit/test_archive.py::test_unsafe_archive_member_is_rejected_before_extraction": [
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-OTA-007",
+      "tc": "TC-OTA-FI-CAN-001",
+      "title": "Declared configuration incompatibility (CAN protocol major, dependencies, target) is rejected before activation",
+      "gate": "G4",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "16 cases passed",
+      "cases": {
+        "tests/integration/test_zonal_end_to_end.py::test_declared_can_major_mismatch_is_rejected_before_activation": [
+          "passed"
+        ],
+        "tests/unit/test_compatibility.py::test_declared_pair_major_mismatch_rejected_even_without_dependency_rules": [
+          "passed"
+        ],
+        "tests/unit/test_vehicle_bundle.py::test_unsatisfied_dependency_has_stable_error_code": [
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed"
+        ],
+        "tests/unit/test_manifest.py::test_policy_rejects_wrong_target_expired_or_old_release": [
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-OTA-008",
+      "tc": "TC-OTA-FI-HB-001",
+      "title": "Cluster heartbeat loss after activation causes whole-vehicle rollback",
+      "gate": "G4",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "16 cases passed",
+      "cases": {
+        "tests/integration/test_zonal_end_to_end.py::test_cluster_heartbeat_loss_after_activation_rolls_back": [
+          "passed"
+        ],
+        "tests/unit/test_can_protocol.py::test_primary_counter_validation_rejects_gaps_and_accepts_single_step_rollover": [
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed"
+        ],
+        "tests/unit/test_zonal_agent.py::test_duplicate_frame_is_idempotent_but_stale_and_skipped_counter_reject": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-OTA-009",
+      "tc": "TC-OTA-LOG-001",
+      "title": "Update results are recorded durably and repeated commands return the recorded result",
+      "gate": "G3",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "3 cases passed",
+      "cases": {
+        "tests/unit/test_coordinator.py::test_completed_execute_is_idempotent_and_rejects_changed_bundle": [
+          "passed"
+        ],
+        "tests/unit/test_coordinator.py::test_old_completed_transaction_returns_recorded_failure_evidence": [
+          "passed"
+        ],
+        "tests/unit/test_slots.py::test_commit_promotes_trial_and_delayed_duplicates_do_not_reinstall": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-OTA-010",
+      "tc": "TC-OTA-AR-001",
+      "title": "Downgrade to an equal or older release is rejected (anti-rollback)",
+      "gate": "G7",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "3 cases passed",
+      "cases": {
+        "tests/unit/test_updater.py::test_current_or_older_release_is_rejected": [
+          "passed"
+        ],
+        "tests/unit/test_zonal_agent.py::test_initial_application_version_protects_provisioned_slot_from_downgrade": [
+          "passed"
+        ],
+        "tests/unit/test_updater.py::test_current_link_overrides_stale_state_for_anti_rollback": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-SEC-001",
+      "tc": "TC-SEC-CFG-001",
+      "title": "Existing least-privilege deployment assets remain intact",
+      "gate": "G7",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "3 cases passed",
+      "cases": {
+        "tests/integration/test_config_assets.py::test_systemd_units_use_fixed_paths_and_least_privilege": [
+          "passed"
+        ],
+        "tests/integration/test_config_assets.py::test_zonal_units_match_configs_and_network_assets": [
+          "passed"
+        ],
+        "tests/integration/test_config_assets.py::test_mosquitto_requires_mutual_tls_and_acl": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-HW-001",
+      "tc": "TC-HW-DEMO-001",
+      "title": "On the two-Pi rig the Cluster display shows STABLE 1.0.0 -> OTA TRIAL 1.1.1 -> RESTORED/STABLE 1.0.0",
+      "gate": "HW",
+      "kind": "hardware",
+      "status": "PENDING_HARDWARE",
+      "detail": "requires the two-Pi rig",
+      "cases": {}
+    },
+    {
+      "vr": "VR-HW-002",
+      "tc": "TC-HW-REG-001",
+      "title": "On target hardware speed/RPM/gear/warning indicators behave exactly as before the patch",
+      "gate": "HW",
+      "kind": "hardware",
+      "status": "PENDING_HARDWARE",
+      "detail": "requires the two-Pi rig",
+      "cases": {}
+    },
+    {
+      "vr": "VR-HW-003",
+      "tc": "TC-HW-BUILD-001",
+      "title": "The patched app builds for the Pi (Qt/ARM) and the Qt tests pass on target",
+      "gate": "HW",
+      "kind": "hardware",
+      "status": "PENDING_HARDWARE",
+      "detail": "requires the two-Pi rig",
+      "cases": {}
+    }
+  ]
+}

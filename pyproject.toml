@@ -17,6 +17,7 @@ capstone-ota-publish = "capstone_ota.publisher.cli:main"
 capstone-ota-agent = "capstone_ota.agent.cli:main"
 capstone-ota-coordinator = "capstone_ota.coordinator.cli:main"
 capstone-ota-zone-agent = "capstone_ota.agent.zonal_cli:main"
+capstone-ota-ui-status = "capstone_ota.agent.ui_status:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
