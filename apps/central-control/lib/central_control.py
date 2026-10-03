@@ -241,25 +241,24 @@ class MaintenanceServer:
                 self._drop(conn)
 
     def _serve(self, conn: socket.socket) -> None:
-        if True:
-            buffer, _ = self.connections[conn]
-            try:
-                chunk = conn.recv(MAX_MESSAGE + 1 - len(buffer))
-            except (BlockingIOError, InterruptedError):
-                return
-            except OSError:
-                self._drop(conn)
-                return
-            buffer += chunk
-            if not chunk or b"\n" in buffer or len(buffer) > MAX_MESSAGE:
-                line = bytes(buffer[:buffer.index(b"\n") + 1]) if b"\n" in buffer else bytes(buffer)
-                reply = handle_request(line, self.app) if chunk else None
-                if reply is not None:
-                    try:
-                        conn.sendall(reply)
-                    except OSError:
-                        pass
-                self._drop(conn)
+        buffer, _ = self.connections[conn]
+        try:
+            chunk = conn.recv(MAX_MESSAGE + 1 - len(buffer))
+        except (BlockingIOError, InterruptedError):
+            return
+        except OSError:
+            self._drop(conn)
+            return
+        buffer += chunk
+        if not chunk or b"\n" in buffer or len(buffer) > MAX_MESSAGE:
+            line = bytes(buffer[:buffer.index(b"\n") + 1]) if b"\n" in buffer else bytes(buffer)
+            reply = handle_request(line, self.app) if chunk else None
+            if reply is not None:
+                try:
+                    conn.sendall(reply)
+                except OSError:
+                    pass
+            self._drop(conn)
 
     def close(self) -> None:
         for conn in list(self.connections):

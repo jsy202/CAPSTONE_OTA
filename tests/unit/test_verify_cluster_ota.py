@@ -113,9 +113,10 @@ def test_exit_codes_distinguish_pass_incomplete_fail():
     assert (V.EXIT_CODES["PASS"], V.EXIT_CODES["INCOMPLETE"], V.EXIT_CODES["FAIL"]) == (0, 2, 1)
 
 
-def test_gate_with_only_not_executed_measures_fails():
+def test_gate_with_only_not_executed_measures_is_incomplete_never_pass():
     report = _gates([(g, s) for g, s in GATES if g != "G3"] + [("G3", "NOT_EXECUTED")])
-    assert report["result"] == "FAIL"
+    assert report["result"] == "INCOMPLETE"
+    assert [g["status"] for g in report["gates"] if g["id"] == "G3"] == ["INCOMPLETE"]
 
 
 def test_full_regression_failure_or_protected_change_fails_g6():

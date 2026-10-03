@@ -841,7 +841,8 @@
       "pass_fail": "PASS if no gap or duplicate occurs",
       "tests": [
         "tests/unit/test_central_control.py::test_counters_are_contiguous_through_rollover",
-        "tests/unit/test_central_control.py::test_no_burst_after_stall"
+        "tests/unit/test_central_control.py::test_no_burst_after_stall",
+        "tests/unit/test_central_control.py::test_heartbeat_counter_rolls_over_255_to_0"
       ],
       "evidence_checks": []
     },
@@ -949,7 +950,7 @@
     {
       "vr": "VR-APP-008",
       "tc": "TC-APP-ECHO-001",
-      "title": "The functional response is never a blind echo of the request",
+      "title": "The functional response is never a blind echo of the request (speed, rpm and warnings via the models; gear is interpreted state without an upstream display)",
       "level": "SWE.4 unit + mutation",
       "iso26262_6": "",
       "r156_concepts": [],
@@ -966,166 +967,6 @@
       "tests": [
         "tests/integration/test_dashboard_customization.py::test_qt_application_contract_tests_pass_when_qt_available",
         "tests/integration/test_cluster_app_ipc.py::test_fault_build_misinterprets_speed_in_the_real_model"
-      ],
-      "evidence_checks": []
-    },
-    {
-      "vr": "VR-APP-009",
-      "tc": "TC-APP-ROB-001",
-      "title": "Malformed, oversized, partial or silent IPC peers neither crash nor block either application",
-      "level": "SWE.5 robustness (fault injection)",
-      "iso26262_6": "",
-      "r156_concepts": [],
-      "gate": "A8",
-      "kind": "conditional",
-      "techniques": [
-        "negative",
-        "fault injection",
-        "boundary"
-      ],
-      "method": "Central handler partitions and live server, real Qt binary under garbage and silent clients",
-      "precondition": "running servers",
-      "expected": "no response for malformed envelopes; other clients served within 1-1.5 s; silent peers dropped at the 2 s deadline; processes stay alive",
-      "pass_fail": "PASS if service continues in every case",
-      "tests": [
-        "tests/unit/test_central_control.py::test_malformed_requests_get_no_response",
-        "tests/integration/test_central_control_app.py::test_silent_client_does_not_block_others",
-        "tests/integration/test_central_control_app.py::test_partial_client_is_dropped_after_deadline",
-        "tests/integration/test_cluster_app_ipc.py::test_malformed_and_silent_clients_do_not_stop_service"
-      ],
-      "evidence_checks": []
-    },
-    {
-      "vr": "VR-APP-010",
-      "tc": "TC-APP-FAULT-001",
-      "title": "A DEMO/TEST fault build produces a real display/model mismatch that the validator reports as FUNCTIONAL_VALUE_MISMATCH",
-      "level": "SWE.6 system (fault injection)",
-      "iso26262_6": "",
-      "r156_concepts": [
-        "R156: dependencies between updated systems verified"
-      ],
-      "gate": "A5",
-      "kind": "conditional",
-      "techniques": [
-        "fault injection",
-        "requirements-based"
-      ],
-      "method": "real fault binary in Cluster slot B over the real zonal path",
-      "precondition": "binary built with qmake CAPSTONE_FAULT_SPEED_DIVISOR=10",
-      "expected": "speedometer model holds 6.5 km/h; validator expects 650, observes 65; FUNCTIONAL_VALUE_MISMATCH",
-      "pass_fail": "PASS only if the mismatch comes from the real binary (a normal binary in its place makes the test fail)",
-      "tests": [
-        "tests/integration/test_application_contracts_system.py::test_real_fault_build_is_detected_and_whole_vehicle_rolls_back",
-        "tests/integration/test_cluster_app_ipc.py::test_fault_build_misinterprets_speed_in_the_real_model",
-        "tests/integration/test_dashboard_customization.py::test_fault_define_exists_only_behind_explicit_qmake_variable",
-        "tests/integration/test_dashboard_customization.py::test_normal_payload_refuses_a_fault_injection_binary",
-        "tests/integration/test_dashboard_customization.py::test_fault_payload_requires_marker_and_is_labelled"
-      ],
-      "evidence_checks": []
-    },
-    {
-      "vr": "VR-APP-011",
-      "tc": "TC-APP-NORM-001",
-      "title": "The normal application set passes trial verification and commits",
-      "level": "SWE.6 system",
-      "iso26262_6": "",
-      "r156_concepts": [
-        "R156: update verification evidence"
-      ],
-      "gate": "A4",
-      "kind": "conditional",
-      "techniques": [
-        "requirements-based",
-        "positive"
-      ],
-      "method": "real Central + real Qt Cluster + real coordinator/zone agent; Central-only variant without Qt",
-      "precondition": "signed bundle 2.0.0 (Central 1.1.0, Cluster 1.1.1)",
-      "expected": "COMMITTED; all functional checks passed; badge stable→trial; maintenance [on, off] via real IPC",
-      "pass_fail": "PASS if COMMITTED with every functional check passed",
-      "tests": [
-        "tests/integration/test_application_contracts_system.py::test_real_apps_normal_update_commits",
-        "tests/integration/test_application_contracts_system.py::test_real_central_contract_commits_with_harness_cluster"
-      ],
-      "evidence_checks": []
-    },
-    {
-      "vr": "VR-APP-012",
-      "tc": "TC-APP-RB-001",
-      "title": "A trial application failure rolls back the whole vehicle",
-      "level": "SWE.6 system (fault injection)",
-      "iso26262_6": "",
-      "r156_concepts": [
-        "R156: failed update recovery",
-        "R156: previous software version restoration"
-      ],
-      "gate": "A6",
-      "kind": "conditional",
-      "techniques": [
-        "fault injection",
-        "recovery"
-      ],
-      "method": "real fault binary; real Central with its identity removed during trial",
-      "precondition": "trial active",
-      "expected": "ROLLED_BACK; both ECUs on slot A; the Cluster relaunched from slot A",
-      "pass_fail": "PASS if both ECUs are restored in both scenarios",
-      "tests": [
-        "tests/integration/test_application_contracts_system.py::test_real_fault_build_is_detected_and_whole_vehicle_rolls_back",
-        "tests/integration/test_application_contracts_system.py::test_central_identity_loss_during_trial_rolls_back_and_recovers"
-      ],
-      "evidence_checks": []
-    },
-    {
-      "vr": "VR-APP-013",
-      "tc": "TC-APP-REC-001",
-      "title": "Recovery verification confirms the previous stable application set with the real applications",
-      "level": "SWE.6 system",
-      "iso26262_6": "",
-      "r156_concepts": [
-        "R156: interrupted update recovery"
-      ],
-      "gate": "A7",
-      "kind": "conditional",
-      "techniques": [
-        "recovery",
-        "requirements-based"
-      ],
-      "method": "recovery-scope evidence after rollback and after power loss",
-      "precondition": "rollback executed",
-      "expected": "recovery functional checks and Central STABLE heartbeats pass; verification scopes [false, true]",
-      "pass_fail": "PASS if recovery verification passed before ROLLED_BACK",
-      "tests": [
-        "tests/integration/test_application_contracts_system.py::test_real_fault_build_is_detected_and_whole_vehicle_rolls_back",
-        "tests/integration/test_application_contracts_system.py::test_real_apps_power_loss_during_verification_recovers",
-        "tests/integration/test_application_contracts_system.py::test_central_identity_loss_during_trial_rolls_back_and_recovers",
-        "tests/unit/test_coordinator.py::test_failed_recovery_never_reports_successful_rollback"
-      ],
-      "evidence_checks": []
-    },
-    {
-      "vr": "VR-APP-014",
-      "tc": "TC-APP-SEC-001",
-      "title": "Application IPC sockets and units do not weaken the existing privilege boundaries",
-      "level": "SWE.5 configuration + security",
-      "iso26262_6": "",
-      "r156_concepts": [],
-      "gate": "A8",
-      "kind": "conditional",
-      "techniques": [
-        "negative",
-        "interface"
-      ],
-      "method": "socket mode, special-file refusal, unit hardening, group-only reachability",
-      "precondition": "units in ota/systemd; servers bound",
-      "expected": "sockets 0660; non-socket paths never deleted; apps run as their own accounts with existing hardening; snapshot drops root via setpriv",
-      "pass_fail": "PASS if no privilege is widened",
-      "tests": [
-        "tests/integration/test_central_control_app.py::test_socket_is_owner_and_group_only",
-        "tests/integration/test_central_control_app.py::test_server_refuses_to_replace_non_socket_path",
-        "tests/integration/test_central_control_app.py::test_stale_socket_is_replaced",
-        "tests/integration/test_central_control_assets.py::test_central_app_runs_unprivileged_with_identity_snapshot",
-        "tests/integration/test_central_control_assets.py::test_central_status_watcher_is_unprivileged_and_hardened",
-        "tests/integration/test_central_control_assets.py::test_coordinator_can_reach_central_socket_by_group_only",
-        "tests/integration/test_cluster_app_ipc.py::test_socket_is_owner_and_group_only"
       ],
       "evidence_checks": []
     },
@@ -1148,6 +989,350 @@
       "tests": [
         "tests/integration/test_central_control_app.py::test_payload_script_builds_slot_payload",
         "tests/integration/test_central_control_app.py::test_launcher_runs_module_help"
+      ],
+      "evidence_checks": []
+    },
+    {
+      "vr": "VR-APP-009",
+      "tc": "TC-APP-ROB-001-A",
+      "title": "Malformed, oversized, nested, partial or silent IPC peers neither crash nor block the Central application",
+      "level": "SWE.5 robustness (fault injection)",
+      "iso26262_6": "",
+      "r156_concepts": [],
+      "gate": "A8",
+      "kind": "automated",
+      "techniques": [
+        "negative",
+        "fault injection",
+        "boundary"
+      ],
+      "method": "Central handler partitions and live server, real Qt binary under garbage and silent clients",
+      "precondition": "running servers",
+      "expected": "no response for malformed envelopes; other clients served within 1-1.5 s; silent peers dropped at the 2 s deadline; processes stay alive",
+      "pass_fail": "PASS if service continues in every case",
+      "tests": [
+        "tests/unit/test_central_control.py::test_malformed_requests_get_no_response",
+        "tests/unit/test_central_control.py::test_deeply_nested_request_gets_no_response_and_does_not_raise",
+        "tests/integration/test_central_control_app.py::test_silent_client_does_not_block_others",
+        "tests/integration/test_central_control_app.py::test_partial_client_is_dropped_after_deadline",
+        "tests/integration/test_central_control_app.py::test_nested_json_does_not_crash_the_server"
+      ],
+      "evidence_checks": []
+    },
+    {
+      "vr": "VR-APP-009Q",
+      "tc": "TC-APP-ROB-001-Q",
+      "title": "Malformed, oversized, partial or silent IPC peers neither crash nor block the real Qt Cluster",
+      "level": "SWE.5 robustness (fault injection)",
+      "iso26262_6": "",
+      "r156_concepts": [],
+      "gate": "A8",
+      "kind": "conditional",
+      "techniques": [
+        "negative",
+        "fault injection",
+        "boundary"
+      ],
+      "method": "Central handler partitions and live server, real Qt binary under garbage and silent clients",
+      "precondition": "running servers",
+      "expected": "no response for malformed envelopes; other clients served within 1-1.5 s; silent peers dropped at the 2 s deadline; processes stay alive",
+      "pass_fail": "PASS if service continues in every case",
+      "tests": [
+        "tests/integration/test_cluster_app_ipc.py::test_malformed_and_silent_clients_do_not_stop_service"
+      ],
+      "evidence_checks": []
+    },
+    {
+      "vr": "VR-APP-010S",
+      "tc": "TC-APP-FAULT-001-A",
+      "title": "The fault build exists only behind an explicit qmake variable, is labelled, and is refused as a normal payload",
+      "level": "SWE.6 system (fault injection)",
+      "iso26262_6": "",
+      "r156_concepts": [
+        "R156: dependencies between updated systems verified"
+      ],
+      "gate": "A5",
+      "kind": "automated",
+      "techniques": [
+        "fault injection",
+        "requirements-based"
+      ],
+      "method": "real fault binary in Cluster slot B over the real zonal path",
+      "precondition": "binary built with qmake CAPSTONE_FAULT_SPEED_DIVISOR=10",
+      "expected": "speedometer model holds 6.5 km/h; validator expects 650, observes 65; FUNCTIONAL_VALUE_MISMATCH",
+      "pass_fail": "PASS only if the mismatch comes from the real binary (a normal binary in its place makes the test fail)",
+      "tests": [
+        "tests/integration/test_dashboard_customization.py::test_fault_define_exists_only_behind_explicit_qmake_variable",
+        "tests/integration/test_dashboard_customization.py::test_normal_payload_refuses_a_fault_injection_binary",
+        "tests/integration/test_dashboard_customization.py::test_fault_payload_requires_marker_and_is_labelled"
+      ],
+      "evidence_checks": []
+    },
+    {
+      "vr": "VR-APP-010",
+      "tc": "TC-APP-FAULT-001-Q",
+      "title": "A DEMO/TEST fault build produces a real display/model mismatch that the validator reports as FUNCTIONAL_VALUE_MISMATCH",
+      "level": "SWE.6 system (fault injection)",
+      "iso26262_6": "",
+      "r156_concepts": [
+        "R156: dependencies between updated systems verified"
+      ],
+      "gate": "A5",
+      "kind": "conditional",
+      "techniques": [
+        "fault injection",
+        "requirements-based"
+      ],
+      "method": "real fault binary in Cluster slot B over the real zonal path",
+      "precondition": "binary built with qmake CAPSTONE_FAULT_SPEED_DIVISOR=10",
+      "expected": "speedometer model holds 6.5 km/h; validator expects 650, observes 65; FUNCTIONAL_VALUE_MISMATCH",
+      "pass_fail": "PASS only if the mismatch comes from the real binary (a normal binary in its place makes the test fail)",
+      "tests": [
+        "tests/integration/test_application_contracts_system.py::test_real_fault_build_is_detected_and_whole_vehicle_rolls_back",
+        "tests/integration/test_cluster_app_ipc.py::test_fault_build_misinterprets_speed_in_the_real_model"
+      ],
+      "evidence_checks": []
+    },
+    {
+      "vr": "VR-APP-011C",
+      "tc": "TC-APP-NORM-001-A",
+      "title": "The real Central application passes trial verification and commits (harness Cluster)",
+      "level": "SWE.6 system",
+      "iso26262_6": "",
+      "r156_concepts": [
+        "R156: update verification evidence"
+      ],
+      "gate": "A4",
+      "kind": "automated",
+      "techniques": [
+        "requirements-based",
+        "positive"
+      ],
+      "method": "real Central + real Qt Cluster + real coordinator/zone agent; Central-only variant without Qt",
+      "precondition": "signed bundle 2.0.0 (Central 1.1.0, Cluster 1.1.1)",
+      "expected": "COMMITTED; all functional checks passed; badge stable→trial; maintenance [on, off] via real IPC",
+      "pass_fail": "PASS if COMMITTED with every functional check passed",
+      "tests": [
+        "tests/integration/test_application_contracts_system.py::test_real_central_contract_commits_with_harness_cluster"
+      ],
+      "evidence_checks": []
+    },
+    {
+      "vr": "VR-APP-011",
+      "tc": "TC-APP-NORM-001-Q",
+      "title": "The normal real application set (Central + Qt Cluster) passes trial verification and commits",
+      "level": "SWE.6 system",
+      "iso26262_6": "",
+      "r156_concepts": [
+        "R156: update verification evidence"
+      ],
+      "gate": "A4",
+      "kind": "conditional",
+      "techniques": [
+        "requirements-based",
+        "positive"
+      ],
+      "method": "real Central + real Qt Cluster + real coordinator/zone agent; Central-only variant without Qt",
+      "precondition": "signed bundle 2.0.0 (Central 1.1.0, Cluster 1.1.1)",
+      "expected": "COMMITTED; all functional checks passed; badge stable→trial; maintenance [on, off] via real IPC",
+      "pass_fail": "PASS if COMMITTED with every functional check passed",
+      "tests": [
+        "tests/integration/test_application_contracts_system.py::test_real_apps_normal_update_commits"
+      ],
+      "evidence_checks": []
+    },
+    {
+      "vr": "VR-APP-012C",
+      "tc": "TC-APP-RB-001-A",
+      "title": "Losing the real Central identity during trial rolls back the whole vehicle",
+      "level": "SWE.6 system (fault injection)",
+      "iso26262_6": "",
+      "r156_concepts": [
+        "R156: failed update recovery",
+        "R156: previous software version restoration"
+      ],
+      "gate": "A6",
+      "kind": "automated",
+      "techniques": [
+        "fault injection",
+        "recovery"
+      ],
+      "method": "real fault binary; real Central with its identity removed during trial",
+      "precondition": "trial active",
+      "expected": "ROLLED_BACK; both ECUs on slot A; the Cluster relaunched from slot A",
+      "pass_fail": "PASS if both ECUs are restored in both scenarios",
+      "tests": [
+        "tests/integration/test_application_contracts_system.py::test_central_identity_loss_during_trial_rolls_back_and_recovers"
+      ],
+      "evidence_checks": []
+    },
+    {
+      "vr": "VR-APP-012",
+      "tc": "TC-APP-RB-001-Q",
+      "title": "A real Cluster fault build in trial rolls back the whole vehicle",
+      "level": "SWE.6 system (fault injection)",
+      "iso26262_6": "",
+      "r156_concepts": [
+        "R156: failed update recovery",
+        "R156: previous software version restoration"
+      ],
+      "gate": "A6",
+      "kind": "conditional",
+      "techniques": [
+        "fault injection",
+        "recovery"
+      ],
+      "method": "real fault binary; real Central with its identity removed during trial",
+      "precondition": "trial active",
+      "expected": "ROLLED_BACK; both ECUs on slot A; the Cluster relaunched from slot A",
+      "pass_fail": "PASS if both ECUs are restored in both scenarios",
+      "tests": [
+        "tests/integration/test_application_contracts_system.py::test_real_fault_build_is_detected_and_whole_vehicle_rolls_back"
+      ],
+      "evidence_checks": []
+    },
+    {
+      "vr": "VR-APP-013C",
+      "tc": "TC-APP-REC-001-A",
+      "title": "Recovery verification confirms STABLE heartbeats from the real Central application after rollback",
+      "level": "SWE.6 system",
+      "iso26262_6": "",
+      "r156_concepts": [
+        "R156: interrupted update recovery"
+      ],
+      "gate": "A7",
+      "kind": "automated",
+      "techniques": [
+        "recovery",
+        "requirements-based"
+      ],
+      "method": "recovery-scope evidence after rollback and after power loss",
+      "precondition": "rollback executed",
+      "expected": "recovery functional checks and Central STABLE heartbeats pass; verification scopes [false, true]",
+      "pass_fail": "PASS if recovery verification passed before ROLLED_BACK",
+      "tests": [
+        "tests/integration/test_application_contracts_system.py::test_central_identity_loss_during_trial_rolls_back_and_recovers",
+        "tests/unit/test_coordinator.py::test_failed_recovery_never_reports_successful_rollback"
+      ],
+      "evidence_checks": []
+    },
+    {
+      "vr": "VR-APP-013",
+      "tc": "TC-APP-REC-001-Q",
+      "title": "Recovery verification confirms the previous stable application set with the real Qt Cluster (rollback and power loss)",
+      "level": "SWE.6 system",
+      "iso26262_6": "",
+      "r156_concepts": [
+        "R156: interrupted update recovery"
+      ],
+      "gate": "A7",
+      "kind": "conditional",
+      "techniques": [
+        "recovery",
+        "requirements-based"
+      ],
+      "method": "recovery-scope evidence after rollback and after power loss",
+      "precondition": "rollback executed",
+      "expected": "recovery functional checks and Central STABLE heartbeats pass; verification scopes [false, true]",
+      "pass_fail": "PASS if recovery verification passed before ROLLED_BACK",
+      "tests": [
+        "tests/integration/test_application_contracts_system.py::test_real_fault_build_is_detected_and_whole_vehicle_rolls_back",
+        "tests/integration/test_application_contracts_system.py::test_real_apps_power_loss_during_verification_recovers"
+      ],
+      "evidence_checks": []
+    },
+    {
+      "vr": "VR-APP-014",
+      "tc": "TC-APP-SEC-001-A",
+      "title": "Central IPC socket and units do not weaken the existing privilege boundaries",
+      "level": "SWE.5 configuration + security",
+      "iso26262_6": "",
+      "r156_concepts": [],
+      "gate": "A8",
+      "kind": "automated",
+      "techniques": [
+        "negative",
+        "interface"
+      ],
+      "method": "socket mode, special-file refusal, unit hardening, group-only reachability",
+      "precondition": "units in ota/systemd; servers bound",
+      "expected": "sockets 0660; non-socket paths never deleted; apps run as their own accounts with existing hardening; snapshot drops root via setpriv",
+      "pass_fail": "PASS if no privilege is widened",
+      "tests": [
+        "tests/integration/test_central_control_app.py::test_socket_is_owner_and_group_only",
+        "tests/integration/test_central_control_app.py::test_server_refuses_to_replace_non_socket_path",
+        "tests/integration/test_central_control_app.py::test_stale_socket_is_replaced",
+        "tests/integration/test_central_control_assets.py::test_central_app_runs_unprivileged_with_identity_snapshot",
+        "tests/integration/test_central_control_assets.py::test_central_status_watcher_is_unprivileged_and_hardened",
+        "tests/integration/test_central_control_assets.py::test_coordinator_can_reach_central_socket_by_group_only"
+      ],
+      "evidence_checks": []
+    },
+    {
+      "vr": "VR-APP-014Q",
+      "tc": "TC-APP-SEC-001-Q",
+      "title": "The real Qt Cluster IPC socket is owner/group only",
+      "level": "SWE.5 configuration + security",
+      "iso26262_6": "",
+      "r156_concepts": [],
+      "gate": "A8",
+      "kind": "conditional",
+      "techniques": [
+        "negative",
+        "interface"
+      ],
+      "method": "socket mode, special-file refusal, unit hardening, group-only reachability",
+      "precondition": "units in ota/systemd; servers bound",
+      "expected": "sockets 0660; non-socket paths never deleted; apps run as their own accounts with existing hardening; snapshot drops root via setpriv",
+      "pass_fail": "PASS if no privilege is widened",
+      "tests": [
+        "tests/integration/test_cluster_app_ipc.py::test_socket_is_owner_and_group_only"
+      ],
+      "evidence_checks": []
+    },
+    {
+      "vr": "VR-APP-016",
+      "tc": "TC-APP-CANERR-001",
+      "title": "Transient CAN send errors (ENOBUFS/ENETDOWN) never stop the Central application",
+      "level": "SWE.4 unit (fault injection)",
+      "iso26262_6": "",
+      "r156_concepts": [],
+      "gate": "A8",
+      "kind": "automated",
+      "techniques": [
+        "fault injection",
+        "negative"
+      ],
+      "method": "fake transport raising ENOBUFS",
+      "precondition": "running scheduler",
+      "expected": "frame skipped and counted, counters stay contiguous, heartbeats resume",
+      "pass_fail": "PASS if the process keeps its schedule without a gap in counters",
+      "tests": [
+        "tests/unit/test_central_control.py::test_transient_can_send_error_keeps_running_and_counters_contiguous"
+      ],
+      "evidence_checks": []
+    },
+    {
+      "vr": "VR-APP-017",
+      "tc": "TC-APP-MAINT-002",
+      "title": "Maintenance survives the Central restart performed by activate_trial",
+      "level": "SWE.4 unit + configuration",
+      "iso26262_6": "",
+      "r156_concepts": [],
+      "gate": "A3",
+      "kind": "automated",
+      "techniques": [
+        "state transition",
+        "negative"
+      ],
+      "method": "restart with the same state directory; unit preserves RuntimeDirectory across restart",
+      "precondition": "maintenance enabled before activation",
+      "expected": "a restarted application starts in maintenance; unreadable state starts disabled; RuntimeDirectoryPreserve=restart",
+      "pass_fail": "PASS if the flag is restored after restart",
+      "tests": [
+        "tests/unit/test_central_control.py::test_maintenance_survives_application_restart",
+        "tests/unit/test_central_control.py::test_unreadable_maintenance_state_starts_disabled",
+        "tests/integration/test_central_control_app.py::test_central_unit_preserves_runtime_directory_across_restart"
       ],
       "evidence_checks": []
     }

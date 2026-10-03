@@ -11,8 +11,8 @@ logic: results come only from pytest and from evidence files.
 Rules that keep the verdict honest:
   * a referenced test that does not exist is FAIL (broken traceability)
   * a skipped test is NOT_EXECUTED, never PASS
-  * a gate needs at least one executed PASS and no FAIL; a gate with any
-    NOT_EXECUTED measure is INCOMPLETE, and so is the overall result
+  * a gate PASSes only with executed PASSes and no FAIL or NOT_EXECUTED; any
+    NOT_EXECUTED member makes it INCOMPLETE; a required gate without measures FAILs
   * results: PASS (exit 0), INCOMPLETE (exit 2), FAIL (exit 1); FAIL wins
   * hardware measures are PENDING_HARDWARE and are listed, not passed
 
@@ -158,7 +158,12 @@ def evaluate_gates(results: list[dict], *, protected_diff_empty: bool, full_regr
             failed_members = [r["vr"] for r in members if r["status"] == "FAIL"]
             executed = [r for r in members if r["status"] == "PASS"]
             not_executed = [r for r in members if r["status"] == "NOT_EXECUTED"]
-            status = "FAIL" if failed_members or not executed else "INCOMPLETE" if not_executed else "PASS"
+            if failed_members or not (executed or not_executed):
+                status = "FAIL"          # a failure, or a required gate with no measures at all
+            elif not_executed:
+                status = "INCOMPLETE"    # nothing failed, but something could not run here
+            else:
+                status = "PASS"
             detail = f"{len(executed)} PASS, {len(failed_members)} FAIL, " \
                      f"{sum(r['status'] == 'NOT_EXECUTED' for r in members)} NOT_EXECUTED"
         gates.append({"id": gate_id, "title": title, "status": status, "detail": detail, "failed": failed_members})

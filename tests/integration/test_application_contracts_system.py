@@ -47,14 +47,25 @@ class RealCentral:
         services = installer.service_manager
         central = self
 
-        class RestartWithSnapshot:   # central-control.service ExecStartPre emulation
+        class RestartProcess:   # central-control.service restart: ExecStartPre, then a new process
             def restart_and_wait_healthy(self, unit, timeout_seconds):
+                central.stop.set()
+                central.thread.join(5)
                 central._snapshot()
+                central._spawn()
+                central.thread.start()
+                central.restarts += 1
                 return services.restart_and_wait_healthy(unit, timeout_seconds)
 
-        installer.service_manager = RestartWithSnapshot()
-        self.app = C.CentralControl(port, self.identity, heartbeat_period=H.CONTRACT.heartbeat_period_s,
-                                    vehicle_period=H.CONTRACT.vehicle_period_s)
+        installer.service_manager = RestartProcess()
+        self.port, self.state_dir, self.restarts = port, run_dir / "central-state", 0
+        self.state_dir.mkdir(exist_ok=True)
+        self._spawn()
+
+    def _spawn(self):
+        """A fresh application object, as a restarted process would be: nothing survives in memory."""
+        self.app = C.CentralControl(self.port, self.identity, heartbeat_period=H.CONTRACT.heartbeat_period_s,
+                                    vehicle_period=H.CONTRACT.vehicle_period_s, state_dir=self.state_dir)
         self.server = C.MaintenanceServer(self.socket, self.app)
         self.stop = threading.Event()
         self.thread = threading.Thread(target=self._run, daemon=True)
@@ -194,13 +205,28 @@ def _functional(state, scope):
     return [e for e in item["evidence"] if e.get("check") == "functional"]
 
 
+def _watch_maintenance_at(vehicle, phase):
+    seen = []
+    progress = vehicle.coordinator.progress
+
+    def hook(event):
+        progress(event)
+        if event["phase"] == phase:
+            seen.append((vehicle.central_app.restarts, vehicle.central_app.app.maintenance))
+    vehicle.coordinator.progress = hook
+    return seen
+
+
 def test_real_central_contract_commits_with_harness_cluster(real_central, tmp_path):
     vehicle = AppVehicle(tmp_path)
     try:
         _wire_maintenance(vehicle)
+        at_verifying = _watch_maintenance_at(vehicle, "VERIFYING")
         vehicle.handler(vehicle.publish_update())
         state = vehicle.coordinator.state
         assert state.phase == "COMMITTED", state.last_error
+        # Central was really restarted into the trial slot and kept maintenance on.
+        assert at_verifying == [(1, True)]
         heartbeat = _heartbeat_evidence(state, "trial")
         assert heartbeat and heartbeat[0]["samples"] > 0 and heartbeat[0]["expected_version"] == "1.1.0"
         assert vehicle.maintenance == [True, False]
