@@ -243,7 +243,7 @@ python3 dashboard/volvo-digital-dash/customization/qt-tests/capture_dashboard_st
 |---|---|
 | 검증 요구사항 | 전체 48건(신규 VR-APP 23건): automated 34, conditional 11(Qt/실제 앱 필요), hardware 3 |
 | 추적성 | 요구사항 48 ↔ 자동 테스트 노드 148개 ↔ 결과 (`evidence/latest/TRACEABILITY_MATRIX.md`) |
-| pytest | **855 passed, 0 failed, 0 skipped** (PR #1 766개 + 이 브랜치 신규 89개) |
+| pytest | **856 passed, 0 failed, 0 skipped** (PR #1 766개 + 이 브랜치 신규 90개) |
 | Qt Test | AppStatus 38/38, ClusterSignals 28/28(일반 빌드), 28/28(결함 빌드), ClusterIpcServer 7/7 |
 | QML TestCase | 14/14 |
 | 패치된 upstream 빌드 | 일반·결함 두 변형 모두 `-Werror` 빌드 성공. 결함 marker는 결함 바이너리에만 존재 |
@@ -276,6 +276,7 @@ python3 dashboard/volvo-digital-dash/customization/qt-tests/capture_dashboard_st
 | RA-3 | 독립 리뷰 | 일시적인 CAN 전송 오류(ENOBUFS/ENETDOWN)로 Central이 죽음 | 해당 프레임만 건너뛰고 counter 연속성을 유지하며, 로그는 빈도를 제한해 기록 |
 | RA-4 | 독립 리뷰 | Qt가 없을 때 verifier가 INCOMPLETE 대신 FAIL을 냄. Qt 없이 늘 실행되는 Central 증적이 conditional 항목에 묻힘 | Gate 규칙 수정, automated와 conditional 측정 항목 분리 |
 | RA-5 | 독립 리뷰 | heartbeat counter 255→0 넘김이 테스트되지 않음 | 300 heartbeat 테스트 추가 |
+| DA-3 | push 전 QA 점검 | 증적 JSON에 pytest 임시 경로(사용자 이름 포함)가 기록됨 | 파일 이름만 기록하도록 수정, 증적에 절대경로가 있으면 실패하는 테스트 추가 |
 
 ## B.4 잔여 위험과 한계
 

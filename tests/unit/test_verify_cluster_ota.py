@@ -253,3 +253,11 @@ def test_unconditional_central_evidence_is_its_own_automated_measure():
     for node in always:
         kinds = {m["kind"] for m in data["measures"] if node in m["tests"]}
         assert "automated" in kinds, node
+
+
+def test_committed_evidence_contains_no_local_paths():
+    import re
+    pattern = re.compile(r'"(/tmp/|/home/|/Users/)')
+    leaks = [str(p.relative_to(ROOT)) for p in (ROOT / "docs" / "verification" / "evidence").rglob("*")
+             if p.is_file() and p.suffix in {".json", ".md"} and pattern.search(p.read_text(errors="ignore"))]
+    assert leaks == []

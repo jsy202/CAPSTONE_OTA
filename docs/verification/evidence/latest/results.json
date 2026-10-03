@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "20261003T094743Z",
+  "generated_at": "20261003T125101Z",
   "result": "PASS",
   "gates": [
     {
@@ -42,7 +42,7 @@
       "id": "G6",
       "title": "Full regression + change impact",
       "status": "PASS",
-      "detail": "766 tests, 0 failures, 0 errors, 0 skipped; protected OTA paths unchanged",
+      "detail": "856 tests, 0 failures, 0 errors, 0 skipped; protected OTA paths unchanged",
       "failed": []
     },
     {
@@ -50,6 +50,69 @@
       "title": "Privilege / security regression",
       "status": "PASS",
       "detail": "3 PASS, 0 FAIL, 0 NOT_EXECUTED",
+      "failed": []
+    },
+    {
+      "id": "A1",
+      "title": "Central unit verification",
+      "status": "PASS",
+      "detail": "4 PASS, 0 FAIL, 0 NOT_EXECUTED",
+      "failed": []
+    },
+    {
+      "id": "A2",
+      "title": "Cluster IPC / model integration",
+      "status": "PASS",
+      "detail": "3 PASS, 0 FAIL, 0 NOT_EXECUTED",
+      "failed": []
+    },
+    {
+      "id": "A3",
+      "title": "Application protocol conformance",
+      "status": "PASS",
+      "detail": "3 PASS, 0 FAIL, 0 NOT_EXECUTED",
+      "failed": []
+    },
+    {
+      "id": "A4",
+      "title": "Normal compatibility verification (real apps)",
+      "status": "PASS",
+      "detail": "2 PASS, 0 FAIL, 0 NOT_EXECUTED",
+      "failed": []
+    },
+    {
+      "id": "A5",
+      "title": "Semantic fault detection (real fault build)",
+      "status": "PASS",
+      "detail": "2 PASS, 0 FAIL, 0 NOT_EXECUTED",
+      "failed": []
+    },
+    {
+      "id": "A6",
+      "title": "Whole-vehicle rollback (real apps)",
+      "status": "PASS",
+      "detail": "2 PASS, 0 FAIL, 0 NOT_EXECUTED",
+      "failed": []
+    },
+    {
+      "id": "A7",
+      "title": "Recovery verification (real apps)",
+      "status": "PASS",
+      "detail": "2 PASS, 0 FAIL, 0 NOT_EXECUTED",
+      "failed": []
+    },
+    {
+      "id": "A8",
+      "title": "Application security / privilege regression",
+      "status": "PASS",
+      "detail": "5 PASS, 0 FAIL, 0 NOT_EXECUTED",
+      "failed": []
+    },
+    {
+      "id": "A9",
+      "title": "Full regression + change impact (application contracts)",
+      "status": "PASS",
+      "detail": "856 tests, 0 failures, 0 errors, 0 skipped; protected OTA paths unchanged",
       "failed": []
     }
   ],
@@ -60,7 +123,7 @@
     "VR-HW-003"
   ],
   "full_regression": {
-    "tests": 766,
+    "tests": 856,
     "failures": 0,
     "errors": 0,
     "skipped": 0
@@ -73,7 +136,8 @@
     "python": "3.10.12",
     "platform": "linux",
     "qt": "5.15.2",
-    "upstream_import": "provided"
+    "upstream_import": "provided",
+    "cluster_apps": "normal+fault"
   },
   "measures": [
     {
@@ -709,6 +773,472 @@
       "status": "PENDING_HARDWARE",
       "detail": "requires the two-Pi rig",
       "cases": {}
+    },
+    {
+      "vr": "VR-APP-001",
+      "tc": "TC-APP-HB-001",
+      "title": "Central publishes a valid 0x100 heartbeat every heartbeat period (1 s default)",
+      "gate": "A1",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "4 cases passed",
+      "cases": {
+        "tests/unit/test_central_control.py::test_exact_frame_counts_over_ten_seconds": [
+          "passed"
+        ],
+        "tests/unit/test_central_control.py::test_heartbeat_carries_identity_and_protocol": [
+          "passed"
+        ],
+        "tests/integration/test_central_control_app.py::test_wall_clock_cadence_within_tolerance": [
+          "passed"
+        ],
+        "tests/unit/test_central_control.py::test_periods_must_be_positive": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-002",
+      "tc": "TC-APP-ID-001",
+      "title": "Central heartbeat version/state follow the active A/B application, never hard-coded",
+      "gate": "A1",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "11 cases passed",
+      "cases": {
+        "tests/unit/test_central_control.py::test_identity_partitions": [
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed"
+        ],
+        "tests/unit/test_central_control.py::test_missing_or_corrupt_identity_is_none": [
+          "passed"
+        ],
+        "tests/unit/test_central_control.py::test_identity_is_reread_every_heartbeat": [
+          "passed"
+        ],
+        "tests/unit/test_central_control.py::test_unknown_identity_suppresses_heartbeat_but_not_vehicle": [
+          "passed"
+        ],
+        "tests/integration/test_application_contracts_system.py::test_real_central_contract_commits_with_harness_cluster": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-003",
+      "tc": "TC-APP-CNT-001",
+      "title": "Central heartbeat and vehicle counters are contiguous modulo 256 and do not burst after a stall",
+      "gate": "A1",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "3 cases passed",
+      "cases": {
+        "tests/unit/test_central_control.py::test_counters_are_contiguous_through_rollover": [
+          "passed"
+        ],
+        "tests/unit/test_central_control.py::test_no_burst_after_stall": [
+          "passed"
+        ],
+        "tests/unit/test_central_control.py::test_heartbeat_counter_rolls_over_255_to_0": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-004",
+      "tc": "TC-APP-VEH-001",
+      "title": "Central publishes deterministic in-contract vehicle status on 0x200 at the vehicle period (100 ms default)",
+      "gate": "A1",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "11 cases passed",
+      "cases": {
+        "tests/unit/test_central_control.py::test_profile_phase_boundaries": [
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed"
+        ],
+        "tests/unit/test_central_control.py::test_profile_is_deterministic_and_inside_contract": [
+          "passed"
+        ],
+        "tests/unit/test_central_control.py::test_exact_frame_counts_over_ten_seconds": [
+          "passed"
+        ],
+        "tests/integration/test_central_control_app.py::test_wall_clock_cadence_within_tolerance": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-005",
+      "tc": "TC-APP-IPC-001",
+      "title": "Central maintenance IPC conforms to ApplicationIpc v1 and keeps CAN traffic flowing",
+      "gate": "A3",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "10 cases passed",
+      "cases": {
+        "tests/unit/test_central_control.py::test_maintenance_on_and_off_are_confirmed": [
+          "passed"
+        ],
+        "tests/unit/test_central_control.py::test_rejected_operation_or_payload_answers_not_ok_and_changes_nothing": [
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed"
+        ],
+        "tests/integration/test_central_control_app.py::test_real_application_ipc_client_toggles_maintenance": [
+          "passed"
+        ],
+        "tests/integration/test_central_control_app.py::test_unknown_operation_is_rejected_by_the_real_client_contract": [
+          "passed"
+        ],
+        "tests/integration/test_central_control_app.py::test_run_serves_maintenance_while_sending": [
+          "passed"
+        ],
+        "tests/unit/test_central_control.py::test_maintenance_switches_vehicle_to_stationary_and_keeps_heartbeat": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-006",
+      "tc": "TC-APP-CLV-001",
+      "title": "Cluster vehicle IPC updates the real dashboard models the QML scene renders",
+      "gate": "A2",
+      "kind": "conditional",
+      "status": "PASS",
+      "detail": "2 cases passed",
+      "cases": {
+        "tests/integration/test_dashboard_customization.py::test_qt_application_contract_tests_pass_when_qt_available": [
+          "passed"
+        ],
+        "tests/integration/test_cluster_app_ipc.py::test_vehicle_sample_then_functional_reflects_functional_values": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-007",
+      "tc": "TC-APP-CLF-001",
+      "title": "Cluster functional IPC returns the values the application actually interpreted",
+      "gate": "A2",
+      "kind": "conditional",
+      "status": "PASS",
+      "detail": "3 cases passed",
+      "cases": {
+        "tests/integration/test_cluster_app_ipc.py::test_normal_build_reports_interpreted_values_equal_to_challenge": [
+          "passed"
+        ],
+        "tests/integration/test_cluster_app_ipc.py::test_second_challenge_is_also_interpreted": [
+          "passed"
+        ],
+        "tests/integration/test_dashboard_customization.py::test_qt_application_contract_tests_pass_when_qt_available": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-008",
+      "tc": "TC-APP-ECHO-001",
+      "title": "The functional response is never a blind echo of the request (speed, rpm and warnings via the models; gear is interpreted state without an upstream display)",
+      "gate": "A2",
+      "kind": "conditional",
+      "status": "PASS",
+      "detail": "2 cases passed",
+      "cases": {
+        "tests/integration/test_dashboard_customization.py::test_qt_application_contract_tests_pass_when_qt_available": [
+          "passed"
+        ],
+        "tests/integration/test_cluster_app_ipc.py::test_fault_build_misinterprets_speed_in_the_real_model": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-015",
+      "tc": "TC-APP-PKG-001",
+      "title": "The Central application ships as a reproducible slot payload",
+      "gate": "A3",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "2 cases passed",
+      "cases": {
+        "tests/integration/test_central_control_app.py::test_payload_script_builds_slot_payload": [
+          "passed"
+        ],
+        "tests/integration/test_central_control_app.py::test_launcher_runs_module_help": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-009",
+      "tc": "TC-APP-ROB-001-A",
+      "title": "Malformed, oversized, nested, partial or silent IPC peers neither crash nor block the Central application",
+      "gate": "A8",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "16 cases passed",
+      "cases": {
+        "tests/unit/test_central_control.py::test_malformed_requests_get_no_response": [
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+          "passed"
+        ],
+        "tests/unit/test_central_control.py::test_deeply_nested_request_gets_no_response_and_does_not_raise": [
+          "passed"
+        ],
+        "tests/integration/test_central_control_app.py::test_silent_client_does_not_block_others": [
+          "passed"
+        ],
+        "tests/integration/test_central_control_app.py::test_partial_client_is_dropped_after_deadline": [
+          "passed"
+        ],
+        "tests/integration/test_central_control_app.py::test_nested_json_does_not_crash_the_server": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-009Q",
+      "tc": "TC-APP-ROB-001-Q",
+      "title": "Malformed, oversized, partial or silent IPC peers neither crash nor block the real Qt Cluster",
+      "gate": "A8",
+      "kind": "conditional",
+      "status": "PASS",
+      "detail": "1 cases passed",
+      "cases": {
+        "tests/integration/test_cluster_app_ipc.py::test_malformed_and_silent_clients_do_not_stop_service": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-010S",
+      "tc": "TC-APP-FAULT-001-A",
+      "title": "The fault build exists only behind an explicit qmake variable, is labelled, and is refused as a normal payload",
+      "gate": "A5",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "3 cases passed",
+      "cases": {
+        "tests/integration/test_dashboard_customization.py::test_fault_define_exists_only_behind_explicit_qmake_variable": [
+          "passed"
+        ],
+        "tests/integration/test_dashboard_customization.py::test_normal_payload_refuses_a_fault_injection_binary": [
+          "passed"
+        ],
+        "tests/integration/test_dashboard_customization.py::test_fault_payload_requires_marker_and_is_labelled": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-010",
+      "tc": "TC-APP-FAULT-001-Q",
+      "title": "A DEMO/TEST fault build produces a real display/model mismatch that the validator reports as FUNCTIONAL_VALUE_MISMATCH",
+      "gate": "A5",
+      "kind": "conditional",
+      "status": "PASS",
+      "detail": "2 cases passed",
+      "cases": {
+        "tests/integration/test_application_contracts_system.py::test_real_fault_build_is_detected_and_whole_vehicle_rolls_back": [
+          "passed"
+        ],
+        "tests/integration/test_cluster_app_ipc.py::test_fault_build_misinterprets_speed_in_the_real_model": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-011C",
+      "tc": "TC-APP-NORM-001-A",
+      "title": "The real Central application passes trial verification and commits (harness Cluster)",
+      "gate": "A4",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "1 cases passed",
+      "cases": {
+        "tests/integration/test_application_contracts_system.py::test_real_central_contract_commits_with_harness_cluster": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-011",
+      "tc": "TC-APP-NORM-001-Q",
+      "title": "The normal real application set (Central + Qt Cluster) passes trial verification and commits",
+      "gate": "A4",
+      "kind": "conditional",
+      "status": "PASS",
+      "detail": "1 cases passed",
+      "cases": {
+        "tests/integration/test_application_contracts_system.py::test_real_apps_normal_update_commits": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-012C",
+      "tc": "TC-APP-RB-001-A",
+      "title": "Losing the real Central identity during trial rolls back the whole vehicle",
+      "gate": "A6",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "1 cases passed",
+      "cases": {
+        "tests/integration/test_application_contracts_system.py::test_central_identity_loss_during_trial_rolls_back_and_recovers": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-012",
+      "tc": "TC-APP-RB-001-Q",
+      "title": "A real Cluster fault build in trial rolls back the whole vehicle",
+      "gate": "A6",
+      "kind": "conditional",
+      "status": "PASS",
+      "detail": "1 cases passed",
+      "cases": {
+        "tests/integration/test_application_contracts_system.py::test_real_fault_build_is_detected_and_whole_vehicle_rolls_back": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-013C",
+      "tc": "TC-APP-REC-001-A",
+      "title": "Recovery verification confirms STABLE heartbeats from the real Central application after rollback",
+      "gate": "A7",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "2 cases passed",
+      "cases": {
+        "tests/integration/test_application_contracts_system.py::test_central_identity_loss_during_trial_rolls_back_and_recovers": [
+          "passed"
+        ],
+        "tests/unit/test_coordinator.py::test_failed_recovery_never_reports_successful_rollback": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-013",
+      "tc": "TC-APP-REC-001-Q",
+      "title": "Recovery verification confirms the previous stable application set with the real Qt Cluster (rollback and power loss)",
+      "gate": "A7",
+      "kind": "conditional",
+      "status": "PASS",
+      "detail": "2 cases passed",
+      "cases": {
+        "tests/integration/test_application_contracts_system.py::test_real_fault_build_is_detected_and_whole_vehicle_rolls_back": [
+          "passed"
+        ],
+        "tests/integration/test_application_contracts_system.py::test_real_apps_power_loss_during_verification_recovers": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-014",
+      "tc": "TC-APP-SEC-001-A",
+      "title": "Central IPC socket and units do not weaken the existing privilege boundaries",
+      "gate": "A8",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "8 cases passed",
+      "cases": {
+        "tests/integration/test_central_control_app.py::test_socket_is_owner_and_group_only": [
+          "passed"
+        ],
+        "tests/integration/test_central_control_app.py::test_server_refuses_to_replace_non_socket_path": [
+          "passed",
+          "passed",
+          "passed"
+        ],
+        "tests/integration/test_central_control_app.py::test_stale_socket_is_replaced": [
+          "passed"
+        ],
+        "tests/integration/test_central_control_assets.py::test_central_app_runs_unprivileged_with_identity_snapshot": [
+          "passed"
+        ],
+        "tests/integration/test_central_control_assets.py::test_central_status_watcher_is_unprivileged_and_hardened": [
+          "passed"
+        ],
+        "tests/integration/test_central_control_assets.py::test_coordinator_can_reach_central_socket_by_group_only": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-014Q",
+      "tc": "TC-APP-SEC-001-Q",
+      "title": "The real Qt Cluster IPC socket is owner/group only",
+      "gate": "A8",
+      "kind": "conditional",
+      "status": "PASS",
+      "detail": "1 cases passed",
+      "cases": {
+        "tests/integration/test_cluster_app_ipc.py::test_socket_is_owner_and_group_only": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-016",
+      "tc": "TC-APP-CANERR-001",
+      "title": "Transient CAN send errors (ENOBUFS/ENETDOWN) never stop the Central application",
+      "gate": "A8",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "1 cases passed",
+      "cases": {
+        "tests/unit/test_central_control.py::test_transient_can_send_error_keeps_running_and_counters_contiguous": [
+          "passed"
+        ]
+      }
+    },
+    {
+      "vr": "VR-APP-017",
+      "tc": "TC-APP-MAINT-002",
+      "title": "Maintenance survives the Central restart performed by activate_trial",
+      "gate": "A3",
+      "kind": "automated",
+      "status": "PASS",
+      "detail": "3 cases passed",
+      "cases": {
+        "tests/unit/test_central_control.py::test_maintenance_survives_application_restart": [
+          "passed"
+        ],
+        "tests/unit/test_central_control.py::test_unreadable_maintenance_state_starts_disabled": [
+          "passed"
+        ],
+        "tests/integration/test_central_control_app.py::test_central_unit_preserves_runtime_directory_across_restart": [
+          "passed"
+        ]
+      }
     }
   ]
 }

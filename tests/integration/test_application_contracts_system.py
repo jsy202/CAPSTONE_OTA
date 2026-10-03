@@ -102,7 +102,7 @@ class QtCluster:
         log = (self.tmp / f"cluster-{len(self.launched)}.log").open("w")
         self.process = subprocess.Popen([str(binary)], env=env, stdout=log, stderr=subprocess.STDOUT)
         self.launched.append({"slot": os.readlink(self.root / "active-slot"),
-                              "badge": read_previous(self.status), "log": log.name})
+                              "badge": read_previous(self.status), "log": Path(log.name).name})
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline and self.process.poll() is None:
             try:
@@ -290,7 +290,7 @@ def test_real_fault_build_is_detected_and_whole_vehicle_rolls_back(real_central,
         badge = [l["badge"] for l in cluster.launched]
         assert [(b["state"], b["version"]) for b in badge] == [("stable", "1.0.0"), ("trial", "1.1.1"), ("stable", "1.0.0")]
         assert badge[-1]["restored_at"] is not None
-        assert "DEMO/TEST FAULT INJECTION BUILD" in Path(cluster.launched[1]["log"]).read_text()
+        assert "DEMO/TEST FAULT INJECTION BUILD" in (cluster.tmp / cluster.launched[1]["log"]).read_text()
         assert vehicle.slots() == {"central-control": ("A", "A", None), "digital-cluster": ("A", "A", None)}
         assert vehicle.maintenance == [True, False]
         record("VR-APP-010", {"scenario": "fault-injection Cluster build in trial", "injected_fault":
