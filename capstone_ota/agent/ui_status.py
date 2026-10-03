@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -73,7 +74,25 @@ def decide(snapshot: SlotSnapshot, initial_version: str, previous: dict | None, 
         return _status("unknown", None)
     if not isinstance(version, str) or not _VERSION.fullmatch(version):
         return _status("unknown", None)
-    return _status(name, version)
+    return _status(name, version, _restored_at(name, version, previous, now))
+
+
+def _restored_at(name: str, version: str, previous: dict | None, now: float) -> float | None:
+    """Mark only the visible trial -> previous-version transition (rollback).
+
+    Commit keeps the trial version and an abort before activation never had a
+    trial on screen, so neither sets it. The mark persists while the same
+    stable version stays selected; the UI decides how long to show it.
+    """
+    if name != _STABLE or not previous:
+        return None
+    if previous.get("state") == _TRIAL and previous.get("version") != version:
+        return float(now)
+    carried = previous.get("restored_at")
+    if (previous.get("state") == _STABLE and previous.get("version") == version
+            and type(carried) is float and math.isfinite(carried) and carried >= 0):
+        return carried
+    return None
 
 
 def _encode(status: dict) -> bytes:

@@ -240,3 +240,47 @@ def test_watch_continues_when_output_write_fails(tmp_path):
     calls = []
     watch(root, "1.0.0", tmp_path / "missing" / "x.json", 1.0, iterations=3, sleep=calls.append)
     assert calls == [1.0, 1.0, 1.0]
+
+
+# --- restored_at state transitions (Task 3) --------------------------------
+
+def _prev(state, version, restored_at=None):
+    return {"schema_version": 1, "state": state, "version": version, "restored_at": restored_at}
+
+
+def test_trial_to_stable_with_different_version_sets_restored_at():
+    status = decide(SlotSnapshot(SlotState(), "A"), "1.0.0", _prev("trial", "1.1.1"), 100.0)
+    assert (status["state"], status["version"], status["restored_at"]) == ("stable", "1.0.0", 100.0)
+
+
+def test_restored_at_carries_over_while_stable_same_version():
+    status = decide(SlotSnapshot(SlotState(), "A"), "1.0.0", _prev("stable", "1.0.0", 100.0), 200.0)
+    assert status["restored_at"] == 100.0
+
+
+def test_restored_at_cleared_when_stable_version_changes():
+    stable = SlotState(stable_slot="B", active_slot="B", stable_version="1.2.0")
+    assert decide(SlotSnapshot(stable, "B"), "1.0.0", _prev("stable", "1.0.0", 100.0), 200.0)["restored_at"] is None
+
+
+def test_commit_same_version_never_sets_restored_at():
+    stable = SlotState(stable_slot="B", active_slot="B", stable_version="1.1.1")
+    assert decide(SlotSnapshot(stable, "B"), "1.0.0", _prev("trial", "1.1.1"), 100.0)["restored_at"] is None
+
+
+def test_trial_clears_restored_at():
+    assert decide(SlotSnapshot(TRIAL, "B"), "1.0.0", _prev("stable", "1.0.0", 100.0), 200.0)["restored_at"] is None
+
+
+def test_unknown_previous_never_sets_restored_at():
+    assert decide(SlotSnapshot(SlotState(), "A"), "1.0.0", _prev("unknown", None), 100.0)["restored_at"] is None
+
+
+def test_unknown_now_clears_restored_at():
+    assert decide(SlotSnapshot(None, None), "1.0.0", _prev("stable", "1.0.0", 100.0), 200.0)["restored_at"] is None
+
+
+@pytest.mark.parametrize("bad", ["100", True, -1.0, float("nan"), float("inf")])
+def test_malformed_previous_restored_at_is_not_carried(bad):
+    status = decide(SlotSnapshot(SlotState(), "A"), "1.0.0", _prev("stable", "1.0.0", bad), 200.0)
+    assert status["restored_at"] is None
