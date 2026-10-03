@@ -60,17 +60,18 @@
 | G3 Normal OTA commit state transition | PASS | 3 measures |
 | G4 Fault-injection rollback | PASS | 5 measures |
 | G5 Recovery verification | PASS | 2 measures |
-| G6 Full regression + change impact | PASS | pytest 762 passed, 0 failed, 0 skipped; 보호 경로 무변경 |
+| G6 Full regression + change impact | PASS | pytest 766 passed, 0 failed, 0 skipped; 보호 경로 무변경 |
 | G7 Privilege / security regression | PASS | 3 measures |
 
 **수량**
-- **자동 테스트:** pytest 762개 (기준선 651 + 신규 111)
+- **자동 테스트:** pytest 766개 (기준선 651 + 신규 115)
   - `test_ui_status.py` 63개
   - `test_ui_status_lifecycle.py` 3개
   - `test_ui_status_system.py` 5개
   - `test_ui_status_assets.py` 4개
   - `test_dashboard_customization.py` 16개
-  - `test_verify_cluster_ota.py` 20개
+  - `test_verify_cluster_ota.py` 21개
+  - `test_cluster_badge_drill.py` 3개 (하드웨어 drill 도구)
 - **Qt 케이스:** Qt Test 38개, QML TestCase 14개
 - **데스크톱 시스템 확인:** 패치된 실제 앱의 상태 5개 화면, 11개 레이아웃 × (패치본 + 원본 기준선) 캡처
 
@@ -105,7 +106,7 @@
 |---|---|
 | Modified (신규 또는 변경) | runtime metadata publisher(`ui_status.py`), systemd 통합(`digital-cluster.service` ExecStartPre 1줄, 신규 watch unit, tmpfiles), Qt AppStatus, QML overlay, customization patch(upstream 4개 파일에 줄 추가만), 검증 도구와 문서 |
 | Must remain unchanged | coordinator semantics, vehicle bundle, A/B slot semantics, CAN protocol, 서명 검증, artifact 검증, compatibility validator, whole-vehicle rollback |
-| 비영향 증명 | (1) G6 보호 경로 diff 0줄(merge-base `dca36a8`)<br>(2) 기준선 651개 포함 전체 762개 통과<br>(3) 기존 OTA 테스트 37개를 G3–G7 요구사항의 증적으로 재사용해 모두 통과 |
+| 비영향 증명 | (1) G6 보호 경로 diff 0줄(merge-base `dca36a8`)<br>(2) 기준선 651개 포함 전체 766개 통과<br>(3) 기존 OTA 테스트 37개를 G3–G7 요구사항의 증적으로 재사용해 모두 통과 |
 
 ## 9. 개발 중 발견한 결함
 
@@ -206,7 +207,7 @@ python3 dashboard/volvo-digital-dash/customization/qt-tests/capture_dashboard_st
 
 ## 13. 최종 결론
 
-- **자동 검증:** Gate G1–G7 모두 PASS. NOT_EXECUTED 0건, FAIL 0건, 전체 회귀 762/762, OTA 핵심 코드 무변경
+- **자동 검증:** Gate G1–G7 모두 PASS. NOT_EXECUTED 0건, FAIL 0건, 전체 회귀 766/766, OTA 핵심 코드 무변경
 - **하드웨어 검증:** 3건 대기
 
 따라서 판정은 **PASS WITH HARDWARE VALIDATION PENDING**입니다.

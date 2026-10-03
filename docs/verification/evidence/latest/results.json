@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "20261003T091911Z",
+  "generated_at": "20261003T094743Z",
   "result": "PASS",
   "gates": [
     {
@@ -42,7 +42,7 @@
       "id": "G6",
       "title": "Full regression + change impact",
       "status": "PASS",
-      "detail": "762 tests, 0 failures, 0 errors, 0 skipped; protected OTA paths unchanged",
+      "detail": "766 tests, 0 failures, 0 errors, 0 skipped; protected OTA paths unchanged",
       "failed": []
     },
     {
@@ -60,7 +60,7 @@
     "VR-HW-003"
   ],
   "full_regression": {
-    "tests": 762,
+    "tests": 766,
     "failures": 0,
     "errors": 0,
     "skipped": 0
@@ -71,8 +71,9 @@
   },
   "environment": {
     "python": "3.10.12",
-    "qt_dir": "/tmp/claude-1000/-home-jsy202/d840ccf5-58f3-4cfe-8863-fa578b720749/scratchpad/Qt/5.15.2/gcc_64",
-    "upstream_dir": "/tmp/claude-1000/-home-jsy202/d840ccf5-58f3-4cfe-8863-fa578b720749/scratchpad/pristine/VolvoDigitalDashModels"
+    "platform": "linux",
+    "qt": "5.15.2",
+    "upstream_import": "provided"
   },
   "measures": [
     {

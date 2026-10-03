@@ -1,4 +1,4 @@
-# Verification Summary (20261003T091911Z)
+# Verification Summary (20261003T094743Z)
 
 **VERIFICATION RESULT: PASS**
 
@@ -9,7 +9,7 @@
 | G3 Normal OTA commit state transition (SWE.6) | PASS | 3 PASS, 0 FAIL, 0 NOT_EXECUTED |
 | G4 Fault-injection rollback (SWE.6) | PASS | 5 PASS, 0 FAIL, 0 NOT_EXECUTED |
 | G5 Recovery verification (SWE.6) | PASS | 2 PASS, 0 FAIL, 0 NOT_EXECUTED |
-| G6 Full regression + change impact | PASS | 762 tests, 0 failures, 0 errors, 0 skipped; protected OTA paths unchanged |
+| G6 Full regression + change impact | PASS | 766 tests, 0 failures, 0 errors, 0 skipped; protected OTA paths unchanged |
 | G7 Privilege / security regression | PASS | 3 PASS, 0 FAIL, 0 NOT_EXECUTED |
 
 | Requirement | Status | Detail |
