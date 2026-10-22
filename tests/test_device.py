@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
+import time
 
 import pytest
 
@@ -314,3 +315,94 @@ def test_first_install_interrupted_during_staging_can_be_retried(device_type, re
             with pytest.raises(SimulatedPowerLoss):
                 device.update(url + "/v1", public_key=keys[1])
         assert device_type(device.root).update(url + "/v1")["result"] == "committed"
+
+
+@pytest.mark.parametrize("stop_succeeds", [True, False])
+def test_first_systemd_trial_recovery_stops_the_running_candidate(device_type, releases, keys, tmp_path, monkeypatch, stop_succeeds):
+    device = device_type(tmp_path / "device")
+    running = {"value": False}
+    def interrupted_service(action):
+        if action == "restart":
+            running["value"] = True
+        if action == "is-active":
+            raise SimulatedPowerLoss()
+        return True
+    with serving(releases) as url:
+        with monkeypatch.context() as patch:
+            patch.setattr(device, "_service", interrupted_service)
+            with pytest.raises(SimulatedPowerLoss):
+                device.update(url + "/v1", public_key=keys[1], systemd=True)
+    assert running["value"] is True
+    def recovered_service(action):
+        assert action == "stop"
+        if stop_succeeds:
+            running["value"] = False
+        return stop_succeeds
+    monkeypatch.setattr(device, "_service", recovered_service)
+    if stop_succeeds:
+        result = device.update()
+        assert result["result"] == "failed"
+        assert result["active_slot"] is None
+        assert running["value"] is False
+    else:
+        with pytest.raises(ValueError, match="recovery failed"):
+            device.update()
+        assert device.status()["phase"] == "trial"
+        assert device.status()["result"] == "recovery_failed"
+
+
+def test_floor_inconsistent_with_committed_release_is_rejected_before_download(device_type, releases, keys, payload, tmp_path):
+    (payload / "bin/app").write_text("#!/bin/sh\nexit 0\n")
+    pack(payload, releases / "new-number-old-security", "9.0.0", 1, keys[0])
+    device = device_type(tmp_path / "device")
+    with serving(releases) as url:
+        device.update(url + "/v2", public_key=keys[1])
+        journal = device.root / "state.json"
+        state = json.loads(journal.read_bytes())
+        state["min_svn"] = 1
+        journal.write_text(json.dumps(state))
+        with pytest.raises(ValueError, match="state"):
+            device.update(url + "/new-number-old-security")
+    assert os.readlink(device.root / "current") == "slots/A"
+
+
+@pytest.mark.parametrize("part", ["headers", "body"])
+def test_http_deadline_interrupts_trickling_peer_and_next_update_still_works(device_type, releases, keys, tmp_path, monkeypatch, part):
+    from urllib.error import URLError
+    module = importlib.import_module("capstone_ota.device")
+    monkeypatch.setattr(module, "DOWNLOAD_TIMEOUT", 0.15, raising=False)
+    class SlowHandler(SimpleHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+        def do_GET(self):
+            try:
+                if part == "headers":
+                    for byte in b"HTTP/1.0 200 OK\r\nContent-Length: 1\r\n\r\nx":
+                        self.wfile.write(bytes([byte]))
+                        self.wfile.flush()
+                        time.sleep(0.02)
+                else:
+                    self.send_response(200)
+                    self.send_header("Content-Length", "40")
+                    self.end_headers()
+                    for _ in range(40):
+                        self.wfile.write(b"x")
+                        self.wfile.flush()
+                        time.sleep(0.02)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+    server = ThreadingHTTPServer(("127.0.0.1", 0), SlowHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        started = time.monotonic()
+        with pytest.raises((TimeoutError, URLError)):
+            module.fetch(f"http://127.0.0.1:{server.server_port}/slow", tmp_path / "download", 16384)
+        assert time.monotonic() - started < 0.7
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+    monkeypatch.setattr(module, "DOWNLOAD_TIMEOUT", 30)
+    with serving(releases) as url:
+        assert device_type(tmp_path / "device").update(url + "/v1", public_key=keys[1])["result"] == "committed"

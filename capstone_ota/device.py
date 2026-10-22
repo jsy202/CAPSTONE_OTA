@@ -23,6 +23,7 @@ from uuid import uuid4
 from .bundle import MAX_ARCHIVE, app_check, extract, metadata_check, tree_hash, unique_json, verify, version_key
 
 SERVICE = "capstone-central.service"
+DOWNLOAD_TIMEOUT = 30
 
 
 def sync_directory(path: Path) -> None:
@@ -49,15 +50,28 @@ def atomic_write(path: Path, content: bytes) -> None:
 def fetch(url: str, target: Path, limit: int) -> bytes:
     started, size = time.monotonic(), 0
     digest = hashlib.sha256()
-    with urlopen(url, timeout=5) as source, target.open("xb") as output:
-        while chunk := source.read(65536):
-            size += len(chunk)
-            if size > limit or time.monotonic() - started > 30:
-                raise ValueError("download exceeds size/time limit")
-            output.write(chunk)
-            digest.update(chunk)
-        output.flush()
-        os.fsync(output.fileno())
+    def expired(_number, _frame):
+        raise TimeoutError("download deadline exceeded")
+    # Linux main-thread CLI: a socket timeout alone cannot stop byte trickles.
+    # The timer bounds headers AND body without adding a downloader service.
+    previous_handler = signal.signal(signal.SIGALRM, expired)
+    previous_timer = signal.setitimer(signal.ITIMER_REAL, DOWNLOAD_TIMEOUT)
+    try:
+        with urlopen(url, timeout=5) as source, target.open("xb") as output:
+            while chunk := source.read(65536):
+                size += len(chunk)
+                if size > limit:
+                    raise ValueError("download exceeds size limit")
+                output.write(chunk)
+                digest.update(chunk)
+            output.flush()
+            os.fsync(output.fileno())
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if previous_timer[0] > 0:
+            remaining = max(0.000001, previous_timer[0] - (time.monotonic() - started))
+            signal.setitimer(signal.ITIMER_REAL, remaining, previous_timer[1])
     return digest.digest()
 
 
@@ -115,7 +129,7 @@ class Device:
                     raise ValueError("invalid tree hash")
             committed, pending = state["committed"], state["pending"]
             if ((state["phase"] == "trial") != (pending is not None)
-                    or (committed and committed["release"]["svn"] < state["min_svn"])
+                    or (committed and committed["release"]["svn"] != state["min_svn"])
                     or (not committed and state["min_svn"] != 0)
                     or (committed and pending and committed["slot"] == pending["slot"])):
                 raise ValueError("inconsistent slot state")
@@ -227,6 +241,8 @@ class Device:
                 self._verify_record(previous, state["min_svn"])
                 self._activate(previous["slot"], state)
             else:
+                if state["systemd"] and not self._service("stop"):
+                    raise ValueError("cannot stop the first-install trial service")
                 self._select(None)
             state.update(phase="stable", pending=None, result="rolled_back" if previous else "failed")
             self._save(state)
