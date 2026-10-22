@@ -11,6 +11,9 @@ dependencies = [
   "cryptography>=41,<47",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
 [project.scripts]
 ota = "capstone_ota.cli:main"
 

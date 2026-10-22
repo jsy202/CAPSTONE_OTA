@@ -117,3 +117,16 @@ def test_signed_invalid_schema_is_rejected(bundle, keys):
     raw = json.dumps({"version": "1.0.0", "svn": 1, "sha256": "0" * 64, "url": "http://evil"}).encode()
     with pytest.raises(ValueError, match="metadata"):
         bundle.verify(raw, private.sign(raw), keys[1])
+
+
+def test_extracted_app_root_is_traversable_under_restrictive_umask(bundle, keys, payload, tmp_path):
+    import os
+    release = tmp_path / "release"
+    bundle.pack(payload, release, "1.0.0", 1, keys[0])
+    previous = os.umask(0o077)
+    try:
+        destination = tmp_path / "unpacked"
+        bundle.extract(release / "app.tar.gz", destination)
+    finally:
+        os.umask(previous)
+    assert destination.stat().st_mode & 0o005 == 0o005

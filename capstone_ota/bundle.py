@@ -114,6 +114,7 @@ def extract(archive: Path, destination: Path) -> None:
                     raise ValueError("unsafe archive entry")
                 seen.add(member.name)
             destination.mkdir(parents=True, exist_ok=False)
+            destination.chmod(0o755)
             for member in members:
                 target = destination / member.name
                 if member.isdir():
