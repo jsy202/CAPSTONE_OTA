@@ -11,3 +11,7 @@ dist/
 *.key
 *.pem
 secrets/
+.demo/
+/device/
+/releases/
+/build/
