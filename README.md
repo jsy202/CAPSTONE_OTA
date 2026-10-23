@@ -150,3 +150,6 @@ Pi에서 상시 서비스로 쓰는 선택 절차는 [PI_SETUP.md](docs/PI_SETUP
 기본 OTA 코드는 그대로이며, 실제 서명·HTTP·A/B에 별도 프로세스 검증을 연결한다. 물리 CAN·Qt 시험은 아니다.
 세 Pi의 Central·Cluster·검증기를 따로 실행하는 CAN 구현은
 [세 장치 시험 절차](docs/THREE_PI_BENCH.md)에 있다. 물리 세 장치 검증은 아직 진행하지 않았다.
+
+[인터랙티브 아키텍처 설명](docs/architecture.html)은 내려받아 브라우저에서 열면 된다.
+정상 업데이트·비호환 롤백·V1 바꿔치기 차단을 단계별로 볼 수 있으며, 인터넷 연결이 필요 없다.
