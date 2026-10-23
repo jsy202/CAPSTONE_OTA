@@ -145,3 +145,6 @@ Pi에서 상시 서비스로 쓰는 선택 절차는 [PI_SETUP.md](docs/PI_SETUP
 
 기존 MQTT·다중 ECU 구현과 문서는 삭제하지 않고 [legacy/](legacy/ARCHIVE.md)에 보존했다.
 기본 설치·명령·테스트에는 포함하지 않는다. 이후 호환성 검증과 취약 버전 복귀 차단 시나리오는 이 작은 흐름 위에 추가한다.
+
+첫 가상 시연은 [재연결 호환성·복구 슬롯 바꿔치기 데모](docs/VIRTUAL_COMPATIBILITY.md)로 분리했다.
+기본 OTA 코드는 그대로이며, 실제 서명·HTTP·A/B에 별도 프로세스 검증을 연결한다. 물리 CAN·Qt 시험은 아니다.
