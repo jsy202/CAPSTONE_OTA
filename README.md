@@ -148,3 +148,5 @@ Pi에서 상시 서비스로 쓰는 선택 절차는 [PI_SETUP.md](docs/PI_SETUP
 
 첫 가상 시연은 [재연결 호환성·복구 슬롯 바꿔치기 데모](docs/VIRTUAL_COMPATIBILITY.md)로 분리했다.
 기본 OTA 코드는 그대로이며, 실제 서명·HTTP·A/B에 별도 프로세스 검증을 연결한다. 물리 CAN·Qt 시험은 아니다.
+세 Pi의 Central·Cluster·검증기를 따로 실행하는 CAN 구현은
+[세 장치 시험 절차](docs/THREE_PI_BENCH.md)에 있다. 물리 세 장치 검증은 아직 진행하지 않았다.
