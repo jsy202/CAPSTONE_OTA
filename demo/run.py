@@ -51,19 +51,18 @@ def serve(releases):
 
 class VerifiedDevice(Device):
     """Demo adapter only. Ordinary ota CLI and its journal remain unchanged."""
-    def __init__(self, root, after_failure=None):
+    def __init__(self, root):
         super().__init__(root)
         self.checks = []
-        self.after_failure = after_failure  # Fixture injection, never a production option.
+        self.after_failure = None  # Fixture injection, never a production option.
 
     def _check(self, slot):
-        target = self._slot(slot)
+        # Device validates the slot before invoking this single adapter hook.
+        target = self.root / "slots" / slot
         item = {"slot": slot, "payload_label": (target / "release.txt").read_text().strip(), "report": None}
         self.checks.append(item)  # Record any attempted check BEFORE running that payload.
-        if not super()._check(slot):
-            item["report"] = {"passed": False, "error": "INITIALIZATION_FAILED"}
-            return False
         try:
+            # The external verifier performs initialization as well as compatibility.
             rows, _pid = exchange([sys.executable, str(HERE / "verify.py"), str(target)], [], timeout=8,
                                   allow_negative_verdict=True)
             if len(rows) != 1 or not isinstance(rows[0], dict) or type(rows[0].get("passed")) is not bool:
@@ -77,9 +76,7 @@ class VerifiedDevice(Device):
         return report["passed"]
 
 
-def run(output):
-    output = Path(output).absolute()
-    output.mkdir(parents=True, exist_ok=False)  # Never overwrite someone else's bench.
+def prepare_releases(output):
     keys = output / "keys"
     keys.mkdir(mode=0o700)
     private = Ed25519PrivateKey.generate()
@@ -99,42 +96,69 @@ def run(output):
     old_release = verify((old / "release.json").read_bytes(), (old / "release.sig").read_bytes(), public)
     if hashlib.sha256((old / "app.tar.gz").read_bytes()).hexdigest() != old_release["sha256"]:
         raise ValueError("old V1 archive hash differs from its signed release")
+    return releases, public, old_release
+
+
+def run_baseline(root, url, public):
+    device = Device(root)
+    device.update(url + "/v2", public_key=public)
+    return device.update(url + "/v3")
+
+
+def run_normal(root, url, public):
+    device = VerifiedDevice(root)
+    device.update(url + "/v2", public_key=public)
+    status = device.update(url + "/v3")
+    return {"status": status, "checks": device.checks}
+
+
+def run_attack(root, url, public, old_archive, old_release):
+    evidence = {"old_signature_valid": True, "old_release": old_release,
+                "trusted_journal_unchanged_during_swap": False}
+
+    def substitute(device, slot, report):
+        candidate = device.root / "slots" / slot
+        if (candidate / "release.txt").read_text().strip() != "v3":
+            return
+        if report.get("error") != "RECONNECT_SEQUENCE_INCOMPATIBLE":
+            raise ValueError("injection requires an observed real compatibility failure")
+        if recovery_slot not in {"A", "B"}:
+            raise ValueError("injection requires an installed V2 recovery slot")
+        target = device.root / "slots" / recovery_slot
+        if target == candidate or target.is_symlink() or target.parent.is_symlink():
+            raise ValueError("injection target must be this bench's recovery slot")
+        journal = (device.root / "state.json").read_bytes()
+        shutil.rmtree(target)
+        extract(old_archive, target)
+        evidence["trusted_journal_unchanged_during_swap"] = (
+            journal == (device.root / "state.json").read_bytes())
+
+    device = VerifiedDevice(root)
+    installed = device.update(url + "/v2", public_key=public)
+    recovery_slot = installed["active_slot"]
+    device.after_failure = substitute  # Arm only after the known-good install.
+    try:
+        device.update(url + "/v3")
+        raise ValueError("expected substituted recovery image to be rejected")
+    except ValueError as exc:
+        if device.status()["result"] != "recovery_failed":
+            raise
+        evidence["blocked_reason"] = str(exc.__cause__ or exc)
+    evidence.update(status=device.status(), checks=device.checks)
+    return evidence
+
+
+def run(output):
+    output = Path(output).absolute()
+    output.mkdir(parents=True, exist_ok=False)  # Never overwrite someone else's bench.
+    releases, public, old_release = prepare_releases(output)
     with serve(releases) as url:
-        baseline = Device(output / "baseline-device")
-        baseline.update(url + "/v2", public_key=public)
-        baseline_result = baseline.update(url + "/v3")
-        normal = VerifiedDevice(output / "normal-device")
-        normal.update(url + "/v2", public_key=public)
-        normal_result = normal.update(url + "/v3")
-        attack_evidence = {"old_signature_valid": True, "old_release": old_release,
-                           "trusted_journal_unchanged_during_swap": False}
-        def substitute(device, slot, report):
-            if (device._slot(slot) / "release.txt").read_text().strip() != "v3":
-                return
-            if report.get("error") != "RECONNECT_SEQUENCE_INCOMPATIBLE":
-                raise ValueError("injection requires an observed real compatibility failure")
-            state = device._load()
-            target = device._slot(state["committed"]["slot"])
-            if not target.is_relative_to(output) or target == device._slot(slot):
-                raise ValueError("injection target must be this bench's recovery slot")
-            journal = (device.root / "state.json").read_bytes()
-            shutil.rmtree(target)
-            extract(old / "app.tar.gz", target)
-            attack_evidence["trusted_journal_unchanged_during_swap"] = (
-                journal == (device.root / "state.json").read_bytes())
-        attack = VerifiedDevice(output / "attack-device", after_failure=substitute)
-        attack.update(url + "/v2", public_key=public)
-        try:
-            attack.update(url + "/v3")
-            raise ValueError("expected substituted recovery image to be rejected")
-        except ValueError as exc:
-            if attack.status()["result"] != "recovery_failed":
-                raise
-            attack_evidence["blocked_reason"] = str(exc.__cause__ or exc)
-        attack_evidence.update(status=attack.status(), checks=attack.checks)
+        baseline = run_baseline(output / "baseline-device", url, public)
+        normal = run_normal(output / "normal-device", url, public)
+        attack = run_attack(output / "attack-device", url, public,
+                            releases / "v1/app.tar.gz", old_release)
     result = {"transport": "stdio CAN-payload simulation; no physical CAN/Qt",
-              "baseline": baseline_result, "normal": {"status": normal_result, "checks": normal.checks},
-              "attack": attack_evidence}
+              "baseline": baseline, "normal": normal, "attack": attack}
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     return result
 

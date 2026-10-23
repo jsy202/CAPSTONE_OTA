@@ -81,6 +81,24 @@ def test_malformed_actor_output_cannot_be_accepted(tmp_path):
     assert report["error"]
 
 
+def test_demo_gate_initializes_payload_once(tmp_path):
+    from demo.run import VerifiedDevice
+
+    slot = make_slot(tmp_path)
+    calls = tmp_path / "initialization-count"
+    app = slot / "bin/app"
+    app.write_text(app.read_text().replace(
+        "    if args.check:\n",
+        f"    if args.check:\n        with open({str(calls)!r}, 'a') as log: log.write('init\\n')\n"))
+    device = VerifiedDevice(tmp_path / "device")
+    target = device.root / "slots/A"
+    target.parent.mkdir(parents=True)
+    slot.rename(target)
+
+    assert device._check("A") is True
+    assert calls.read_text().splitlines() == ["init"]
+
+
 @pytest.mark.parametrize("body", ["import time; time.sleep(10)",
                                    'import os\nwhile True: os.write(1, b"x" * 4096)'])
 def test_hanging_or_flooding_actor_is_bounded(tmp_path, body):
