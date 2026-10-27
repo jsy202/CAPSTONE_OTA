@@ -1,0 +1,9 @@
+{
+  "host": "cluster-pi",
+  "checkout": "/home/otauser/CAPSTONE_OTA_MINIMAL",
+  "python": "/home/otauser/CAPSTONE_OTA_MINIMAL/.venv/bin/python",
+  "root": "/home/otauser/capstone-cluster-device",
+  "public_key": "/home/otauser/update.pub",
+  "initialization_only": true,
+  "systemd": false
+}

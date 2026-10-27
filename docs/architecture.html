@@ -19,6 +19,7 @@
 <a class="skip" href="#simulator">시나리오 설명으로 바로 이동</a>
 <header class="topbar"><div class="wrap nav"><a href="#" class="brand"><span class="brand-mark">C/O</span> CAPSTONE OTA</a><nav class="nav-links" aria-label="본문 목차"><a href="#simulator">흐름 따라가기</a><a href="#why">문제와 방어</a><a href="#scope">구현 범위</a></nav></div></header>
 <main class="wrap">
+<aside class="hero-note" style="margin-top:24px" aria-label="2026년 10월 27일 구조 추가"><span class="tag">2026.10.27 · Cluster OTA 전달 경로 추가</span><h2 style="margin-top:12px">노트북 → Central → Cluster</h2><p>이제 <code>ota forward</code>가 Central에서 파일을 받아 검증하고, Cluster의 <code>cluster-update</code>가 다시 검증하여 자기 앱 A/B에 설치합니다. Central 앱은 교체하지 않습니다. 초기화 전용 검사와 외부 검사 연결을 구분하며, 실제 Qt 표시 모델 검사기는 아직 연결하지 않았습니다.</p><p><a href="CLUSTER_OTA.md">설정·실행 절차 보기</a> · 아래 인터랙티브 시연은 10월 24일의 Central 앱 OTA 시험 구조를 설명하는 기존 자료입니다.</p></aside>
 <div class="hero"><div><div class="eyebrow">Architecture, explained · 2026.10.24</div><h1>업데이트는 검증하고,<br>롤백은 정확하게.</h1><p class="lead">새 프로그램이 <strong>다른 ECU와 제대로 통신하는지</strong> 확인하고,<br>실패하면 <strong>정확한 이전 프로그램으로만</strong> 돌아가는 프로젝트.</p></div><aside class="hero-note"><div class="number">3<span>대의 Pi · 서로 다른 역할</span></div><p>Central은 실행하고, Cluster는 받아들이고,<br>검증기는 입력과 처리 결과를 대조한다.</p><div style="margin-top:16px"><span class="tag neutral">외부 라이브러리 없이 · 오프라인 열람</span></div></aside></div>
 <div class="notice"><strong>설명용 인터랙티브 자료</strong><p>이 페이지는 실제 장비에 연결되지 않습니다. 세 장치용 코드는 구현됐지만, 물리 세 Pi·CAN 검증과 Qt 화면 연동은 아직입니다.</p></div>
 

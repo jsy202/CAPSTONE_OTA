@@ -1,0 +1,18 @@
+[Unit]
+Description=CAPSTONE Cluster application (separate application A/B root)
+After=network.target
+
+[Service]
+Type=simple
+User=capstone-app
+WorkingDirectory=/opt/capstone-cluster/device/current
+ExecStart=/opt/capstone-cluster/device/current/bin/app
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

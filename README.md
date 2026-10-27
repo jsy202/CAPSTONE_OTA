@@ -1,6 +1,17 @@
 # CAPSTONE_OTA — 작게 다시 시작하는 OTA
 
-**노트북에서 받은 앱을 Pi의 다른 슬롯에서 시험하고, 실패하면 이전 앱으로 돌아간다.**
+**Central이 받은 업데이트를 Cluster에 전달하고, Cluster에서 앱 A/B 설치·검사·롤백할 수 있다.**
+
+```text
+노트북 → Central: 서명·해시 확인 후 캐시
+                  ↓ LAN 파일 전송 + SSH 설치 명령
+                Cluster: 자체 검증 → 앱 A/B 시험 → 확정 또는 롤백
+```
+
+새 전달 경로는 [Cluster OTA 절차](docs/CLUSTER_OTA.md)의 `ota forward`와
+`ota cluster-update`다. Central 앱은 교체하지 않는다. 초기화 전용 검사와 외부 검사
+모드를 명시적으로 구분하며, 실제 Qt 표시 모델 검사기는 아직 연결하지 않았다.
+아래는 계속 지원하는 기존 단일 장치 OTA 사용법이다.
 
 기본 흐름은 하나다.
 
@@ -13,7 +24,8 @@ Pi: 다운로드 → 서명·해시 확인 → B에서 시험 실행
 ```
 
 여기서 A/B는 **앱 디렉터리**다. SD 카드의 OS 파티션을 나누거나 OS를 업데이트하지 않는다.
-업데이트 대상은 Central 앱 하나다. 기존 Pi의 Qt 계기판·서비스는 이 브랜치를 받는 것만으로 바뀌지 않는다.
+아래 일반 `ota update`의 대상은 Central 앱 하나다. 기존 Pi의 Qt 계기판·서비스는
+이 브랜치를 받는 것만으로 바뀌지 않는다. Cluster는 위의 별도 전달 경로를 사용한다.
 
 ## 먼저 로컬에서 실행하기
 
@@ -96,6 +108,8 @@ ota --root .demo/device status
 | [cli.py](capstone_ota/cli.py) | `pack`, `update`, `status` 명령 |
 | [bundle.py](capstone_ota/bundle.py) | 파일 묶기, 서명·해시용 메타데이터, 안전한 압축 해제 |
 | [device.py](capstone_ota/device.py) | 다운로드 → 시험 → 확정 또는 복구 |
+| [relay.py](capstone_ota/relay.py) | Central에서 검증 후 Cluster에 전달 |
+| [cluster.py](capstone_ota/cluster.py) | Cluster의 서비스·외부 검사 연결 |
 
 릴리스 파일은 딱 세 개다: `release.json`, `release.sig`, `app.tar.gz`.
 JSON 내용도 세 항목이다: `version`(앱 버전), `svn`(보안 버전), `sha256`(압축 파일 해시).
