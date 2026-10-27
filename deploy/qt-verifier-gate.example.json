@@ -1,0 +1,6 @@
+{
+  "host": "verifier-pi",
+  "checkout": "/home/otauser/CAPSTONE_OTA_MINIMAL",
+  "python": "/home/otauser/CAPSTONE_OTA_MINIMAL/.venv/bin/python",
+  "peers": "/home/otauser/qt-verifier-peers.json"
+}

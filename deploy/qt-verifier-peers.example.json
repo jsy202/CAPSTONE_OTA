@@ -1,0 +1,15 @@
+{
+  "cluster": {
+    "host": "cluster-pi",
+    "checkout": "/home/otauser/CAPSTONE_OTA_MINIMAL",
+    "python": "/home/otauser/CAPSTONE_OTA_MINIMAL/.venv/bin/python",
+    "socket": "/run/capstone-cluster/model.sock"
+  },
+  "central": {
+    "host": "central-pi",
+    "checkout": "/home/otauser/CAPSTONE_OTA_MINIMAL",
+    "python": "/home/otauser/CAPSTONE_OTA_MINIMAL/.venv/bin/python",
+    "channel": "can0"
+  },
+  "observe_channel": "can0"
+}

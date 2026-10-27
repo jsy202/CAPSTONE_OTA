@@ -53,7 +53,7 @@ def main(argv=None) -> int:
                 result = device.status()
                 if result["result"] != "recovery_failed":
                     raise
-                result.update(passed=False, error=str(exc))
+                result.update(passed=False, error=str(exc.__cause__ or exc))
             result.update(validation="external" if checker else "initialization_only", verification=device.reports)
         elif args.command == "forward":
             result = forward(args.url, args.public_key, json.loads(args.target.read_text()), args.bind, args.advertise)

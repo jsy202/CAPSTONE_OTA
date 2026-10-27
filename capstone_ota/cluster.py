@@ -28,7 +28,7 @@ class ClusterDevice(Device):
         if self.verifier_command is None:
             return
         try:
-            rows, _pid = exchange([*self.verifier_command, str(self._slot(slot))], [], timeout=15,
+            rows, _pid = exchange([*self.verifier_command, str(self._slot(slot))], [], timeout=60,
                                   allow_negative_verdict=True)
             if (len(rows) != 1 or not isinstance(rows[0], dict)
                     or type(rows[0].get("passed")) is not bool):

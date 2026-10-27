@@ -5,6 +5,11 @@ After=network.target
 [Service]
 Type=simple
 User=capstone-app
+RuntimeDirectory=capstone-cluster
+RuntimeDirectoryMode=0750
+UMask=0007
+Environment=CAPSTONE_MODEL_SOCKET=/run/capstone-cluster/model.sock
+Environment=CAPSTONE_CAN_CHANNEL=can0
 WorkingDirectory=/opt/capstone-cluster/device/current
 ExecStart=/opt/capstone-cluster/device/current/bin/app
 Restart=on-failure

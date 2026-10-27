@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+task_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if [ -n "${CAPSTONE_QT_PREFIX:-}" ]; then
+    export LD_LIBRARY_PATH="$CAPSTONE_QT_PREFIX/lib/$(uname -m)-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    export QML2_IMPORT_PATH="$CAPSTONE_QT_PREFIX/lib/$(uname -m)-linux-gnu/qt5/qml"
+    export QT_PLUGIN_PATH="$CAPSTONE_QT_PREFIX/lib/$(uname -m)-linux-gnu/qt5/plugins"
+fi
+if [ "${1:-}" = "--check" ]; then
+    export QT_QPA_PLATFORM=offscreen
+elif [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+    export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"
+fi
+export QT_QUICK_BACKEND="${QT_QUICK_BACKEND:-software}"
+exec "$task_root/libexec/dashboard" "$@"

@@ -1,4 +1,7 @@
-# CAPSTONE_OTA — 작게 다시 시작하는 OTA
+# 다중 ECU 환경에서의 OTA 소프트웨어 호환성 검증 및 자동 롤백 시스템
+
+저장소: **CAPSTONE_OTA**. 디지털 클러스터 앱을 업데이트하고, 다른 ECU의 입력에
+대한 실제 Qt 표시 모델을 독립 검증한 뒤 확정하거나 이전 앱으로 되돌린다.
 
 **Central이 받은 업데이트를 Cluster에 전달하고, Cluster에서 앱 A/B 설치·검사·롤백할 수 있다.**
 
@@ -10,7 +13,10 @@
 
 새 전달 경로는 [Cluster OTA 절차](docs/CLUSTER_OTA.md)의 `ota forward`와
 `ota cluster-update`다. Central 앱은 교체하지 않는다. 초기화 전용 검사와 외부 검사
-모드를 명시적으로 구분하며, 실제 Qt 표시 모델 검사기는 아직 연결하지 않았다.
+모드를 명시적으로 구분한다. [실제 Volvo Qt 검증·fault injection](docs/QT_CLUSTER.md)은
+원본 속도계 QML 값과 C++ 모델을 읽어 판정하고, 실패 시 V2를 복구·재검사한다.
+PC용 전체 실행은 `python -m demo.qt_run run --output .demo/qt-complete-run`이며
+먼저 문서대로 Qt 앱을 빌드해야 한다. 실제 세 보드/CAN/ARM 검증은 아직 수행하지 않았다.
 아래는 계속 지원하는 기존 단일 장치 OTA 사용법이다.
 
 기본 흐름은 하나다.
