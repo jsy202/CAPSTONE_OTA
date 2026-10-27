@@ -59,7 +59,7 @@ def run(output):
     for label, version, svn, policy in [('v1', '1.0.0', 1, 'arrival_order'),
                                        ('v2', '2.0.0', 2, 'source_counter'),
                                        ('v3', '3.0.0', 2, 'arrival_order')]:
-        app = payload(binary, output / 'payloads' / label, policy)
+        app = payload(binary, output / 'payloads' / label, policy, label.upper())
         (app / 'release.txt').write_text(label)
         if label == 'v1':
             wrapper = app / 'bin/app'

@@ -2,7 +2,7 @@
 import importlib
 from pathlib import Path
 import pytest
-from dashboard.qt_cluster.build import default_payload
+from dashboard.qt_cluster.build import default_payload, payload as prepare_payload
 from test_cluster_relay import local_ssh
 
 ROOT = Path(__file__).parents[1]
@@ -22,6 +22,18 @@ def qt_runtime(monkeypatch):
 
 def qt():
     return importlib.import_module('capstone_ota.qt_verify')
+
+
+@pytest.mark.parametrize('version', ['V1', 'V2', 'V3'])
+def test_actual_dashboard_displays_its_packaged_version(tmp_path, version):
+    slot = prepare_payload(ROOT / '.demo/qt-build/capstone-qt-cluster', tmp_path / version, 'source_counter')
+    import json
+    config = slot / 'cluster.json'
+    settings = json.loads(config.read_text())
+    settings['version'] = version
+    config.write_text(json.dumps(settings))
+    with qt().running_dashboard(slot) as target:
+        assert qt().snapshot(target)['version_label'] == version
 
 
 def test_readonly_qt_initialization_is_stable_without_accessing_user_display():

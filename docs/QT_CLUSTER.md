@@ -108,6 +108,10 @@ V1 is a controlled old-release fixture, not a real exploitable vulnerability.
 Normal tests use offscreen mode. Captures use a private Xvfb display, so repeated
 tests do not open windows on the user's desktop. bin/app --check is always headless.
 Native manual execution without --check may show the actual application window.
+The lower-right version badge reads the signed cluster.json version field: V1 is
+purple, V2 blue and V3 orange. This visual label is separate from the updater's
+signed release/security-version checks. V1 style previews do not imply execution
+of the blocked recovery image in the attack test.
 
 ## Three-host execution paths
 

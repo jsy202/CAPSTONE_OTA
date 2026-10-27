@@ -72,7 +72,8 @@ int main(int argc, char **argv) {
     };
     QFile config(QCoreApplication::applicationDirPath() + "/../cluster.json");
     if (!config.open(QIODevice::ReadOnly)) return 2;
-    const auto policy = QJsonDocument::fromJson(config.readAll()).object().value("policy").toString();
+    const auto settings = QJsonDocument::fromJson(config.readAll()).object();
+    const auto policy = settings.value("policy").toString();
     if (policy != "source_counter" && policy != "arrival_order") return 2;
     SpeedometerModel speed;
     speed.setMinValue(0); speed.setMaxValue(220); speed.setUnits("km/h"); speed.setTopUnits("°C");
@@ -87,6 +88,7 @@ int main(int argc, char **argv) {
     // The engine must be destroyed before the models its bindings observe.
     QQmlApplicationEngine engine;
     auto context = engine.rootContext();
+    context->setContextProperty("capstoneVersion", settings.value("version").toString("DEV"));
     context->setContextProperty("speedoModel", &speed);
     context->setContextProperty("rpmModel", &rpm);
     context->setContextProperty("tempFuelModel", &temp);
@@ -215,6 +217,8 @@ int main(int argc, char **argv) {
                     if (!path.isEmpty()) window->grabWindow().save(path);
                 }
                 QJsonObject out{{"nonce", input.value("nonce")}, {"pid", int(QCoreApplication::applicationPid())},
+                    {"version_label", findVisual(window->contentItem(), "capstoneVersionLabel")
+                        ? findVisual(window->contentItem(), "capstoneVersionLabel")->property("text").toString() : QString()},
                     {"ui_ready", uiReady()},
                     {"model_speed", speed.currentValue()}, {"qml_speed", findVisual(window->contentItem(), "capstoneSpeedNeedle")
                         ? findVisual(window->contentItem(), "capstoneSpeedNeedle")->property("value").toDouble() : -1.0},

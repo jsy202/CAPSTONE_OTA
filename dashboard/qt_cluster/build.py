@@ -64,7 +64,7 @@ RESOURCES += "{app}/qml.qrc" "{HERE}/capstone.qrc"
     return output / 'capstone-qt-cluster'
 
 
-def payload(binary, output, policy):
+def payload(binary, output, policy, version='DEV'):
     output = Path(output).absolute()
     output.mkdir(parents=True, exist_ok=False)
     (output / 'bin').mkdir()
@@ -72,7 +72,7 @@ def payload(binary, output, policy):
     shutil.copy2(binary, output / 'libexec/dashboard')
     shutil.copy2(HERE / 'app', output / 'bin/app')
     (output / 'bin/app').chmod(0o755)
-    (output / 'cluster.json').write_text(json.dumps({'policy': policy}))
+    (output / 'cluster.json').write_text(json.dumps({'policy': policy, 'version': version}))
     shutil.copy2(HERE / 'LICENSE.upstream', output / 'LICENSE.upstream')
     return output
 
@@ -82,7 +82,7 @@ def default_payload(policy):
     digest = hashlib.sha256(binary.read_bytes() + (HERE / 'app').read_bytes()).hexdigest()[:12]
     target = ROOT / '.demo/qt-payloads' / (policy + '-' + digest)
     if not target.exists():
-        payload(binary, target, policy)
+        payload(binary, target, policy, 'V2' if policy == 'source_counter' else 'V3')
     return target
 
 
