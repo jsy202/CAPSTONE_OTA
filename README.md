@@ -1,175 +1,168 @@
 # 다중 ECU 환경에서의 OTA 소프트웨어 호환성 검증 및 자동 롤백 시스템
 
-저장소: **CAPSTONE_OTA**. 디지털 클러스터 앱을 업데이트하고, 다른 ECU의 입력에
-대한 실제 Qt 표시 모델을 독립 검증한 뒤 확정하거나 이전 앱으로 되돌린다.
+**CAPSTONE_OTA**는 디지털 클러스터 앱을 OTA로 설치하고, 시험 입력에 대한 실제
+Qt 모델·QML 게이지 값을 검증한 뒤 업데이트를 확정하거나 이전 앱으로 되돌리는 프로젝트다.
+복구 슬롯이 과거 정식 이미지로 바뀌어 있으면 실행 전에 거부하는 공격 시험도 포함한다.
 
-**Central이 받은 업데이트를 Cluster에 전달하고, Cluster에서 앱 A/B 설치·검사·롤백할 수 있다.**
+현재는 **PC에서 업데이트 전달 → 실제 Qt 검증 → V2 롤백 → V1 바꿔치기 차단까지 연결**했다.
+세 Raspberry Pi용 실행 경로는 구현했지만, 현재 Qt 경로의 물리 세 보드·CAN·ARM·systemd
+통합 검증은 아직 수행하지 않았다.
 
-```text
-노트북 → Central: 서명·해시 확인 후 캐시
-                  ↓ LAN 파일 전송 + SSH 설치 명령
-                Cluster: 자체 검증 → 앱 A/B 시험 → 확정 또는 롤백
-```
-
-새 전달 경로는 [Cluster OTA 절차](docs/CLUSTER_OTA.md)의 `ota forward`와
-`ota cluster-update`다. Central 앱은 교체하지 않는다. 초기화 전용 검사와 외부 검사
-모드를 명시적으로 구분한다. [실제 Volvo Qt 검증·fault injection](docs/QT_CLUSTER.md)은
-원본 속도계 QML 값과 C++ 모델을 읽어 판정하고, 실패 시 V2를 복구·재검사한다.
-PC용 전체 실행은 `python -m demo.qt_run run --output .demo/qt-complete-run`이며
-먼저 문서대로 Qt 앱을 빌드해야 한다. 실제 세 보드/CAN/ARM 검증은 아직 수행하지 않았다.
-아래는 계속 지원하는 기존 단일 장치 OTA 사용법이다.
-
-기본 흐름은 하나다.
+## 전체 구조
 
 ```text
-노트북: 패키지 만들기 → HTTP로 파일 제공
-                            ↓ Wi-Fi
-Pi: 다운로드 → 서명·해시 확인 → B에서 시험 실행
-                                   ├─ 성공: B 확정
-                                   └─ 실패: A 복구·재확인
+노트북: 서명된 Cluster 앱 릴리스 제공
+  │ HTTP
+  ▼
+Pi 1 · Central: 서명·해시 검증 → 임시 캐시 → Cluster에 전달
+  │ HTTP 파일 전송 + SSH 설치 명령
+  ▼
+Pi 2 · Cluster: 자체 검증 → 앱 A/B 시험 설치 → 실제 Qt 계기판 실행
+  │                                       ├─ PASS: 새 앱 확정
+  │                                       └─ FAIL: 이전 앱 무결성 확인 → 복원·재검증
+  │
+Pi 3 · Verifier: 시험 입력 지시 + CAN 직접 관찰 + Cluster의 Qt 모델·QML 값 확인
 ```
 
-여기서 A/B는 **앱 디렉터리**다. SD 카드의 OS 파티션을 나누거나 OS를 업데이트하지 않는다.
-아래 일반 `ota update`의 대상은 Central 앱 하나다. 기존 Pi의 Qt 계기판·서비스는
-이 브랜치를 받는 것만으로 바뀌지 않는다. Cluster는 위의 별도 전달 경로를 사용한다.
+- **업데이트 파일**은 LAN으로 전달한다. CAN은 Central → Cluster 차량 데이터용이다.
+- **A/B는 앱 디렉터리 두 개**다. OS 파티션 OTA나 재부팅 기반 복구가 아니다.
+- Central은 Cluster 릴리스를 전달하며, 이 과정에서 Central 자신의 앱은 교체하지 않는다.
+- 검증기는 별도 프로세스/장치지만 표시 결과는 **Cluster 소프트웨어가 제공하는 관찰값**을
+  읽는다. 독립 카메라·픽셀 검증이나 악성 Cluster의 허위 보고 방어는 아니다.
 
-## 먼저 로컬에서 실행하기
+PC 전체 데모는 실제 HTTP 두 구간과 실제 Qt를 사용한다. SSH는 로컬 명령 실행기로,
+CAN은 UDP 루프백으로 대체한다. 실제 장치 세 대를 시험했다는 의미는 아니다.
 
-Linux, Python 3.10+, OpenSSL이 필요하다. MQTT·Mosquitto·CA·클라이언트 인증서는 필요 없다.
+## 현재 시험 시나리오
+
+### 1. 지연·재전송 입력에서 표시 오류 검출
+
+검증기가 고정 합성 CAN 프레임을 송신하도록 지시한다. ID는 `0x200`이고,
+속도·RPM·기어·경고·카운터·CRC를 담은 8바이트다.
+
+1. 카운터 240/241/242로 40 → 45 → 60 km/h를 보낸다.
+2. **650ms 동안 송신을 멈춰** Cluster의 500ms 입력 유효 시간 초과를 확인한다.
+3. 새 프레임 `243 / 62 km/h` 뒤에 기존 프레임 `241 / 45 km/h`를 재전송한다.
+4. 새 프레임 `244 / 65 km/h` 뒤에 기존 프레임 `242 / 60 km/h`를 재전송한다.
+5. 단절·복구를 총 세 번 반복한다. 새 카운터는 증가하고 과거 프레임은 그대로 유지한다.
+
+과거 데이터도 CRC가 정상이다. 잘못된 숫자를 넣거나 앱 내부에서 강제 FAIL을 만드는
+대신, **최신 값이 유지되어야 하는데 과거 값으로 덮이는지** 확인한다.
+
+| 입력과 앱 조합 | 실제 동작 | OTA 결과 |
+|---|---|---|
+| 최신 프레임만 전달 + V3 | 기대 표시와 일치 | `committed`: V3 확정 |
+| 과거 프레임 재전송 + V3 | 기대 62 대신 45 표시 | V3 거부 → V2 복원·재검증 |
+| 동일 재전송 + V2 | 과거 프레임 무시, 62 유지 | `rolled_back`: V2 복구 확인 |
+
+V2는 `source_counter`로 오래된 프레임을 거르고, V3는 `arrival_order`로 도착 순서대로
+반영한다. 현재 두 버전은 **같은 실행 파일에 서로 다른 정책 설정을 넣은 시험용 릴리스**다.
+화면 오른쪽 아래는 V1 보라색, V2 파란색, V3 주황색으로 구분한다.
+
+**시나리오의 한계:** 재전송은 검증기가 주입하며 실제 Central 버퍼 기능은 구현하지 않았다.
+CAN 컨트롤러가 자동으로 과거 값을 재생한다는 가정도 아니다. 현재 직접 입증한 것은
+지연·재전송 입력에 대한 수신 처리 회귀다. 이를 대표 ECU 호환성 사례로 유지·보완할지는
+재검토 중이다. 실제 ECU 조합 비호환이나 일주일 사용 후 버그를 입증했다고 주장하지 않는다.
+
+### 2. 복구 슬롯의 정식 V1 바꿔치기 차단
+
+```text
+A = 정상 V2, B = 시험 V3
+        ↓ V3 표시 불일치 검출
+시험 코드가 복구 슬롯 A를 정식 서명된 V1으로 교체
+        ↓ 신뢰 상태 기록은 그대로 유지
+복구 전 기록된 V2 앱 트리 해시와 실제 파일 비교
+        ↓ 불일치
+V1 실행 전 거부 → recovery_failed
+```
+
+시험은 V1의 서명이 유효하고 신뢰 기록이 바뀌지 않았음을 확인한다. V1 실행 시 생성되는
+표식이 없다는 것도 확인한다. 직접적인 차단 원인은 `recovery application tree hash mismatch`다.
+
+공격자가 복구 슬롯 파일을 쓸 수 있다고 가정한 **제어된 파일 교체 시험**이며 실제 침입이나
+V1 취약점 악용은 아니다. 업데이터·공개키·신뢰 기록까지 바꾸는 관리자 공격은 방어하지 않는다.
+**V1 차단 이후 정상 서비스를 되살리는 별도 복구 경로는 아직 구현하지 않았다.**
+`recovery_failed`는 복구 거부이며, V2 서비스 정상 실행을 뜻하지 않는다.
+
+## PC에서 실행하기
+
+Linux와 Python 3.10+를 사용한다. 네이티브 계기판은 C++17, make, Qt 5.15 개발·런타임
+라이브러리가 필요하고, 숨겨진 화면 캡처에는 Xvfb가 필요하다. MQTT·CA·Python Qt 바인딩은
+사용하지 않는다.
 
 ```bash
 python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install -e '.[dev]'
+.venv/bin/python -m pip install -e '.[dev]'
 ```
 
-서명키는 한 번만 만든다. 개인키는 노트북에만 보관하고, Pi에는 공개키만 직접 전달한다.
-이미 키가 있다면 아래 생성 명령을 다시 실행하지 않는다.
+먼저 [Qt 빌드 절차](docs/QT_CLUSTER.md#build-on-pc)에 따라
+[고정 버전의 Volvo 원본](dashboard/qt_cluster/UPSTREAM.md)을 준비하고 빌드한다.
+아래 `/PATH/Volvo240-DigitalDash`는 실제 원본 체크아웃 경로로 바꾼다.
 
 ```bash
-mkdir -p .demo
-umask 077
-openssl genpkey -algorithm ED25519 -out .demo/update.key
-openssl pkey -in .demo/update.key -pubout -out .demo/update.pub
+# 시스템 Qt를 사용하는 경우
+.venv/bin/python dashboard/qt_cluster/build.py --source /PATH/Volvo240-DigitalDash
+
+# 매 실행마다 새로운 출력 디렉터리 사용
+.venv/bin/python -m demo.qt_run run --output .demo/qt-complete-run
+.venv/bin/python -m pytest -q
 ```
 
-릴리스 만들기:
+별도 위치의 Qt를 사용하면 빌드에 `--qt-prefix`를 지정하고 실행 환경의
+`CAPSTONE_QT_PREFIX`도 맞춘다. 상세 명령은 [QT_CLUSTER.md](docs/QT_CLUSTER.md)에 있다.
+PC x86 바이너리를 Pi에 설치하면 안 되며, 대상 아키텍처로 따로 빌드해야 한다.
 
-```bash
-ota pack --payload examples/central --output .demo/releases/v1 \
-  --version 1.0.0 --svn 1 --key .demo/update.key
-```
+데모 결과는 출력 디렉터리의 `result.json`, `screenshots/`에 저장된다. 테스트는 offscreen,
+캡처는 별도 Xvfb에서 실행하므로 사용자 데스크톱에 시험 창을 반복해서 띄우지 않는다.
+**컴파일된 Qt가 없으면 Qt 테스트는 skip된다.** Python 테스트 통과만으로 Qt 통합 검증을
+완료했다고 볼 수 없다.
 
-다른 터미널에서 파일 서버를 켠다.
+데모 서명 개인키는 출력 디렉터리의 별도 `keys/`에 생성한다. 개인키·SSH 키를 HTTP 제공
+폴더나 Git에 넣지 않는다. 빌드·시험 결과는 `.demo/` 아래에 두며 Git에 포함하지 않는다.
 
-```bash
-python3 -m http.server 8080 --bind 127.0.0.1 --directory .demo/releases
-```
+## 코드와 문서 읽는 순서
 
-첫 터미널에서 설치하고 확인한다.
-
-```bash
-ota --root .demo/device update http://127.0.0.1:8080/v1 --public-key .demo/update.pub
-ota --root .demo/device status
-```
-
-첫 설치는 A, 다음 업데이트는 B, 그다음은 A를 쓴다. 최초 설치한 공개키는 장치에 고정된다.
-같은 장치의 이후 업데이트에는 `--public-key`가 필요 없다. 다른 키를 지정해도 바뀌지 않는다.
-
-예상 상태:
-
-```json
-{"phase":"stable","active_slot":"A","version":"1.0.0","min_svn":1,"result":"committed","trial_version":null}
-```
-
-기본 로컬 모드는 실제 앱의 초기화 검사인 `bin/app --check`를 실행하지만, 상시 프로세스를 관리하지 않는다.
-설치된 예제 앱을 직접 실행하려면 다음 명령을 사용한다.
-
-```bash
-.demo/device/current/bin/app
-```
-
-예제는 설정을 읽고 실행 상태를 유지하는 작은 앱이다. **CAN 송신·Qt 표시·ECU 호환성 검증은 아직 포함하지 않는다.**
-
-## 실패하면 정말 돌아오는가?
-
-잘못된 설정으로 시작하지 못하는 패키지를 만든다. 가짜 실패 판정 대신 앱 자체의 초기화가 실패한다.
-
-```bash
-cp -a examples/central .demo/bad-payload
-sed -i 's/"period_ms":100/"period_ms":0/' .demo/bad-payload/config.json
-ota pack --payload .demo/bad-payload --output .demo/releases/bad \
-  --version 1.1.0 --svn 2 --key .demo/update.key
-ota --root .demo/device update http://127.0.0.1:8080/bad
-ota --root .demo/device status
-```
-
-결과는 `rolled_back`, 버전은 계속 `1.0.0`, 보안 하한도 `1`이다. 업데이트 명령은 실패를 뜻하는 종료 코드 2를 반환한다.
-이전 앱도 검사에 실패하거나 내용이 손상됐다면 복구 성공으로 보고하지 않는다.
-
-## 코드 읽는 순서
-
-| 파일 | 하는 일 |
+| 코드 | 역할 |
 |---|---|
-| [cli.py](capstone_ota/cli.py) | `pack`, `update`, `status` 명령 |
-| [bundle.py](capstone_ota/bundle.py) | 파일 묶기, 서명·해시용 메타데이터, 안전한 압축 해제 |
-| [device.py](capstone_ota/device.py) | 다운로드 → 시험 → 확정 또는 복구 |
-| [relay.py](capstone_ota/relay.py) | Central에서 검증 후 Cluster에 전달 |
-| [cluster.py](capstone_ota/cluster.py) | Cluster의 서비스·외부 검사 연결 |
+| [demo/qt_run.py](demo/qt_run.py) | PC 전체 OTA·Qt·공격 시험 실행 |
+| [relay.py](capstone_ota/relay.py) | Central 검증·캐시·Cluster 전달 |
+| [cluster.py](capstone_ota/cluster.py) | Cluster 서비스와 외부 판정 연결 |
+| [device.py](capstone_ota/device.py) | 앱 A/B 상태 관리·확정·복구 |
+| [bundle.py](capstone_ota/bundle.py) | 릴리스 묶기·서명·해시·안전한 압축 해제 |
+| [qt_source.py](capstone_ota/qt_source.py) | 차량 프레임 생성·송신 |
+| [qt_verify.py](capstone_ota/qt_verify.py) | 결함 주입 순서·관찰·기대값 비교 |
+| [main.cpp](dashboard/qt_cluster/main.cpp) | 실제 Qt 수신·모델·게이지 관찰 어댑터 |
+| [cli.py](capstone_ota/cli.py) | `pack`, `forward`, `cluster-update`, `update`, `status` |
 
-릴리스 파일은 딱 세 개다: `release.json`, `release.sig`, `app.tar.gz`.
-JSON 내용도 세 항목이다: `version`(앱 버전), `svn`(보안 버전), `sha256`(압축 파일 해시).
-앱 진입점은 항상 `bin/app`이며, 초기화 검사 `--check`는 읽기 전용이어야 한다.
+- **현재 Qt 시험·3대 연결:** [QT_CLUSTER.md](docs/QT_CLUSTER.md)
+- **Central → Cluster 배포·설정:** [CLUSTER_OTA.md](docs/CLUSTER_OTA.md)
+- **원본 Qt 출처·MIT 라이선스:** [UPSTREAM.md](dashboard/qt_cluster/UPSTREAM.md)
+- **기존 단일 장치 서비스 설정:** [PI_SETUP.md](docs/PI_SETUP.md)
 
-```text
-device/
-├── trusted.pub       # 고정된 업데이트 공개키
-├── state.json        # 정상 슬롯·시험 슬롯·보안 하한을 관리하는 단일 기록
-├── events.jsonl      # 진행 로그
-├── current → slots/A
-└── slots/
-    ├── A/
-    └── B/
-```
+기존 `ota update`는 Central 예제 앱용 기본 OTA 경로다. 현재 Cluster 배포는
+`ota forward` → `ota cluster-update`를 사용한다. 릴리스는 `release.json`, `release.sig`,
+`app.tar.gz` 세 파일이며, 진입점은 `bin/app`, 초기화 검사는 읽기 전용 `bin/app --check`다.
 
-업데이트 프로세스가 시험 도중 중단됐다면, 다시 실행하기 전에 다음 명령으로 미확정 시험을 복구한다.
-일반 `update URL`도 새 다운로드보다 먼저 이 복구를 수행한다. `status`는 읽기 전용이다.
+## 검증 범위와 남은 일
 
-```bash
-ota --root .demo/device update
-```
+| 구분 | 현재 상태 |
+|---|---|
+| 실제 HTTP·서명·Cluster 앱 A/B | PC 통합 시험 완료 |
+| 실제 Qt 속도 모델·QML 비교, 실패 후 V2 복원·재검증 | PC 통합 시험 완료 |
+| 정식 V1 복구 슬롯 교체 및 실행 전 차단 | PC 통합 시험 완료 |
+| 세 호스트 명령·SocketCAN·외부 검증 경로 | 구현됨, 현재 Qt의 물리 세 보드 통합은 미검증 |
+| 원본 계기판의 모든 신호 | 미연결 계기는 고정 시험 초기값 사용 |
+| 대표 ECU 호환성 시나리오 | 현재 재전송 시나리오의 타당성 재검토 중 |
+| 독립 화면 픽셀 검증·관리자 변조 방어 | 미구현 |
+| V1 차단 뒤 정상 서비스 복구·OS OTA | 현재 범위에서 제외 |
+| 장기 내구·실제 전원 차단 | 미검증 |
 
-## 남긴 보호와 명확한 범위
+HTTP는 실험망에서 서명된 파일을 전달하는 용도이며 암호화·접속 인증을 제공하지 않는다.
+상태 기록·공개키는 앱 슬롯 밖에 보관하지만 하드웨어 보호 저장소가 아니다.
+새 브랜치를 받는 것만으로 기존 Pi의 `digital-dash.service`나 OS를 변경하지 않는다.
 
-- 받은 메타데이터의 서명을 확인한 뒤 내용을 사용하고, 앱 파일 해시도 확인한다.
-- 낮은 보안 버전과 현재 이하 제품 버전을 거부한다. 보안 하한은 성공 확정 때만 높인다.
-- 복구 시 기록된 정상 앱의 파일·경로·권한 해시를 다시 확인한다.
-- 슬롯 선택 전 시험 의도를 저장한다. 다음 실행은 미확정 시험을 복구한다.
-- HTTP는 **실험망에서 설정을 줄이기 위한 선택**이다. 파일 인증은 유지하지만 통신 비밀성·상대 인증·서비스 가용성을 제공하지 않는다.
-- 다운로드는 파일별 30초 전체 제한을 적용한다. 이 명령은 Linux의 메인 스레드에서 실행하며, 스레드에 넣어 쓰는 라이브러리 API는 제공하지 않는다.
-- 서명은 앱이 안전하다는 증명은 아니다. 현재 검사는 앱 초기화이며 독립 ECU 검증이 아니다.
-- 기록과 공개키는 앱 슬롯 밖에 있지만, 관리자/디스크 전체 변조를 막는 하드웨어 보안 저장소는 아니다.
-- 슬롯은 앱 전용 읽기 데이터로 취급한다. 앱의 변경 가능한 데이터는 슬롯 밖에 저장해야 한다.
-
-## 테스트와 Pi
-
-```bash
-python -m pytest -q
-```
-
-테스트는 실제 HTTP 전송·실제 서명·실제 실행 파일과 파일시스템을 사용한다. 정상 설치, 실패 복구,
-변조, 보안 하한, 프로세스 중단 경계를 확인한다. 실제 Pi 전원 차단이나 systemd 동작을 대신 증명하지는 않는다.
-실행 결과와 구현 판단·남은 한계는 [검증 기록](docs/VALIDATION.md)에 정리했다.
-
-Pi에서 상시 서비스로 쓰는 선택 절차는 [PI_SETUP.md](docs/PI_SETUP.md)에 있다. 현재 실행 환경을 자동으로 이전하지 않는다.
-
-기존 MQTT·다중 ECU 구현과 문서는 삭제하지 않고 [legacy/](legacy/ARCHIVE.md)에 보존했다.
-기본 설치·명령·테스트에는 포함하지 않는다. 이후 호환성 검증과 취약 버전 복귀 차단 시나리오는 이 작은 흐름 위에 추가한다.
-
-첫 가상 시연은 [재연결 호환성·복구 슬롯 바꿔치기 데모](docs/VIRTUAL_COMPATIBILITY.md)로 분리했다.
-기본 OTA 코드는 그대로이며, 실제 서명·HTTP·A/B에 별도 프로세스 검증을 연결한다. 물리 CAN·Qt 시험은 아니다.
-세 Pi의 Central·Cluster·검증기를 따로 실행하는 CAN 구현은
-[세 장치 시험 절차](docs/THREE_PI_BENCH.md)에 있다. 물리 세 장치 검증은 아직 진행하지 않았다.
-
-[인터랙티브 아키텍처 설명](docs/architecture.html)은 내려받아 브라우저에서 열면 된다.
-정상 업데이트·비호환 롤백·V1 바꿔치기 차단을 단계별로 볼 수 있으며, 인터넷 연결이 필요 없다.
+과거 단일 장치 검증 기록은 [VALIDATION.md](docs/VALIDATION.md), 초기 가상 시험은
+[VIRTUAL_COMPATIBILITY.md](docs/VIRTUAL_COMPATIBILITY.md), 이전 CAN 벤치는
+[THREE_PI_BENCH.md](docs/THREE_PI_BENCH.md)에 남아 있다.
+[architecture.html](docs/architecture.html)도 초기 가상 시연 자료이며 현재 Qt 구현 설명과 구분한다.
+기존 MQTT·다중 ECU 구현은 [legacy/](legacy/ARCHIVE.md)에 보존했으며 기본 실행 경로가 아니다.
