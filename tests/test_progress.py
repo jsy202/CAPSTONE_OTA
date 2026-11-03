@@ -89,3 +89,32 @@ def test_recovery_refusal_is_not_reported_as_success(releases, keys, tmp_path):
         device.update()
     assert read(root)['stage'] == 'recovery_failed'
     assert 'hash mismatch' in read(root)['detail']
+
+
+def test_slot_projection_retains_trial_history_but_marks_only_selected_slot(releases, keys, tmp_path):
+    root = tmp_path / 'device'
+    with serving(releases) as url:
+        Device(root).update(url + '/v1', public_key=keys[1])
+        before = read(root)['slot_view']
+        assert before['selected'] == 'A'
+        assert before['A']['version'] == '1.0.0'
+        assert before['B']['version'] is None
+        Device(root).update(url + '/bad')
+    view = read(root)['slot_view']
+    assert view['selected'] == 'A'
+    assert view['A'] == {'version': '1.0.0', 'role': 'committed'}
+    assert view['B'] == {'version': '1.3.0', 'role': 'retained'}
+
+
+def test_recovery_refusal_keeps_recorded_version_separate_from_execution(releases, keys, tmp_path):
+    root = tmp_path / 'device'; d = Device(root)
+    with serving(releases) as url:
+        d.update(url + '/v1', public_key=keys[1])
+    state = d._load();state.update(phase='trial', pending=dict(state['committed'], slot='B'))
+    d._save(state)
+    (root / 'slots/A/extra').write_text('tampered')
+    with pytest.raises(ValueError, match='recovery failed'):
+        d.update()
+    view = read(root)['slot_view']
+    assert view['A']['version'] == '1.0.0'
+    assert view['A']['role'] == 'recovery_failed'

@@ -97,6 +97,24 @@ class Device:
         """Best-effort display telemetry, never an input to security decisions."""
         self._progress_data.update(fields, stage=stage, updated=time.time(), pid=os.getpid())
         try:
+            previous = self._progress_data.get('slot_view', {})
+            view = {name: {'version': previous.get(name, {}).get('version'), 'role': 'retained'}
+                    for name in ('A', 'B')}
+            try:
+                state = self._load()
+                view.update(selected=self._selected(), available=True)
+                for key, role in [('committed', 'committed'), ('pending', 'trial')]:
+                    record = state[key]
+                    if record:
+                        view[record['slot']] = {'version': record['release']['version'], 'role': role}
+                if stage == 'recovery_failed' and state['committed']:
+                    view[state['committed']['slot']]['role'] = 'recovery_failed'
+            except DownloadDeadline:
+                raise
+            except (OSError, ValueError):
+                view = {name: {'version': None, 'role': 'unknown'} for name in ('A', 'B')}
+                view.update(selected=None, available=False)
+            self._progress_data['slot_view'] = view
             atomic_write(self.root / "progress.json", json.dumps(self._progress_data).encode())
         except DownloadDeadline:
             raise

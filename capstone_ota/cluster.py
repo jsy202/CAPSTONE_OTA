@@ -38,7 +38,8 @@ class ClusterDevice(Device):
         if self.verifier_command is None:
             return
         recovering = state.get("committed") and slot == state["committed"]["slot"]
-        self._progress("recheck" if recovering else "verify")
+        stage = "recheck" if recovering else "verify"
+        self._progress(stage, verified_slot=None, observation=None)
         try:
             rows, _pid = exchange([*self.verifier_command, str(self._slot(slot))], [], timeout=60,
                                   allow_negative_verdict=True)
@@ -49,11 +50,23 @@ class ClusterDevice(Device):
         except (OSError, ValueError) as exc:
             report = {"passed": False, "error": str(exc)}
         self.reports.append(report)
+        observed = report.get("observed", [])
+        if not isinstance(observed, list):
+            observed = []
+        rows = [row for row in observed if isinstance(row, dict)]
         if report["passed"] is not True:
-            observed = report.get("observed", [])
-            if not isinstance(observed, list):
-                observed = []
-            mismatch = next((row for row in observed
-                             if isinstance(row, dict) and row.get("passed") is False), None)
-            self._progress("verification_failed", mismatch=mismatch, detail=str(report.get("error", "")))
+            first = {}
+            if not self._progress_data.get('mismatch'):
+                mismatch = next((row for row in rows if row.get('passed') is False), None)
+                if mismatch:
+                    record = state['committed'] if recovering else state['pending']
+                    first = {'mismatch': mismatch, 'mismatch_slot': slot,
+                             'mismatch_version': record['release']['version'],
+                             'mismatch_phase': 'recovery' if recovering else 'candidate'}
+            fixture = report.get('attack_fixture', {})
+            injected = fixture.get('old_version') if isinstance(fixture, dict) and fixture.get('old_signature_valid') is True else None
+            self._progress("verification_failed", **first,
+                           injected_recovery_version=self._progress_data.get('injected_recovery_version') or injected,
+                           detail=str(report.get("error", "")))
             raise ValueError("Cluster external verification failed")
+        self._progress(stage, verified_slot=slot, observation=rows[-1] if rows else None)

@@ -236,7 +236,8 @@ class PhysicalBench:
                 spec['observe_channel'] = 'absent-can'
             self.put_observer(observer, spec)
         candidate = self.forward('v3', config)
-        result = {'device': device, 'baseline': baseline, 'candidate': candidate}
+        progress = json.loads(self.cluster.run('sudo cat ' + shlex.quote(device + '/progress.json')).stdout)
+        result = {'device': device, 'baseline': baseline, 'candidate': candidate, 'progress': progress}
         if name == 'attack':
             result['old_app_executed'] = self.cluster.run('test -e ' + shlex.quote(self.old_marker), check=False).returncode == 0
         if name == 'mixed' and candidate['status']['result'] == 'rolled_back':

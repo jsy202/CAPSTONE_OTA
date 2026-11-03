@@ -301,3 +301,44 @@ def test_target_independently_rejects_wrong_pinned_key(releases, keys, tmp_path)
                                  capture_output=True, text=True)
     assert process.returncode != 0
     assert not (tmp_path / 'cluster/current').exists()
+
+
+def test_progress_separates_historical_mismatch_from_successful_recovery(keys, payload, tmp_path):
+    from capstone_ota.cluster import ClusterDevice
+    for label, version in [('good', '2.0.0'), ('bad', '3.0.0')]:
+        (payload / 'label').write_text(label)
+        pack(payload, tmp_path / 'releases' / label, version, 2, keys[0])
+    body = ('import json,sys;from pathlib import Path;'
+            'ok=(Path(sys.argv[1])/"label").read_text()=="good";'
+            'row={"expected":65 if ok else 62,"qml":65 if ok else 45,"model":65 if ok else 45,"valid":True,"passed":ok};'
+            'print(json.dumps({"passed":ok,"observed":[row]}));sys.exit(0 if ok else 1)')
+    root = tmp_path / 'device'; d = ClusterDevice(root, [sys.executable, '-c', body])
+    with serving(tmp_path / 'releases') as url:
+        d.update(url + '/good', keys[1])
+        assert d.update(url + '/bad')['result'] == 'rolled_back'
+    data = json.loads((root / 'progress.json').read_text())
+    assert data['observation']['qml'] == data['observation']['expected'] == 65
+    assert data['mismatch']['qml'] == 45 and data['mismatch']['expected'] == 62
+    assert data['mismatch_slot'] == 'B' and data['mismatch_version'] == '3.0.0'
+    assert data['verified_slot'] == data['slot_view']['selected'] == 'A'
+
+
+def test_first_observed_mismatch_identity_is_not_taken_from_an_earlier_timeout(keys, payload, tmp_path):
+    from capstone_ota.cluster import ClusterDevice
+    for label, version in [('good','2.0.0'),('bad','3.0.0')]:
+        (payload/'label').write_text(label)
+        pack(payload,tmp_path/'releases'/label,version,2,keys[0])
+    gate=tmp_path/'mode'; gate.write_text('baseline')
+    body=('import json,sys;from pathlib import Path;'
+          'label=(Path(sys.argv[1])/"label").read_text();'
+          'baseline=Path('+repr(str(gate))+').read_text()=="baseline";'
+          'r={"passed":True} if baseline else ({"passed":False,"error":"timeout"} if label=="bad" else '
+          '{"passed":False,"observed":[{"expected":65,"qml":35,"passed":False}]});'
+          'print(json.dumps(r));sys.exit(0 if r["passed"] else 1)')
+    root=tmp_path/'device';d=ClusterDevice(root,[sys.executable,'-c',body])
+    with serving(tmp_path/'releases') as url:
+        d.update(url+'/good',keys[1]);gate.write_text('two-failures')
+        with pytest.raises(ValueError,match='recovery failed'):d.update(url+'/bad')
+    data=json.loads((root/'progress.json').read_text())
+    assert data['mismatch']['qml']==35
+    assert data['mismatch_slot']=='A' and data['mismatch_version']=='2.0.0'

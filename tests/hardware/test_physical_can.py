@@ -28,11 +28,19 @@ def test_OTA_CAN_002_real_service_update_and_recovery(physical_bench, profile, e
         assert [v['passed'] for v in status['verification']] == [False, True]
         failure = next(r for r in status['verification'][0]['observed'] if not r['passed'])
         assert failure['expected'] == 62 and failure['qml'] == failure['model'] == 45
+        view = report['progress']
+        assert view['mismatch']['qml'] == 45 and view['observation']['qml'] == 65
+        assert view['verified_slot'] == view['slot_view']['selected'] == 'A'
+        assert view['slot_view']['B']['version'] == '3.0.0'
     if profile == 'attack':
         assert status['min_svn'] == 2
         assert report['old_app_executed'] is False
         fixture = status['verification'][0]['attack_fixture']
         assert fixture['old_signature_valid'] and fixture['trusted_journal_unchanged']
+        view = report['progress']
+        assert view['slot_view']['A']['role'] == 'recovery_failed'
+        assert view['slot_view']['selected'] == 'B' and view['verified_slot'] is None
+        assert view['injected_recovery_version'] == '1.0.0'
 
 
 def test_CAN_003_crc_wrap_timeout_and_signal_models(physical_bench):

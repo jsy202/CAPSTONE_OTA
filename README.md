@@ -6,7 +6,9 @@ Qt 모델·QML 게이지 값을 검증한 뒤 업데이트를 확정하거나 �
 
 현재는 **실제 Raspberry Pi 세 대에서 Ethernet OTA → CAN 입력 → Pi3 직접 관찰 → native ARM Qt 판정 → V2 롤백 → 정식 V1 바꿔치기 차단**까지 시험했다. MCP2515(12MHz), can0 500kbit/s, systemd 서비스를 사용한다. 표시값은 Cluster의 모델/QML 소켓에서 읽으며 독립 카메라·픽셀 검증은 아니다.
 
-최근 [세 보드 실행 결과](docs/THREE_BOARD_RESULTS_2026-11-03.md): PC137개 통과(hardware 선택 전용10개 skip), 실제 세 보드10개 통과. [지연 원인 분석](docs/THREE_BOARD_LATENCY_RCA.md), [세 보드 설정](docs/THREE_BOARD_SETUP.md), [테스트케이스](docs/TEST_CASES.md), [도구 안내](docs/VERIFICATION_RUNBOOK.md)에 과정과 재현 명령을 기록했다. pytest/JUnit/Allure, coverage, can-utils, tcpdump/tshark 증적을 수집하며 PNG는 Xvfb 캡처다.
+2026-11-03 [세 보드 실행 결과](docs/THREE_BOARD_RESULTS_2026-11-03.md): PC137개 통과(hardware 선택 전용10개 skip), 실제 세 보드10개 통과. [지연 원인 분석](docs/THREE_BOARD_LATENCY_RCA.md), [세 보드 설정](docs/THREE_BOARD_SETUP.md), [테스트케이스](docs/TEST_CASES.md), [도구 안내](docs/VERIFICATION_RUNBOOK.md)에 과정과 재현 명령을 기록했다. pytest/JUnit/Allure, coverage, can-utils, tcpdump/tshark 증적을 수집하며 PNG는 Xvfb 캡처다.
+
+큰 기준값/실제값 비교와 A/B 슬롯·복구 경로를 보여주는 [Qt 검증 패널](docs/QT_PROGRESS.md)을 추가했다. 실제 Pi2 기록을 노트북에서 읽으며, 복구 후 첫 실패 기록과 정상 재검증 결과를 구분한다. [이번 패널 검증 결과](docs/VISUAL_MONITOR_RESULTS_2026-11-04.md)는 PC148개 통과(하드웨어10개 skip), 실제 세 보드10개 통과다.
 
 ## 전체 구조
 

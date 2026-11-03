@@ -37,10 +37,17 @@ int main(int argc, char **argv) {
         if (!stages.contains(stage) || !obj.value("updated").isDouble()) obj = {};
         bool terminal = QStringList{"committed", "rolled_back", "recovery_failed", "failed", "error"}
             .contains(obj.value("stage").toString());
-        const auto age = QDateTime::currentMSecsSinceEpoch() / 1000.0 - obj.value("updated").toDouble();
+        const auto now = QDateTime::currentMSecsSinceEpoch() / 1000.0;
+        const auto remote = obj.value("_remote").toObject();
+        const bool mirrored = obj.value("_remote").isObject();
+        const auto receivedAge = now - remote.value("received").toDouble();
+        const bool lost = mirrored && (receivedAge > 5 || receivedAge < -5 || !remote.value("error").toString().isEmpty());
+        const auto age = mirrored ? remote.value("writer_age").toDouble() : now - obj.value("updated").toDouble();
         const int pid = obj.value("pid").toInt();
-        const bool dead = pid <= 0 || (::kill(pid, 0) != 0 && errno == ESRCH);
-        obj["unconfirmed"] = !obj.isEmpty() && !terminal && (dead || age > 65 || age < -5);
+        const bool dead = mirrored ? !remote.value("writer_alive").toBool() : pid <= 0 || (::kill(pid, 0) != 0 && errno == ESRCH);
+        const bool hasRecord = !obj.isEmpty();
+        obj["transport_lost"] = lost;
+        obj["unconfirmed"] = lost || (hasRecord && !terminal && (dead || age > 65 || age < -5));
         obj["age"] = age > 0 && age < 86400 ? int(age) : 0;
         const auto next = obj.toVariantMap();
         if (next != values) {
@@ -65,7 +72,18 @@ int main(int argc, char **argv) {
             QJsonObject report{{"title", window->property("headline").toString()},
                 {"percent", window->property("percentLabel").toString()},
                 {"success", window->property("success").toBool()},
-                {"unconfirmed", values.value("unconfirmed").toBool()}};
+                {"unconfirmed", values.value("unconfirmed").toBool()},
+                {"expected", window->property("expectedLabel").toString()},
+                {"actual", window->property("actualLabel").toString()},
+                {"comparison_note", window->property("comparisonNote").toString()},
+                {"historical_mismatch", window->property("historicalMismatch").toBool()},
+                {"slot_a_version", window->property("slotAVersion").toString()},
+                {"slot_b_version", window->property("slotBVersion").toString()},
+                {"slot_a_selected", window->property("slotASelected").toBool()},
+                {"slot_b_selected", window->property("slotBSelected").toBool()},
+                {"slot_a_verified", window->property("slotAVerified").toBool()},
+                {"slot_b_verified", window->property("slotBVerified").toBool()},
+                {"route", window->property("route").toString()}};
             if (!output.open(QIODevice::WriteOnly)) { app.exit(2); return; }
             output.write(QJsonDocument(report).toJson(QJsonDocument::Compact));
         }
