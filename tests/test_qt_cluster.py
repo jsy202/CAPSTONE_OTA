@@ -176,3 +176,17 @@ def test_qt_signed_relay_rolls_back_and_rejects_authentic_old_recovery(tmp_path)
     assert result['attack_evidence']['old_signature_valid'] is True
     assert result['attack_evidence']['trusted_journal_unchanged'] is True
     assert result['attack_evidence']['old_app_executed'] is False
+
+
+def test_single_presentation_scenario_keeps_real_failure_after_recovery(tmp_path):
+    import json
+    runner = importlib.import_module('demo.qt_run')
+    output = tmp_path / 'presentation'
+    result = runner.run(output, scenario='mixed')
+    assert result['mixed']['result'] == 'rolled_back'
+    assert 'attack' not in result and not (output / 'attack-cluster').exists()
+    progress = json.loads((output / 'mixed-cluster/progress.json').read_text())
+    assert progress['stage'] == 'rolled_back'
+    assert progress['version'] == '2.0.0'
+    assert progress['mismatch']['expected'] == 62
+    assert progress['mismatch']['qml'] == 45

@@ -113,6 +113,7 @@ int main(int argc, char **argv) {
     engine.load(QUrl("qrc:/main.qml"));
     if (engine.rootObjects().isEmpty()) return 2;
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    if (window && qEnvironmentVariable("CAPSTONE_QT_LIVE") == "1") window->setPosition(0, 0);
     QQmlComponent component(&engine, QUrl("qrc:/capstone/Overlay.qml"));
     auto panel = qobject_cast<QQuickItem *>(component.create());
     if (!window || !panel) { qWarning() << component.errors(); return 2; }

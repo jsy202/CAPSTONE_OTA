@@ -26,6 +26,10 @@ SERVICE = "capstone-central.service"
 DOWNLOAD_TIMEOUT = 30
 
 
+class DownloadDeadline(TimeoutError):
+    """Must propagate even if SIGALRM interrupts optional display telemetry."""
+
+
 def sync_directory(path: Path) -> None:
     fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
     try:
@@ -47,23 +51,32 @@ def atomic_write(path: Path, content: bytes) -> None:
         Path(name).unlink(missing_ok=True)
 
 
-def fetch(url: str, target: Path, limit: int) -> bytes:
+def fetch(url: str, target: Path, limit: int, progress=None) -> bytes:
     started, size = time.monotonic(), 0
     digest = hashlib.sha256()
     def expired(_number, _frame):
-        raise TimeoutError("download deadline exceeded")
+        raise DownloadDeadline("download deadline exceeded")
     # Linux main-thread CLI: a socket timeout alone cannot stop byte trickles.
     # The timer bounds headers AND body without adding a downloader service.
     previous_handler = signal.signal(signal.SIGALRM, expired)
     previous_timer = signal.setitimer(signal.ITIMER_REAL, DOWNLOAD_TIMEOUT)
     try:
         with urlopen(url, timeout=5) as source, target.open("xb") as output:
+            try:
+                total = int(source.headers.get("Content-Length", "0"))
+            except ValueError:
+                total = 0
+            total = total if 0 < total <= limit else None
+            if progress:
+                progress(0, total)
             while chunk := source.read(65536):
                 size += len(chunk)
                 if size > limit:
                     raise ValueError("download exceeds size limit")
                 output.write(chunk)
                 digest.update(chunk)
+                if progress:
+                    progress(size, total if total is None or size <= total else None)
             output.flush()
             os.fsync(output.fileno())
     finally:
@@ -78,6 +91,17 @@ def fetch(url: str, target: Path, limit: int) -> bytes:
 class Device:
     def __init__(self, root: Path):
         self.root = Path(root).absolute()
+        self._progress_data = {}
+
+    def _progress(self, stage: str, **fields) -> None:
+        """Best-effort display telemetry, never an input to security decisions."""
+        self._progress_data.update(fields, stage=stage, updated=time.time(), pid=os.getpid())
+        try:
+            atomic_write(self.root / "progress.json", json.dumps(self._progress_data).encode())
+        except DownloadDeadline:
+            raise
+        except OSError:
+            pass
 
     @contextmanager
     def _locked(self):
@@ -90,7 +114,12 @@ class Device:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as exc:
                 raise ValueError("device is busy with another update") from exc
-            yield
+            try:
+                yield
+            except Exception as exc:
+                if self._progress_data.get("stage") != "recovery_failed":
+                    self._progress("error", detail=str(exc))
+                raise
         finally:
             os.close(fd)
 
@@ -144,6 +173,7 @@ class Device:
         fd = os.open(self.root / "events.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "w") as log:
             log.write(json.dumps({"time": time.time(), "event": event}) + "\n")
+        self._progress(event)
 
     def _slot(self, name: str) -> Path:
         if name not in {"A", "B"}:
@@ -234,11 +264,14 @@ class Device:
                 if self._selected() != committed["slot"]:
                     raise ValueError("state and current selector disagree")
             return state
+        self._progress("recover", version=state["committed"]["release"]["version"] if state["committed"] else None,
+                       candidate=state["pending"]["release"]["version"])
         self._event("recover")
         try:
             previous = state["committed"]
             if previous:
                 self._verify_record(previous, state["min_svn"])
+                self._progress("recovery_verified")
                 self._activate(previous["slot"], state)
             else:
                 if state["systemd"] and not self._service("stop"):
@@ -246,15 +279,18 @@ class Device:
                 self._select(None)
             state.update(phase="stable", pending=None, result="rolled_back" if previous else "failed")
             self._save(state)
+            self._progress(state["result"])
             return state
         except Exception as exc:
             state["result"] = "recovery_failed"
             self._save(state)
+            self._progress("recovery_failed", detail=str(exc))
             self._event("recovery_failed")
             raise ValueError("recovery failed; no successful recovery is claimed") from exc
 
     def update(self, url: str | None = None, public_key: Path | None = None, systemd: bool = False) -> dict:
         with self._locked():
+            self._progress_data = {}
             state = self._recover(self._load())
             if url is None:
                 return self.status()
@@ -273,21 +309,29 @@ class Device:
             if systemd and state["committed"] and not state["systemd"]:
                 raise ValueError("choose --systemd at the first install, not midway through migration")
             self._event("download_and_verify")
+            self._progress("metadata", version=state["committed"]["release"]["version"] if state["committed"] else None,
+                           candidate=None, mismatch=None, detail="")
             with tempfile.TemporaryDirectory(prefix=".download-", dir=self.root) as directory:
                 staging = Path(directory)
                 base = url.rstrip("/") + "/"
                 fetch(base + "release.json", staging / "release.json", 16384)
                 fetch(base + "release.sig", staging / "release.sig", 64)
                 raw, signature = (staging / "release.json").read_bytes(), (staging / "release.sig").read_bytes()
+                self._progress("signature")
                 release = verify(raw, signature, public_key)
+                self._progress("signature_verified", candidate=release["version"])
                 if release["svn"] < state["min_svn"]:
                     raise ValueError("release security version is below the committed floor")
                 previous = state["committed"]
                 if previous and version_key(release["version"]) <= version_key(previous["release"]["version"]):
                     raise ValueError("release product version must be newer")
-                downloaded_hash = fetch(base + "app.tar.gz", staging / "app.tar.gz", MAX_ARCHIVE).hex()
+                downloaded_hash = fetch(base + "app.tar.gz", staging / "app.tar.gz", MAX_ARCHIVE,
+                                        progress=lambda received, total: self._progress(
+                                            "download", received=received, total=total)).hex()
+                self._progress("archive_verify")
                 if downloaded_hash != release["sha256"]:
                     raise ValueError("downloaded archive hash mismatch")
+                self._progress("install")
                 extract(staging / "app.tar.gz", staging / "payload")
                 slot = "B" if previous and previous["slot"] == "A" else "A"
                 target = self._slot(slot)
@@ -327,4 +371,5 @@ class Device:
                 self._recover(self._load())
                 return self.status()
             self._event("committed")
+            self._progress("committed", version=release["version"])
             return self.status()
