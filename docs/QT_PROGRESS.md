@@ -86,13 +86,13 @@ process/file telemetry, not an independent camera or a trusted security display.
 
 ## 2026-11-04: large comparison, A/B slots and real-board mirror
 
-The current panel is460×760 logical pixels. Its large values are a verifier's
+The current panel is 460×760 logical pixels. Its large values are a verifier's
 expected speed and observed Qt Gauge value. The first failed sample remains
 explicitly labeled historical after recovery; a separate green line shows the
 latest successful recovery sample. Equal values with `valid=false` are labeled
 expired input rather than a zero speed difference.
 
-A/B cards show versions from the trusted journal and transaction history. The
+A/B rows show versions from the trusted journal and transaction history. The
 selection marker is a recorded selector, not proof that a process is healthy.
 Green slot approval requires a selected slot, an external passed verdict and no
 blocked/unconfirmed result. During recovery the route is amber; completed V2
@@ -147,3 +147,31 @@ running laptop monitor of actual Pi2 records.
 ### Compact appearance
 
 The follow-up layout uses a black background, straight dividers and plain A/B rows. Decorative cards and the English banner were removed. The same verifier fields and stale/blocked conditions remain in use. Native panel tests and actual-record PC/ARM captures were repeated; the OTA algorithm was not changed by this styling revision.
+
+### Actual Cluster screen and logs in one window
+
+```sh
+.venv/bin/python -m dashboard.qt_progress.remote \
+  --hardware-config .demo/three-board-config.json \
+  --output .demo/presentation-NEW_RUN --presentation
+```
+
+This opens one 1740×800 window: the actual Pi2 Qt screen on the left, the same
+progress panel on the right, and logs below the screen. The preview reads Pi2's
+private 1280×480 Xvfb display with its existing ffmpeg installation. It checks the
+selected application's socket identity before and after capture. It never sends
+the application's `capture` command or modifies the verifier's shared capture
+file. Failed or older-than-three-second previews are hidden. This is a sampled
+remote screen, not a camera or a claim about the physical HDMI output.
+
+Progress lines come from the selected device's actual `events.jsonl`, with Pi2
+clock times. The latest stage and detail also remain visible. The CAN column is
+the last ten actual `candump -L can0,200:7FF` lines received over SSH from Pi3
+(or Pi2 when no verifier peer is configured). These timestamps belong to that
+source board; they must not be used as cross-board latency measurements. Stale
+CAN rows are dimmed and marked waiting. The viewer sends no CAN frames.
+
+Polling uses the existing SSH configuration and adds no service or update
+endpoint. Closing the window stops only its viewer, polling and bounded CAN
+reader. It does not stop the remote updater. The original narrow monitor remains
+available by omitting `--presentation`.

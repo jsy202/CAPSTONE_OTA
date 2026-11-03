@@ -4,8 +4,8 @@ import QtQuick.Window 2.15
 Window {
     id: panel
     visible: true
-    width: 460; height: 760
-    minimumWidth: 460; minimumHeight: 760
+    width: presentation ? 1740 : 460; height: presentation ? 800 : 760
+    minimumWidth: presentation ? 1740 : 460; minimumHeight: presentation ? 800 : 760
     color: "#050505"
     title: "CAPSTONE OTA · 검증과 A/B 슬롯"
     property string stage: otaProgress.stage || ""
@@ -69,6 +69,43 @@ Window {
                      recover:0,recovery_verified:1,recheck:2,rolled_back:3,recovery_failed:0}
         return steps[stage] === undefined ? -1 : steps[stage]
     }
+    property bool dashboardVisible: presentation && otaProgress.screen_live === true && clusterImage.status === Image.Ready
+    property int logCount: (otaProgress._logs || []).length
+    property int canLogCount: otaProgress._can ? (otaProgress._can.lines || []).length : 0
+    Item {
+        visible: presentation
+        width: 1280; height: 480
+        Image { id: clusterImage; anchors.fill: parent; source: otaProgress.screen_url || ""; cache: false; fillMode: Image.PreserveAspectFit; visible: panel.dashboardVisible }
+        Text { anchors.centerIn: parent; visible: !panel.dashboardVisible; text: "계기판 화면 연결 대기"; color: "#888888"; font.pixelSize: 22 }
+    }
+    Item {
+        visible: presentation; x: 22; y: 496; width: 1236; height: 280
+        Rectangle { width: parent.width; height: 1; color: "#484848" }
+        Row {
+            y: 14; width: parent.width; spacing: 26
+            Column {
+                width: 684; spacing: 8
+                Text { text: "진행 로그 · Pi2 시간"; color: "#aaaaaa"; font.pixelSize: 14 }
+                Repeater {
+                    model: (otaProgress._logs || []).slice(-8)
+                    delegate: Text { width: 684; text: modelData; color: "#cccccc"; font.family: "Monospace"; font.pixelSize: 13; textFormat: Text.PlainText; elide: Text.ElideRight }
+                }
+                Text { width: 684; text: "판정: " + (otaProgress.stage || "대기"); color: panel.blocked ? "#dd8888" : panel.success ? "#82bb92" : "#aaaaaa"; font.family: "Monospace"; font.pixelSize: 13; textFormat: Text.PlainText }
+                Text { width: 684; text: otaProgress.detail ? "검증 기록: " + otaProgress.detail : ""; color: "#aaaaaa"; font.family: "Monospace"; font.pixelSize: 12; textFormat: Text.PlainText; elide: Text.ElideRight }
+            }
+            Column {
+                width: 526; spacing: 5
+                Text { text: "CAN 0x200 · " + (otaProgress._can ? otaProgress._can.source || "수신 보드" : "수신 보드") + "  " + (otaProgress.can_recent ? "수신 중" : "대기"); color: "#aaaaaa"; font.pixelSize: 14 }
+                Repeater {
+                    model: otaProgress._can ? (otaProgress._can.lines || []) : []
+                    delegate: Text { width: 526; text: modelData; color: otaProgress.can_recent ? "#cccccc" : "#777777"; font.family: "Monospace"; font.pixelSize: 12; textFormat: Text.PlainText; elide: Text.ElideRight }
+                }
+            }
+        }
+    }
+    Item {
+        x: presentation ? 1280 : 0
+        width: 460; height: 760
     Column {
         anchors.fill: parent; anchors.margins: 22; spacing: 12
         Text { text: "업데이트 상태"; color: "#a5a5a5"; font.pixelSize: 14 }
@@ -152,5 +189,6 @@ Window {
             }
         }
         Text { width: parent.width; text: otaProgress.unconfirmed ? "연결 확인 필요" : "판정 시점 기준"; color: "#808080"; font.pixelSize: 12; wrapMode: Text.Wrap }
+    }
     }
 }

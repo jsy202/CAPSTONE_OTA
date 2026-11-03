@@ -49,6 +49,15 @@ int main(int argc, char **argv) {
         obj["transport_lost"] = lost;
         obj["unconfirmed"] = lost || (hasRecord && !terminal && (dead || age > 65 || age < -5));
         obj["age"] = age > 0 && age < 86400 ? int(age) : 0;
+        const auto screen = obj.value("_screen").toObject();
+        const auto screenAge = now - screen.value("received").toDouble();
+        const bool screenLive = screen.value("available").toBool() && screenAge >= -5 && screenAge <= 3 && !lost;
+        obj["screen_live"] = screenLive;
+        obj["screen_url"] = screenLive ? QUrl::fromLocalFile(argument("--dashboard-image")).toString()
+            + "?rev=" + screen.value("revision").toString() : QString();
+        const auto can = obj.value("_can").toObject();
+        const auto canAge = now - can.value("received").toDouble();
+        obj["can_recent"] = canAge >= -5 && canAge <= 3 && can.value("error").toString().isEmpty();
         const auto next = obj.toVariantMap();
         if (next != values) {
             values = next;
@@ -57,6 +66,7 @@ int main(int argc, char **argv) {
     };
     engine.rootContext()->setContextProperty("otaProgress", QVariantMap{});
     engine.rootContext()->setContextProperty("deviceRoot", root);
+    engine.rootContext()->setContextProperty("presentation", args.contains("--dashboard-image"));
     poll();
     engine.load(QUrl("qrc:/progress/Panel.qml"));
     if (engine.rootObjects().isEmpty()) return 2;
@@ -84,6 +94,10 @@ int main(int argc, char **argv) {
                 {"slot_a_verified", window->property("slotAVerified").toBool()},
                 {"slot_b_verified", window->property("slotBVerified").toBool()},
                 {"route", window->property("route").toString()}};
+            report["width"] = window->width(); report["height"] = window->height();
+            report["dashboard_visible"] = window->property("dashboardVisible").toBool();
+            report["event_log_count"] = window->property("logCount").toInt();
+            report["can_log_count"] = window->property("canLogCount").toInt();
             if (!output.open(QIODevice::WriteOnly)) { app.exit(2); return; }
             output.write(QJsonDocument(report).toJson(QJsonDocument::Compact));
         }

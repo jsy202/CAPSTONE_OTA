@@ -124,3 +124,22 @@ def test_equal_values_with_expired_input_are_not_labeled_as_a_speed_difference(t
     data=json.loads(snap.read_text())
     assert data['expected']==data['actual']=='62'
     assert '유효기간' in data['comparison_note'] and '차이 0' not in data['comparison_note']
+
+
+@pytest.mark.parametrize('age,visible',[(0,True),(10,False)])
+def test_presentation_places_real_preview_and_logs_beside_the_same_monitor(tmp_path,age,visible):
+    import struct,zlib
+    root=tmp_path/'device';root.mkdir()
+    def chunk(kind,data):return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data)&0xffffffff)
+    png=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',1,1,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(b'\0\0\0\0'))+chunk(b'IEND',b'')
+    image=root/'dashboard.png';image.write_bytes(png)
+    (root/'progress.json').write_text(json.dumps({'stage':'committed','updated':time.time(),'pid':os.getpid(),
+        '_screen':{'available':True,'received':time.time()-age,'revision':'1'},'_logs':['01:02:03 trial'],
+        '_can':{'lines':['(1.000000) can0 200#0011223344556677'],'received':time.time(),'error':''}}))
+    snap=tmp_path/'panel.json'
+    p=subprocess.run([str(ROOT/'dashboard/qt_progress/run'),'--root',str(root),'--dashboard-image',str(image),'--snapshot',str(snap),'--quit-after','500'],env=dict(os.environ,QT_QPA_PLATFORM='offscreen'),capture_output=True,text=True,timeout=7)
+    assert p.returncode==0,p.stderr
+    data=json.loads(snap.read_text())
+    assert data['width']==1740 and data['height']==800
+    assert data['dashboard_visible'] is visible
+    assert data['event_log_count']==1 and data['can_log_count']==1
