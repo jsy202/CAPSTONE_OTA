@@ -1,0 +1,14 @@
+# Cluster updater's root SSH configuration. Provision a dedicated key and pin
+# the actual Central host key before using this example. Never commit private keys.
+Host capstone-source
+    HostName 10.77.0.1
+    User otauser
+    IdentityFile /root/.ssh/capstone-source-ed25519
+    IdentitiesOnly yes
+    BatchMode yes
+    StrictHostKeyChecking yes
+    HostKeyAlias capstone-central
+    UserKnownHostsFile /root/.ssh/capstone-source-known_hosts
+    ControlMaster auto
+    ControlPath /root/.ssh/capstone-source-%C
+    ControlPersist 60

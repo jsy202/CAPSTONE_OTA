@@ -17,6 +17,12 @@ class ClusterDevice(Device):
         super().__init__(root)
         self.verifier_command = check_command(verifier_command) if verifier_command is not None else None
         self.reports = []
+        self._checking_service = False
+
+    def _check_arguments(self, app):
+        if self._checking_service:
+            return ['runuser', '-u', 'capstone-app', '--', str(app), '--check']
+        return super()._check_arguments(app)
 
     def _service(self, action):
         return subprocess.run(["systemctl", action, "capstone-cluster.service"], timeout=10,
@@ -24,7 +30,11 @@ class ClusterDevice(Device):
 
     def _activate(self, slot, state):
         # Initialize/start the selected target before asking an external observer.
-        super()._activate(slot, state)
+        self._checking_service = state['systemd']
+        try:
+            super()._activate(slot, state)
+        finally:
+            self._checking_service = False
         if self.verifier_command is None:
             return
         recovering = state.get("committed") and slot == state["committed"]["slot"]

@@ -2,6 +2,8 @@
 .superpowers/
 __pycache__/
 .pytest_cache/
+.coverage
+.coverage.*
 .venv/
 dist/
 *.egg-info/

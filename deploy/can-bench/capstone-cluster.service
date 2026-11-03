@@ -1,0 +1,30 @@
+[Unit]
+Description=CAPSTONE selected native CAN Qt Cluster
+Requires=capstone-can.service capstone-cluster-display.service
+After=capstone-can.service capstone-cluster-display.service
+
+[Service]
+Type=simple
+User=capstone-app
+Group=capstone-app
+RuntimeDirectory=capstone-cluster
+RuntimeDirectoryMode=0750
+UMask=0007
+Environment=DISPLAY=:93
+Environment=XAUTHORITY=/var/lib/capstone-app/Xauthority
+Environment=XDG_RUNTIME_DIR=/run/capstone-cluster
+Environment=QT_QPA_PLATFORM=xcb
+Environment=QT_QUICK_BACKEND=software
+Environment=CAPSTONE_MODEL_SOCKET=/run/capstone-cluster/model.sock
+Environment=CAPSTONE_CAN_CHANNEL=can0
+WorkingDirectory=/opt/capstone-cluster
+ExecStart=/opt/capstone-cluster/run-cluster
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/capstone-app /run/capstone-cluster
+
+[Install]
+WantedBy=multi-user.target

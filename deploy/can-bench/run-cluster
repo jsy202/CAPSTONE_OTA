@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+device=$(cat /opt/capstone-cluster/selected-device)
+case "$device" in
+    /opt/capstone-cluster/runs/*/device) ;;
+    *) exit 2 ;;
+esac
+cd "$device/current"
+exec "$device/current/bin/app" --capture /run/capstone-cluster/capture.png

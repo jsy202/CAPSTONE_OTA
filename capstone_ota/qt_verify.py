@@ -171,6 +171,7 @@ def deliver(target, speed, counter, rpm=1500, gear=3, warnings=0, corrupt=False)
 def verify(target, source='buffered', cycles=3):
     evidence = []
     passed = True
+    started = time.monotonic()
     def sample(speed, counter, expected):
         nonlocal passed
         actual = deliver(target, speed, counter)
@@ -178,7 +179,8 @@ def verify(target, source='buffered', cycles=3):
               and actual['valid'] is True)
         passed &= ok
         evidence.append({'input_speed': speed / 10, 'counter': counter, 'expected': expected,
-                         'model': actual['model_speed'], 'qml': actual['qml_speed'], 'passed': ok})
+                         'model': actual['model_speed'], 'qml': actual['qml_speed'], 'valid': actual['valid'],
+                         'elapsed_s': round(time.monotonic() - started, 6), 'passed': ok})
         if not ok and sum(not row['passed'] for row in evidence) == 1:
             snapshot(target, 'capture')
     # Fixed literal oracle. V3 cannot know or choose these expected values.
@@ -199,7 +201,9 @@ def verify(target, source='buffered', cycles=3):
         counter += 1
     if passed:
         snapshot(target, 'capture')
-    return {'passed': bool(passed), 'error': None if passed else 'STALE_REPLAY_DISPLAY_MISMATCH',
+    display_mismatch = any(row['model'] != row['expected'] or row['qml'] != row['expected'] for row in evidence)
+    error = None if passed else 'STALE_REPLAY_DISPLAY_MISMATCH' if display_mismatch else 'INPUT_FRESHNESS_FAILURE'
+    return {'passed': bool(passed), 'error': error,
             'transport': target.get('transport', 'loopback UDP emulation'), 'source_profile': source, 'cycles': cycles,
             'timeout_detected': unavailable, 'pid': target.get('pid'), 'observed': evidence}
 

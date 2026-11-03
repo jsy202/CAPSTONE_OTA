@@ -1,0 +1,15 @@
+[Unit]
+Description=CAPSTONE private virtual display for real ARM Qt rendering
+
+[Service]
+Type=simple
+User=capstone-app
+Group=capstone-app
+UMask=0077
+ExecStart=/usr/bin/Xvfb :93 -screen 0 1280x480x24 -nolisten tcp -auth /var/lib/capstone-app/Xauthority
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

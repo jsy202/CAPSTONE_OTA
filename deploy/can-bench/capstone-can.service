@@ -1,0 +1,17 @@
+[Unit]
+Description=CAPSTONE native CAN bench (500 kbit/s)
+Requires=sys-subsystem-net-devices-can0.device
+After=sys-subsystem-net-devices-can0.device
+JobTimeoutSec=20s
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/modprobe can_raw
+ExecStart=/usr/sbin/ip link set can0 down
+ExecStart=/usr/sbin/ip link set can0 type can bitrate 500000 restart-ms 0 loopback off listen-only off
+ExecStart=/usr/sbin/ip link set can0 up
+ExecStop=/usr/sbin/ip link set can0 down
+
+[Install]
+WantedBy=multi-user.target

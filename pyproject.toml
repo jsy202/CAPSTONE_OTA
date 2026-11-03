@@ -13,6 +13,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<9"]
+verification = ["pytest>=8,<9", "pytest-cov>=5,<8", "allure-pytest>=2.13,<3"]
 
 [project.scripts]
 ota = "capstone_ota.cli:main"
@@ -20,6 +21,7 @@ ota = "capstone_ota.cli:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = ["hardware: opt-in real Raspberry Pi/CAN bench; requires --hardware-config"]
 
 [tool.setuptools.packages.find]
 include = ["capstone_ota*"]

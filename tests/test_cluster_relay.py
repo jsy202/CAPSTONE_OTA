@@ -42,6 +42,23 @@ def test_empty_external_check_argument_cannot_silently_install_without_validatio
     assert not (root / 'current').exists()
 
 
+def test_systemd_initialization_never_falls_back_to_updater_identity(tmp_path, monkeypatch):
+    from capstone_ota.cluster import ClusterDevice
+    marker = tmp_path / 'app-executed-as-updater'
+    root = tmp_path / 'device'
+    binary = root / 'slots/A/bin/app'
+    binary.parent.mkdir(parents=True)
+    binary.write_text('#!/bin/sh\ntouch ' + str(marker) + '\nexit 0\n')
+    binary.chmod(0o755)
+    # The protected tmp_path is intentionally inaccessible to the service account.
+    device = ClusterDevice(root)
+    monkeypatch.setattr(device, '_service', lambda _action: True)
+    import pytest
+    with pytest.raises(ValueError, match='initialization'):
+        device._activate('A', {'systemd': True})
+    assert not marker.exists()
+
+
 def test_external_checker_rejects_candidate_and_rechecks_previous_on_rollback(keys, payload, tmp_path):
     cluster = importlib.import_module('capstone_ota.cluster')
     (payload / 'label').write_text('good')
@@ -171,6 +188,8 @@ def test_external_observer_runs_after_cluster_service_activation(releases, keys,
             active.touch()
         return True
     monkeypatch.setattr(device, '_service', service)
+    # This PC test substitutes both OS boundaries; hardware SEC-004 checks the real UID.
+    monkeypatch.setattr(device, '_check_arguments', lambda app: [str(app), '--check'])
     with serving(releases) as origin:
         result = device.update(origin + '/v2', keys[1], systemd=True)
     assert result['result'] == 'committed'

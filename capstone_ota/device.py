@@ -226,7 +226,7 @@ class Device:
         path = self._slot(slot)
         app = app_check(path)
         # Check uses the application's normal initialization; it must be read-only.
-        process = subprocess.Popen([str(app), "--check"], cwd=path, start_new_session=True,
+        process = subprocess.Popen(self._check_arguments(app), cwd=path, start_new_session=True,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             return process.wait(timeout=5) == 0
@@ -234,6 +234,9 @@ class Device:
             os.killpg(process.pid, signal.SIGKILL)
             process.wait()
             return False
+
+    def _check_arguments(self, app: Path) -> list[str]:
+        return [str(app), "--check"]
 
     def _activate(self, slot: str, state: dict) -> None:
         if state["systemd"] and not self._service("stop"):

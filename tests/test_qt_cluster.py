@@ -206,6 +206,17 @@ def test_missing_local_model_observation_is_bounded_and_fails_closed(tmp_path):
     assert time.monotonic() - started < 7
 
 
+def test_verifier_records_freshness_and_timing_for_display_failure():
+    q = qt()
+    with q.running_dashboard(default_payload('arrival_order')) as target:
+        report = q.verify(target, cycles=1)
+    failure = next(row for row in report['observed'] if not row['passed'])
+    assert report['error'] == 'STALE_REPLAY_DISPLAY_MISMATCH'
+    assert failure['expected'] == 62 and failure['qml'] == 45
+    assert failure['valid'] is True
+    assert failure['elapsed_s'] >= .65
+
+
 def test_single_presentation_scenario_keeps_real_failure_after_recovery(tmp_path):
     import json
     runner = importlib.import_module('demo.qt_run')
