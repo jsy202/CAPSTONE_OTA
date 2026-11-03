@@ -226,11 +226,26 @@ def remote_command(peer, arguments, module='capstone_ota.qt_verify'):
 @contextmanager
 def remote_dashboard(config, slot):
     cluster, central = config['cluster'], config['central']
-    target = {'observer_command': remote_command(cluster, ['snapshot', '--socket', cluster['socket']]),
-              'executable': str(Path(slot) / 'libexec/dashboard')}
-    initial = snapshot(target)
-    if initial.get('ui_ready') is not True:
-        raise ValueError('selected remote Qt application is not ready')
+    target = {'executable': str(Path(slot) / 'libexec/dashboard')}
+    local = 'host' not in cluster
+    if local:
+        path = cluster.get('socket')
+        if set(cluster) != {'socket'} or not isinstance(path, str) or not path.startswith('/') or '\x00' in path:
+            raise ValueError('local observer requires an absolute socket path')
+        target['socket'] = path
+    else:
+        target['observer_command'] = remote_command(cluster, ['snapshot', '--socket', cluster['socket']])
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            initial = snapshot(target)
+            if initial.get('ui_ready') is True:
+                break
+        except OSError:
+            pass  # The separate service may still be creating its model socket.
+        if time.monotonic() >= deadline:
+            raise ValueError('selected Qt application is not ready')
+        time.sleep(.05)
     target['pid'] = initial['pid']
     args = ['--udp-port', str(initial['udp_port'])] if config.get('emulated_udp') else ['--can-channel', central['channel']]
     target.update(source_peer=central, source_arguments=args)
@@ -240,7 +255,8 @@ def remote_dashboard(config, slot):
             witness = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
             witness.setsockopt(socket.SOL_CAN_RAW, socket.CAN_RAW_FILTER, struct.pack('=II', 0x200, 0xC00007FF))
             witness.bind((config['observe_channel'],))
-            target.update(witness=witness, transport='SocketCAN directly observed by verifier')
+            target.update(witness=witness, transport='SocketCAN observed on Cluster; local model observer' if local
+                          else 'SocketCAN directly observed by verifier')
         else:
             target['transport'] = 'loopback UDP emulation with remote control commands'
         yield target

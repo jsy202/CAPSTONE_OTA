@@ -176,3 +176,31 @@ def test_qt_signed_relay_rolls_back_and_rejects_authentic_old_recovery(tmp_path)
     assert result['attack_evidence']['old_signature_valid'] is True
     assert result['attack_evidence']['trusted_journal_unchanged'] is True
     assert result['attack_evidence']['old_app_executed'] is False
+
+
+def test_local_observer_binds_existing_qt_identity_and_rejects_wrong_candidate(tmp_path, local_ssh):
+    import sys
+    q = qt()
+    slot = default_payload('source_counter')
+    with q.running_dashboard(slot) as target:
+        peer = {'host': 'local-source', 'checkout': str(ROOT), 'python': sys.executable}
+        config = {'cluster': {'socket': target['socket']}, 'central': peer, 'emulated_udp': True}
+        with q.remote_dashboard(config, slot) as observed:
+            assert observed['pid'] == target['pid']
+            assert q.deliver(observed, 620, 1)['qml_speed'] == 62
+        wrong = tmp_path / 'wrong-candidate'
+        wrong.mkdir()
+        with pytest.raises(ValueError, match='identity'):
+            with q.remote_dashboard(config, wrong):
+                pass
+
+
+def test_missing_local_model_observation_is_bounded_and_fails_closed(tmp_path):
+    import time
+    q = qt()
+    config = {'cluster': {'socket': str(tmp_path / 'missing.sock')}, 'central': {}, 'emulated_udp': True}
+    started = time.monotonic()
+    with pytest.raises(ValueError, match='ready'):
+        with q.remote_dashboard(config, tmp_path):
+            pass
+    assert time.monotonic() - started < 7
