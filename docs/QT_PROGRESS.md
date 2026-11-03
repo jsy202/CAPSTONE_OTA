@@ -45,7 +45,7 @@ The launcher loads that runtime without changing the shell environment. A deskto
 DISPLAY/WAYLAND_DISPLAY is required for presentation; a private Xvfb display can
 also be used. `CAPSTONE_QT_LIVE=1` opts verifier children into that display. Default
 tests continue to use hidden rendering. The dashboard opens at x=0 and the monitor
-at x=1280; use a display at least 1900 pixels wide for both windows.
+at x=1280; use a display at least 1740 pixels wide for both windows.
 
 The presentation executes the real signed PC OTA scenario. On commit or successful
 rollback it reopens the accepted app and feeds 65 km/h for viewing; that final
@@ -86,7 +86,7 @@ process/file telemetry, not an independent camera or a trusted security display.
 
 ## 2026-11-04: large comparison, A/B slots and real-board mirror
 
-The current panel is620×960 logical pixels. Its large values are a verifier's
+The current panel is460×760 logical pixels. Its large values are a verifier's
 expected speed and observed Qt Gauge value. The first failed sample remains
 explicitly labeled historical after recovery; a separate green line shows the
 latest successful recovery sample. Equal values with `valid=false` are labeled
@@ -128,7 +128,7 @@ returns; this is verdict telemetry, not a continuous CAN speed meter.
 
 For a headless evidence observer, add `--no-window --seconds N`. The output root
 must not already exist. A side-by-side desktop needs at least1900 logical pixels
-in width and about1000 in height, including window decoration.
+in width and about840 in height, including window decoration.
 
 ### ARM rendering and fonts
 
@@ -143,3 +143,7 @@ font on Pi2. The font is a system asset and is not committed in the repository.
 Actual HDMI placement/optical display verification and monitor autostart are
 separate work. Current evidence is native PC/ARM virtual-screen rendering and a
 running laptop monitor of actual Pi2 records.
+
+### Compact appearance
+
+The follow-up layout uses a black background, straight dividers and plain A/B rows. Decorative cards and the English banner were removed. The same verifier fields and stale/blocked conditions remain in use. Native panel tests and actual-record PC/ARM captures were repeated; the OTA algorithm was not changed by this styling revision.
