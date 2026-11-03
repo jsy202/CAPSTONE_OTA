@@ -124,12 +124,14 @@ def running_dashboard(payload, capture=None):
                     process.wait()
 
 
-def deliver(target, speed, counter, rpm=1500, gear=3, warnings=0, corrupt=False):
+def deliver(target, speed, counter, rpm=1500, gear=3, warnings=0, corrupt=False, following=None):
     before = snapshot(target)['generation']
     message = frame(speed, counter, rpm, gear, warnings)
     if corrupt:
         raw = bytearray.fromhex(message['data']); raw[-1] ^= 1
         message['data'] = raw.hex()
+    messages = [message] + ([frame(*following)] if following is not None else [])
+    injection = ['--frames', json.dumps(messages)] if following is not None else ['--frame', json.dumps(message)]
     witness = target.get('witness')
     if witness:
         witness.setblocking(False)
@@ -143,25 +145,26 @@ def deliver(target, speed, counter, rpm=1500, gear=3, warnings=0, corrupt=False)
         witness.settimeout(1)
     if target.get('source_peer'):
         command = remote_command(target['source_peer'],
-                                 [*target['source_arguments'], '--frame', json.dumps(message)],
+                                 [*target['source_arguments'], *injection],
                                  module='capstone_ota.qt_source')
     else:
         prefix = target.get('source_command') or [sys.executable, '-m', 'capstone_ota.qt_source',
                                                  '--udp-port', str(target['port'])]
-        command = [*prefix, '--frame', json.dumps(message)]
+        command = [*prefix, *injection]
     rows, _pid = exchange(command, [], timeout=3)
-    if rows != [{'sent': 1}]:
-        raise ValueError('Central source did not send one frame')
+    if rows != [{'sent': len(messages)}]:
+        raise ValueError('Central source did not send the requested frame count')
     if witness:
-        raw = witness.recv(16)
-        identifier, size, data = struct.unpack('=IB3x8s', raw)
-        if identifier != 0x200 or size != 8 or data.hex() != message['data']:
-            raise ValueError('direct CAN observation differs from requested input')
+        for expected in messages:
+            raw = witness.recv(16)
+            identifier, size, data = struct.unpack('=IB3x8s', raw)
+            if identifier != 0x200 or size != 8 or data.hex() != expected['data']:
+                raise ValueError('direct CAN observation differs from requested input')
     deadline = time.monotonic() + 1
     while time.monotonic() < deadline:
         report = snapshot(target)
-        if report['generation'] > before:
-            if report['generation'] != before + 1 or report['received_counter'] != counter:
+        if report['generation'] >= before + len(messages):
+            if report['generation'] != before + len(messages) or report['received_counter'] != (following[1] if following is not None else counter):
                 raise ValueError('unexpected extra or mismatched frame')
             return report
         time.sleep(0.005)
@@ -172,15 +175,19 @@ def verify(target, source='buffered', cycles=3):
     evidence = []
     passed = True
     started = time.monotonic()
-    def sample(speed, counter, expected):
+    def sample(speed, counter, expected, following=None):
         nonlocal passed
-        actual = deliver(target, speed, counter)
+        actual = deliver(target, speed, counter, following=following)
         ok = (actual['model_speed'] == expected and actual['qml_speed'] == expected
               and actual['valid'] is True)
         passed &= ok
-        evidence.append({'input_speed': speed / 10, 'counter': counter, 'expected': expected,
+        observed_speed, observed_counter = following if following is not None else (speed, counter)
+        evidence.append({'input_speed': observed_speed / 10, 'counter': observed_counter, 'expected': expected,
                          'model': actual['model_speed'], 'qml': actual['qml_speed'], 'valid': actual['valid'],
                          'elapsed_s': round(time.monotonic() - started, 6), 'passed': ok})
+        if following is not None:
+            evidence[-1]['burst'] = [{'input_speed': speed / 10, 'counter': counter},
+                                     {'input_speed': following[0] / 10, 'counter': following[1]}]
         if not ok and sum(not row['passed'] for row in evidence) == 1:
             snapshot(target, 'capture')
     # Fixed literal oracle. V3 cannot know or choose these expected values.
@@ -191,13 +198,9 @@ def verify(target, source='buffered', cycles=3):
         time.sleep(0.65)  # Fault injection: link silence, not a fabricated invalid measurement.
         unavailable &= snapshot(target)['valid'] is False
         passed &= unavailable
-        sample(620, counter % 256, 62.0)
-        if source == 'buffered':
-            sample(450, 241, 62.0)  # Replay the exact retained initial frame, never alter its payload.
+        sample(620, counter % 256, 62.0, (450, 241) if source == 'buffered' else None)
         counter += 1
-        sample(650, counter % 256, 65.0)
-        if source == 'buffered':
-            sample(600, 242, 65.0)
+        sample(650, counter % 256, 65.0, (600, 242) if source == 'buffered' else None)
         counter += 1
     if passed:
         snapshot(target, 'capture')

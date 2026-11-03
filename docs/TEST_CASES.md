@@ -68,3 +68,11 @@ NET-001은 요청 프레임 번호와 응답의 `http.request_in`을 연결하�
 `.demo/hw-can-ota-run1`은 baseline V2 freshness 실패를 남겼다. 매 프레임 SSH/Python 오버헤드와 500ms 유효기간의 상호작용을 조사하고 SSH 연결 재사용 후 새 실행으로 검증한다. 실패 기록도 제출 증적에 포함한다. 진행 중인 run2나 최종 통합 실행의 결과는 해당 JUnit·JSON을 읽어 기록하며 완료 전에 최종 성공 수를 고정하지 않는다.
 
 다음은 현재 TC의 합격으로 대체할 수 없는 항목이다: 세 번째 보드의 독립 CAN 관찰, 실제 HDMI/광학 판정, 전원 차단 및 저장 중 중단 복구, OS·부트로더 OTA, 장시간 endurance, V1 차단 후 자동 서비스 복원, 생산 차량/규격 적합성·인증. 100fps 부하도 별도 증적 없이 200fps 시험에서 수행된 것으로 기록하지 않는다.
+
+## 세 보드 구성으로의 확장
+
+[세 보드 설정](THREE_BOARD_SETUP.md)의 verifier 필드 두 개를 지정하면 CAN-001에 Pi1→Pi3(ID125), Pi3→Pi2(ID126)가 추가된다. 각 방향 입력은 동일한3개 payload다. CAN-003/004와 OTA 판정은 Pi3에서 실행하며 별도의 verifier-can.log를 보존한다.
+
+추가 SEC-005는 baseline V2 성공 후 Pi3 observe_channel을 존재하지 않는 인터페이스로 바꾼다. 기대 결과는 후보 commit 금지/recovery_failed, 마지막 정상 기록V2 유지, verification 모두false다. 두 보드 모드에서는 이 시험을 명시적으로 skip한다.
+
+현행 buffered 주입은 같은 새+과거 frame을10ms 간격 쌍으로 보낸 뒤 관찰한다. 각 쌍의 두 CAN 바이트/순서와 generation+2를 검증한다. expected62/65, 잘못된45/60, 500ms 유효기간·650ms 침묵은 동일하다. 원격관찰 대기 때문에 프레임 간 간격이 늘어나는 문제를 제거한 것이며 과거 데이터/CRC를 바꾸지 않았다. 과거 실행은 그 당시 직렬 주입 기록으로 보존한다.

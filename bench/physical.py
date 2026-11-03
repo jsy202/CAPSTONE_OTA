@@ -44,6 +44,10 @@ class PhysicalBench:
         if not isinstance(config, dict) or not required <= config.keys():
             raise ValueError('hardware config missing required fields')
         self.central, self.cluster = Peer(config['central_ssh']), Peer(config['cluster_ssh'])
+        if ('verifier_ssh' in config) != ('verifier_peer' in config):
+            raise ValueError('third-board selection requires verifier_ssh and verifier_peer together')
+        self.verifier = Peer(config['verifier_ssh']) if 'verifier_ssh' in config else None
+        self.gates = {}
         self.runtime = config['runtime']
         if not isinstance(self.runtime, str) or not self.runtime.startswith('/') or '\x00' in self.runtime:
             raise ValueError('runtime must be an absolute installed bench path')
@@ -80,6 +84,8 @@ class PhysicalBench:
         # Nothing silently skips after an explicit hardware selection.
         self.central.run('hostname\nip -j -details -statistics link show can0\ncommand -v cansend\ncommand -v tshark')
         self.cluster.run('hostname\nip -j -details -statistics link show can0\nsystemctl is-active capstone-cluster-display.service')
+        if self.verifier:
+            self.verifier.run('hostname\nip -j -details -statistics link show can0\ncommand -v candump')
         self.record('CAN-LINK-BEFORE', self.links())
         self.cluster.run('sudo systemctl stop capstone-cluster.service', check=False)
         self.central.run('sudo systemctl stop capstone-demo-source.service', check=False)
@@ -125,14 +131,19 @@ class PhysicalBench:
                               for p in sorted((ROOT / folder).rglob('*'))
                               if p.is_file() and '__pycache__' not in p.parts},
             'arm_binary_sha256': hashlib.sha256(self.binary.read_bytes()).hexdigest(),
-            'scope': 'physical two-board CAN; observer and Qt on Cluster; no independent third CAN board or optical oracle'})
-        self.captures = Captures(self.central, self.cluster, self.runtime, self.run_id, self.output)
+            'scope': ('physical three-board CAN; Pi3 direct witness, Cluster model/QML via SSH; no optical oracle'
+                      if self.verifier else 'physical two-board CAN; observer and Qt on Cluster; no independent third CAN board or optical oracle')})
+        self.captures = Captures(self.central, self.cluster, self.runtime, self.run_id, self.output,
+                                 verifier=self.verifier)
         self.captures.start()
 
     def links(self):
+        peers = [('central', self.central), ('cluster', self.cluster)]
+        if self.verifier:
+            peers.append(('verifier', self.verifier))
         return {role: {'can': json.loads(peer.run('ip -j -details -statistics link show can0').stdout),
                        'kernel': peer.run('uname -r').stdout.strip()}
-                for role, peer in [('central', self.central), ('cluster', self.cluster)]}
+                for role, peer in peers}
 
     def record(self, case, report):
         self.records[case] = report
@@ -159,16 +170,32 @@ class PhysicalBench:
                 except ImportError:
                     pass
 
-    def new_device(self, case, source='buffered', missing=False, attack=False):
-        device = self.base + '/' + case + '/device'
+    def observer_config(self, missing=False):
         observer = {'cluster': {'socket': '/run/capstone-cluster/missing.sock' if missing else
                                '/run/capstone-cluster/model.sock'},
                     'central': {'host': 'capstone-source', 'checkout': self.runtime,
                                 'python': self.python, 'channel': 'can0'}, 'observe_channel': 'can0'}
+        if self.verifier:
+            observer['cluster'].update(host='capstone-cluster-observer', checkout=self.runtime, python=self.python)
+        return observer
+
+    def put_observer(self, path, spec):
+        self.put(self.verifier or self.cluster, path, json.dumps(spec).encode(), root=not self.verifier)
+
+    def new_device(self, case, source='buffered', missing=False, attack=False):
+        device = self.base + '/' + case + '/device'
+        observer = self.observer_config(missing)
         observer_path = '/opt/capstone-cluster/configs/' + self.run_id + '-' + case + '.json'
-        self.put(self.cluster, observer_path, json.dumps(observer).encode(), root=True)
+        if self.verifier:
+            observer_path = self.runtime + '/configs/' + self.run_id + '-' + case + '.json'
+        self.put_observer(observer_path, observer)
         checker = [self.python, '/opt/capstone-cluster/verify-service.py', '--config', observer_path,
                    '--capture-dir', self.remote_evidence + '/' + case, '--source', source]
+        if self.verifier:
+            gate = '/opt/capstone-cluster/configs/' + self.run_id + '-' + case + '-gate.json'
+            self.put(self.cluster, gate, json.dumps(dict(self.config['verifier_peer'], peers=observer_path)).encode(), root=True)
+            self.gates[observer_path] = gate
+            checker += ['--verifier', gate]
         if attack:
             checker += ['--substitute-old', self.fixture, '--device-root', device, '--public-key', self.public]
         config = {'host': 'capstone-target-1793549816', 'checkout': self.runtime,
@@ -203,11 +230,11 @@ class PhysicalBench:
         if baseline['status']['result'] != 'committed':
             self.record('BASELINE-FAIL-' + case, {'baseline': baseline})
             raise AssertionError(baseline)
-        if name == 'missing-evidence':
-            spec = {'cluster': {'socket': '/run/capstone-cluster/missing.sock'},
-                    'central': {'host': 'capstone-source', 'checkout': self.runtime,
-                                'python': self.python, 'channel': 'can0'}, 'observe_channel': 'can0'}
-            self.put(self.cluster, observer, json.dumps(spec).encode(), root=True)
+        if name in {'missing-evidence', 'missing-witness'}:
+            spec = self.observer_config(missing=name == 'missing-evidence')
+            if name == 'missing-witness':
+                spec['observe_channel'] = 'absent-can'
+            self.put_observer(observer, spec)
         candidate = self.forward('v3', config)
         result = {'device': device, 'baseline': baseline, 'candidate': candidate}
         if name == 'attack':
@@ -219,8 +246,10 @@ class PhysicalBench:
 
     def two_way(self):
         directions = []
-        for sender, receiver, identifier in [(self.central, self.cluster, '123'),
-                                             (self.cluster, self.central, '124')]:
+        peers = [(self.central, self.cluster, '123'), (self.cluster, self.central, '124')]
+        if self.verifier:
+            peers += [(self.central, self.verifier, '125'), (self.verifier, self.cluster, '126')]
+        for sender, receiver, identifier in peers:
             receive = subprocess.Popen([*receiver.arguments, 'timeout 10 candump -L -n 3 can0,' + identifier + ':7FF'],
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             try:
@@ -269,7 +298,9 @@ class PhysicalBench:
  assert e['valid'] is True and e['qml_speed']==62 and e['version_label']=='V2'
  print(json.dumps({'passed':True,'checks':['speed/model/QML','RPM','gear','warning','CRC','255-to-0 wrap','stale replay','timeout','fresh recovery'],'final':e}))
 '''
-        return json.loads(self.root(code).stdout)
+        result = (self.verifier.run(shlex.join([self.python, '-']), data=code)
+                  if self.verifier else self.root(code))
+        return json.loads(result.stdout)
 
     def load(self):
         device, observer = self.select_good()
@@ -284,9 +315,12 @@ class PhysicalBench:
         try:
             self.central.run(shlex.join(active))
             started = time.monotonic()
-            result = self.cluster.run(shlex.join(['sudo', self.python, '/opt/capstone-cluster/verify-service.py',
+            checker = ['sudo', self.python, '/opt/capstone-cluster/verify-service.py',
                                       '--config', observer, '--capture-dir', self.remote_evidence + '/load',
-                                      device + '/slots/A']), check=False)
+                                      device + '/slots/A']
+            if self.verifier:
+                checker += ['--verifier', self.gates[observer]]
+            result = self.cluster.run(shlex.join(checker), check=False)
             elapsed = time.monotonic() - started
             self.central.run(shlex.join(active))  # Failure/expiry cannot be reported as a loaded PASS.
             text, error = measure.communicate(timeout=10)

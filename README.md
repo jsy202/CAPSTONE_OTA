@@ -4,11 +4,9 @@
 Qt 모델·QML 게이지 값을 검증한 뒤 업데이트를 확정하거나 이전 앱으로 되돌리는 프로젝트다.
 복구 슬롯이 과거 정식 이미지로 바뀌어 있으면 실행 전에 거부하는 공격 시험도 포함한다.
 
-현재는 **실제 Raspberry Pi 두 대에서 Ethernet OTA → CAN 입력 → native ARM Qt 검증 → V2 롤백 → 정식 V1 바꿔치기 차단**까지 시험했다. MCP2515(12MHz), can0 500kbit/s와 systemd 서비스를 사용한다. 현재 물리 시험에서는 검증기를 Cluster 보드에서 실행하며, 세 번째 보드의 독립 CAN 검증은 배선·권한 설정이 남아 있다.
+현재는 **실제 Raspberry Pi 세 대에서 Ethernet OTA → CAN 입력 → Pi3 직접 관찰 → native ARM Qt 판정 → V2 롤백 → 정식 V1 바꿔치기 차단**까지 시험했다. MCP2515(12MHz), can0 500kbit/s, systemd 서비스를 사용한다. 표시값은 Cluster의 모델/QML 소켓에서 읽으며 독립 카메라·픽셀 검증은 아니다.
 
-검증 도구·시험 명세·재현 명령은 [실제 CAN 검증 안내](docs/VERIFICATION_RUNBOOK.md)와 [테스트케이스](docs/TEST_CASES.md)를 참고한다. pytest/JUnit/Allure, coverage, can-utils, tcpdump/tshark 증적을 수집한다. 실제 Qt 캡처는 Xvfb 화면이며 HDMI 실물 화면 검증은 아니다.
-
-최근 [실행 결과·실패 분석](docs/VERIFICATION_RESULTS_2026-11-03.md): PC 127개 통과(실물 선택 전용9개 skip), 실제 보드9개 통과. Python coverage 약74%이며 native C++/QML·배선 coverage와는 다르다.
+최근 [세 보드 실행 결과](docs/THREE_BOARD_RESULTS_2026-11-03.md): PC137개 통과(hardware 선택 전용10개 skip), 실제 세 보드10개 통과. [지연 원인 분석](docs/THREE_BOARD_LATENCY_RCA.md), [세 보드 설정](docs/THREE_BOARD_SETUP.md), [테스트케이스](docs/TEST_CASES.md), [도구 안내](docs/VERIFICATION_RUNBOOK.md)에 과정과 재현 명령을 기록했다. pytest/JUnit/Allure, coverage, can-utils, tcpdump/tshark 증적을 수집하며 PNG는 Xvfb 캡처다.
 
 ## 전체 구조
 
@@ -24,7 +22,7 @@ Pi 2 · Cluster: 자체 검증 → 앱 A/B 시험 설치 → 실제 Qt 계기판
   │                                       └─ FAIL: 이전 앱 무결성 확인 → 복원·재검증
   │
 Verifier: 시험 입력 지시 + CAN 직접 관찰 + Cluster의 Qt 모델·QML 값 확인
-          현재 실물 시험: Pi 2에서 실행 / 세 보드 목표: Pi 3에서 실행
+          현재 실물 시험: Pi 3에서 직접 CAN 관찰, Pi 2 모델/QML은 SSH로 읽음
 ```
 
 - **업데이트 파일**은 LAN으로 전달한다. CAN은 Central → Cluster 차량 데이터용이다.
@@ -45,8 +43,8 @@ CAN은 UDP 루프백으로 대체한다. 실제 장치 세 대를 시험했다�
 
 1. 카운터 240/241/242로 40 → 45 → 60 km/h를 보낸다.
 2. **650ms 동안 송신을 멈춰** Cluster의 500ms 입력 유효 시간 초과를 확인한다.
-3. 새 프레임 `243 / 62 km/h` 뒤에 기존 프레임 `241 / 45 km/h`를 재전송한다.
-4. 새 프레임 `244 / 65 km/h` 뒤에 기존 프레임 `242 / 60 km/h`를 재전송한다.
+3. Central의 한 명령에서 새 프레임 `243 / 62 km/h` 뒤10ms 간격으로 원래 프레임 `241 / 45 km/h`를 재전송한다.
+4. 같은 방식으로 `244 / 65 km/h` 뒤에 원래 프레임 `242 / 60 km/h`를 재전송한다. Pi3는 각 쌍의 두 raw프레임과 Qt generation+2를 확인한다.
 5. 단절·복구를 총 세 번 반복한다. 새 카운터는 증가하고 과거 프레임은 그대로 유지한다.
 
 과거 데이터도 CRC가 정상이다. 잘못된 숫자를 넣거나 앱 내부에서 강제 FAIL을 만드는
@@ -153,10 +151,10 @@ PC x86 바이너리를 Pi에 설치하면 안 되며, 대상 아키텍처로 따
 
 | 구분 | 현재 상태 |
 |---|---|
-| 실제 HTTP·서명·Cluster 앱 A/B | PC 통합 시험 완료 |
-| 실제 Qt 속도 모델·QML 비교, 실패 후 V2 복원·재검증 | PC 통합 시험 완료 |
-| 정식 V1 복구 슬롯 교체 및 실행 전 차단 | PC 통합 시험 완료 |
-| 세 호스트 명령·SocketCAN·외부 검증 경로 | 구현됨, 현재 Qt의 물리 세 보드 통합은 미검증 |
+| 실제 HTTP·서명·Cluster 앱 A/B | PC 및 실제 세 보드 통합 시험 완료 |
+| 실제 Qt 속도 모델·QML 비교, 실패 후 V2 복원·재검증 | PC 및 실제 세 보드 통합 시험 완료 |
+| 정식 V1 복구 슬롯 교체 및 실행 전 차단 | PC 및 실제 세 보드 통합 시험 완료 |
+| 세 호스트 명령·SocketCAN·외부 검증 경로 | 실제 세 보드 CAN·ARM Qt·systemd 통합 검증 완료 |
 | 원본 계기판의 모든 신호 | 미연결 계기는 고정 시험 초기값 사용 |
 | 대표 ECU 호환성 시나리오 | 현재 재전송 시나리오의 타당성 재검토 중 |
 | 독립 화면 픽셀 검증·관리자 변조 방어 | 미구현 |

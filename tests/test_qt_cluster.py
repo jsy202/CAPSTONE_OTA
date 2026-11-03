@@ -229,3 +229,17 @@ def test_single_presentation_scenario_keeps_real_failure_after_recovery(tmp_path
     assert progress['version'] == '2.0.0'
     assert progress['mismatch']['expected'] == 62
     assert progress['mismatch']['qml'] == 45
+
+
+@pytest.mark.parametrize('policy,expected', [('source_counter', 62), ('arrival_order', 45)])
+def test_fresh_and_retained_frames_are_injected_as_one_timed_burst(policy, expected):
+    q = qt()
+    with q.running_dashboard(default_payload(policy)) as target:
+        q.deliver(target, 400, 240)
+        q.deliver(target, 450, 241)
+        before = q.deliver(target, 600, 242)['generation']
+        report = q.deliver(target, 620, 243, following=(450, 241))
+        assert report['generation'] == before + 2
+        assert report['received_counter'] == 241
+        assert report['model_speed'] == report['qml_speed'] == expected
+        assert report['valid'] is True

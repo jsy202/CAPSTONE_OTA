@@ -22,9 +22,10 @@ Laptop signs Cluster package → Central verifies/caches → Cluster verifies/st
 - Real HTTP on both OTA hops, Ed25519 signatures, target A/B and existing hash/floor.
 - A separate source process delivers raw 0x200 bytes; a separate verifier process
   owns fault schedules and literal expected values. No forced FAIL API in the app.
-- Standalone and three-host command paths exist. Actual three-board/ARM/systemd/CAN
-  hardware is NOT tested here. PC transport is explicitly loopback UDP emulation,
-  and SSH is replaced by a local command executor in the complete demo.
+- Standalone and three-host paths exist. Actual three-board ARM/systemd/CAN results
+  are recorded in [the hardware report](THREE_BOARD_RESULTS_2026-11-03.md).
+  The PC demo uses explicit loopback UDP and a local SSH executor; it remains
+  separate from actual hardware evidence.
 
 ## The compatibility scenario
 
@@ -151,8 +152,9 @@ single-byte/source-counter protocol is not cryptographic sender authentication.
 The remote gate assumes a freshly activated/restarted service for each acceptance
 trial. It is not a repeatable live test on an arbitrary existing counter epoch.
 The emulated_udp option exists only for same-machine command-path tests, not LAN
-UDP deployment. Physical CAN timing, bitrate, bus-off, HAT wiring, actual SSH host
-authentication, Pi display and power-cut behavior remain hardware validation.
+UDP deployment. Actual500kbit CAN, pinned SSH and bounded load are exercised in the
+physical report. Physical display, deliberate bus-off recovery, waveform quality
+and power-cut behavior remain untested.
 
 ## Limits of the evidence
 
@@ -174,3 +176,7 @@ After refusing substituted recovery, service restoration remains intentionally a
   isolation; regressions failed before fixes and pass afterward.
 - Evidence: .demo/qt-validation-2026-10-27-final/result.json and private virtual-screen
   captures. No original Downloads source, existing dashboard service or Pi OS changed.
+
+## Current physical acceptance
+
+Three-board CAN/ARM/systemd execution is now verified: [results](THREE_BOARD_RESULTS_2026-11-03.md), [setup](THREE_BOARD_SETUP.md), and [latency RCA](THREE_BOARD_LATENCY_RCA.md). Buffered faults now send the same fresh/retained frames in a bounded10ms burst before observation, preserving the500ms validity and650ms silence rules. Original two-board reports remain historical evidence.

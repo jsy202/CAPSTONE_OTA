@@ -1,6 +1,7 @@
 """Bounded real can-utils/tcpdump capture and tshark analysis for one bench run."""
 from pathlib import Path
 import shlex
+import subprocess
 
 
 def analyze_http(rows):
@@ -16,13 +17,22 @@ def analyze_http(rows):
 
 
 class Captures:
-    def __init__(self, central, cluster, runtime, run_id, output):
+    def __init__(self, central, cluster, runtime, run_id, output, verifier=None):
         self.central, self.cluster = central, cluster
         self.remote = runtime + '/captures/' + run_id
         self.run_id, self.output = run_id, Path(output)
         self.units, self.pcap_stopped = [], False
+        self.verifier = verifier
+        self.verifier_process = self.verifier_log = None
 
     def start(self):
+        if self.verifier:
+            self.verifier_log = (self.output / 'verifier-can.log').open('wb')
+            self.verifier_process = subprocess.Popen([*self.verifier.arguments, 'timeout 900 candump -L can0'],
+                                                     stdout=self.verifier_log, stderr=subprocess.PIPE)
+            self.verifier.run('test -r /proc/net/can/rcvlist_all')
+            if self.verifier_process.poll() is not None:
+                raise RuntimeError('verifier capture exited during startup')
         for role, peer in [('central', self.central), ('cluster', self.cluster)]:
             peer.run('sudo mkdir -p ' + shlex.quote(self.remote))
             self.launch(peer, 'can-' + role, ['/usr/bin/candump', '-L', 'can0'], self.remote + '/' + role + '-can.log')
@@ -70,6 +80,22 @@ class Captures:
 
     def close(self):
         errors = []
+        if self.verifier_process:
+            try:
+                before = self.verifier_process.poll()
+                if before is not None:
+                    errors.append('verifier capture exited before teardown: ' + str(before))
+                else:
+                    self.verifier_process.terminate()
+                _out, error = self.verifier_process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.verifier_process.kill()
+                _out, error = self.verifier_process.communicate(timeout=3)
+            finally:
+                self.verifier_log.close()
+            (self.output / 'verifier-capture-stderr.log').write_bytes(error or b'')
+            if not (self.output / 'verifier-can.log').stat().st_size:
+                errors.append('verifier capture log is empty')
         for peer, unit, _suffix in reversed(self.units):
             try:
                 self.stop_unit(peer, unit)

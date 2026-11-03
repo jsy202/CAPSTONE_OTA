@@ -13,7 +13,8 @@ import time
 
 from capstone_ota.bundle import extract, verify
 from capstone_ota.device import Device
-from capstone_ota.qt_verify import remote_dashboard, verify as verify_display
+from capstone_ota.qt_verify import remote_command, remote_dashboard, verify as verify_display
+from capstone_ota.process import exchange
 
 
 def save_capture(directory, slot):
@@ -60,6 +61,7 @@ def substitute_old(root, slot, old, public):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path, required=True)
+    parser.add_argument('--verifier', type=Path, help='Optional trusted third-board SSH peer configuration')
     parser.add_argument('--capture-dir', type=Path, required=True)
     parser.add_argument('--source', choices=['buffered', 'latest'], default='buffered')
     parser.add_argument('--substitute-old', type=Path)
@@ -68,8 +70,20 @@ def main():
     parser.add_argument('slot', type=Path)
     args = parser.parse_args()
     try:
-        with remote_dashboard(json.loads(args.config.read_text()), args.slot) as target:
-            report = verify_display(target, args.source)
+        if args.verifier:
+            peer = json.loads(args.verifier.read_text())
+            command = remote_command(peer, ['--remote', peer['peers'], '--source', args.source, str(args.slot)])
+            # Detached masters outlive the verifier's per-request process-group cleanup.
+            # These pinned aliases are provisioned by this bench, not supplied by apps.
+            command[-1] = ('set -e; for host in capstone-source capstone-cluster-observer; do '
+                           'ssh -O check "$host" 2>/dev/null || ssh -MNf "$host"; done; ' + command[-1])
+            rows, _pid = exchange(command, [], timeout=50, allow_negative_verdict=True)
+            if len(rows) != 1 or not isinstance(rows[0], dict) or type(rows[0].get('passed')) is not bool:
+                raise ValueError('invalid third-board verification result')
+            report = rows[0]
+        else:
+            with remote_dashboard(json.loads(args.config.read_text()), args.slot) as target:
+                report = verify_display(target, args.source)
         try:
             report['capture'] = save_capture(args.capture_dir, args.slot)
         except (OSError, ValueError) as exc:

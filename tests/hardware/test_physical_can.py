@@ -22,6 +22,8 @@ def test_OTA_CAN_002_real_service_update_and_recovery(physical_bench, profile, e
     assert status['version'] == version
     assert status['validation'] == 'external'
     assert all(v.get('transport', '').startswith('SocketCAN') for v in status['verification'])
+    if physical_bench.verifier:
+        assert all(v.get('transport') == 'SocketCAN directly observed by verifier' for v in status['verification'])
     if profile == 'mixed':
         assert [v['passed'] for v in status['verification']] == [False, True]
         failure = next(r for r in status['verification'][0]['observed'] if not r['passed'])
@@ -58,6 +60,16 @@ def test_SEC_004_app_initialization_is_not_root(physical_bench):
     report = physical_bench.initialization_identity()
     physical_bench.record('SEC-004', report)
     assert report['uids'] and all(uid == report['app_uid'] != 0 for uid in report['uids'])
+
+
+def test_SEC_005_missing_third_board_can_witness_cannot_commit(physical_bench):
+    if not physical_bench.verifier:
+        pytest.skip('third-board witness not selected')
+    report = physical_bench.scenario('missing-witness')
+    physical_bench.record('SEC-005', report)
+    assert report['candidate']['status']['result'] == 'recovery_failed'
+    assert report['candidate']['status']['version'] == '2.0.0'
+    assert all(v['passed'] is False for v in report['candidate']['status']['verification'])
 
 
 def test_NET_001_actual_ethernet_http_exchange(physical_bench):

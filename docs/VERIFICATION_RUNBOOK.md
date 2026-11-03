@@ -1,6 +1,8 @@
-# 실제 CAN·Qt·OTA 검증 실행 안내
+# CAN·Qt·OTA 검증 실행 안내 · 기본 두 보드 모드
 
 이 문서는 두 대의 Raspberry Pi에서 실제 CAN 프레임, 실행 중인 ARM Qt 앱, 서명된 애플리케이션 OTA와 복구 동작을 재현하는 절차다. 판정 기준과 입력은 [TEST_CASES.md](TEST_CASES.md), 구현은 `bench/physical.py`, `bench/verify_service.py`, `bench/evidence.py`, `tests/hardware/`에 있다. 실행 결과는 실행별 산출물로 확인한다. 이 문서에 적힌 예상 결과 자체는 합격 증적이 아니다.
+
+현재 세 보드 실물 검증도 완료했다. 이 문서의 기본 두 보드 모드에 [세 보드 설정](THREE_BOARD_SETUP.md)을 적용하면 Pi3가 CAN을 직접 관찰한다. 최신 [결과](THREE_BOARD_RESULTS_2026-11-03.md)와 [지연 RCA](THREE_BOARD_LATENCY_RCA.md)를 함께 읽는다.
 
 ## 1. 검증 범위와 장비
 
@@ -9,17 +11,17 @@
 | Central·CAN 송신원 | Pi1 `cluster-pi.local`, Wi-Fi `192.168.45.171`, Ethernet `10.77.0.1` | 실제 SSH 명령으로 CAN 송신, 서명 패키지 전달, Ethernet 캡처 |
 | Cluster·시험 대상 | Pi2 `capstone-pi2`, Ethernet `10.77.0.2` | native aarch64 Qt, SocketCAN, A/B OTA, 로컬 모델/QML 관찰 |
 | 제어기 | 저장소·pytest가 있는 노트북 | 임시 릴리스 HTTP 서버, 시험 순서 제어, JUnit/Allure·증적 수집 |
-| 확장 후보 | Pi3 `capstone-pi3`, Wi-Fi `192.168.45.223` | SSH 접속 확인까지. CAN 배선 미완료, sudo 설정 추가 필요 |
+| 별도 검증기 | Pi3 `capstone-pi3`, Wi-Fi `192.168.45.223` | CAN500k·sudo 설정·직접 관찰 완료. 세 보드 모드에서 사용 |
 
 두 CAN 모듈 설정은 MCP2515, **12 MHz**, IRQ GPIO25, SPI CE0, `can0` **500000 bit/s**다. 실제 배선·종단저항·전원 상태는 시험 전에 확인한다. 하드웨어 수정 시 기존 합격 결과를 새 배선의 증거로 재사용하지 않는다. Pi1의 기존 `digital-dash`는 별도 서비스로 보존한다.
 
-송신원은 Central의 실제 CAN이다. Cluster의 별도 SocketCAN witness가 요청한 프레임 ID·길이·바이트를 확인하고, Unix socket으로 실제 Qt 모델과 QML 속성을 읽는다. **witness와 모델 관찰기는 Cluster와 같은 보드**에 있다. 독립된 세 번째 CAN 보드, 광학 계측기, 악성 앱의 자가 보고를 완전히 배제하는 관찰 구조라고 표현하지 않는다.
+송신원은 Central의 실제 CAN이다. Cluster의 별도 SocketCAN witness가 요청한 프레임 ID·길이·바이트를 확인하고, Unix socket으로 실제 Qt 모델과 QML 속성을 읽는다. **기본 두 보드 모드에서는 witness와 모델 관찰기가 Cluster와 같은 보드**에 있다. 세 보드 모드에서는 Pi3가 CAN을 직접 관찰한다. 독립된 세 번째 CAN 보드, 광학 계측기, 악성 앱의 자가 보고를 완전히 배제하는 관찰 구조라고 표현하지 않는다.
 
 Qt는 `capstone-cluster.service`에서 `capstone-app` 계정으로 실행한다. `capstone-cluster-display.service`는 Xauthority로 인증된 Xvfb `:93`을 제공한다. PNG는 이 가상 화면의 렌더링 결과다. HDMI 출력, 실물 디스플레이의 픽셀·밝기·시인성 검증은 포함하지 않는다. OTA는 앱 번들 범위이며 OS·부트로더 OTA는 포함하지 않는다.
 
 ## 2. 실행 전 확인
 
-현재 설치된 벤치 런타임은 두 보드의 `/home/otauser/capstone-ota-bench-1793549816`이며 Python은 그 아래 `venv/bin/python`이다. 새 소스로 시험한다면 설치 소스와 제어기 소스의 일치를 먼저 확인한다. `ENVIRONMENT.json`의 HEAD만으로 dirty worktree 변경까지 식별할 수 없으므로 실행 당시 `git status --short`, diff, 배포 기록도 함께 보존한다.
+현재 설치된 벤치 런타임은 세 보드의 `/home/otauser/capstone-ota-bench-1793549816`이며 Python은 그 아래 `venv/bin/python`이다. 새 소스로 시험한다면 설치 소스와 제어기 소스의 일치를 먼저 확인한다. `ENVIRONMENT.json`의 HEAD만으로 dirty worktree 변경까지 식별할 수 없으므로 실행 당시 `git status --short`, diff, 배포 기록도 함께 보존한다.
 
 다음은 해당 호스트에서 실행하는 읽기 명령 예다. SSH 별칭·사용자는 외부 설정에 맞춘다.
 
@@ -145,6 +147,6 @@ NET-001은 OTA마다 `release.json`, `release.sig`, `app.tar.gz` 요청을 확�
 
 결과를 외부 공유할 때는 비밀번호·SSH 개인키·Wi-Fi 비밀·서명 개인키가 없는지 확인한다. 실행별 Ed25519 개인키는 HTTP 제공 경로 밖의 임시 디렉터리에 생성되어 정리 시 삭제된다. 공개키·서명·시험용 릴리스와 최소한의 비밀 없는 증적만 보존한다.
 
-미검증 항목은 세 번째 독립 CAN 관찰 보드, HDMI/광학 판정, 전원 차단·부팅 중단, OS OTA, 장시간 내구성, 생산 환경 안전성·인증, 악성 앱의 모델 소켓 위조 방어, V1 차단 후 자동 서비스 복원이다. 구성한 송신원 계약 회귀를 실제 OEM 사고나 채용·인증 성과로 표현하지 않는다.
+미검증 항목은 HDMI/광학 판정, 전원 차단·부팅 중단, OS OTA, 장시간 내구성, 생산 환경 안전성·인증, 악성 앱의 모델 소켓 위조 방어, V1 차단 후 자동 서비스 복원이다. 구성한 송신원 계약 회귀를 실제 OEM 사고나 채용·인증 성과로 표현하지 않는다.
 
 시험 종료 시 벤치 제어기가 별도로 검증된 V2 device를 다시 선택하고 Central의 정상 100ms CAN 송신 서비스를 시작한다. `BENCH-CLEANUP.json`의 valid·65km/h·V2를 확인한다. 이는 시험 장비 정리이며, 공격당한 device의 자동 서비스 복원 구현으로 세지 않는다.
