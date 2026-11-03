@@ -204,3 +204,17 @@ def test_missing_local_model_observation_is_bounded_and_fails_closed(tmp_path):
         with q.remote_dashboard(config, tmp_path):
             pass
     assert time.monotonic() - started < 7
+
+
+def test_single_presentation_scenario_keeps_real_failure_after_recovery(tmp_path):
+    import json
+    runner = importlib.import_module('demo.qt_run')
+    output = tmp_path / 'presentation'
+    result = runner.run(output, scenario='mixed')
+    assert result['mixed']['result'] == 'rolled_back'
+    assert 'attack' not in result and not (output / 'attack-cluster').exists()
+    progress = json.loads((output / 'mixed-cluster/progress.json').read_text())
+    assert progress['stage'] == 'rolled_back'
+    assert progress['version'] == '2.0.0'
+    assert progress['mismatch']['expected'] == 62
+    assert progress['mismatch']['qml'] == 45

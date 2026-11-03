@@ -40,7 +40,9 @@ def attack_check(slot, root, old, public, evidence):
     return report
 
 
-def run(output):
+def run(output, scenario='all'):
+    if scenario not in {'all', 'compatible', 'mixed', 'attack'}:
+        raise ValueError('unknown scenario')
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=False)
     binary = ROOT / '.demo/qt-build/capstone-qt-cluster'
@@ -91,24 +93,25 @@ def run(output):
         if process.returncode not in (0, 1, 2) or not process.stdout:
             raise ValueError('relay did not return target result: ' + process.stderr[-1000:])
         return json.loads(process.stdout)
-    with serve(releases) as origin:
-        first = forward(origin, 'compatible', 'v2', source='latest')
-        assert first['result'] == 'committed', first
-        compatible = forward(origin, 'compatible', 'v3', source='latest')
-        first = forward(origin, 'mixed', 'v2')
-        assert first['result'] == 'committed', first
-        mixed = forward(origin, 'mixed', 'v3')
-        first = forward(origin, 'attack', 'v2', attack=True)
-        assert first['result'] == 'committed', first
-        attack = forward(origin, 'attack', 'v3', attack=True)
-    evidence = json.loads((output / 'attack-evidence.json').read_text())
-    evidence['old_app_executed'] = old_marker.exists()
     result = {'transport': 'real HTTP two hops; local SSH substitute; loopback UDP CAN emulation',
-              'ui': 'pinned Volvo Qt models and original QML, plus CAPSTONE telemetry overlay',
-              'compatible': compatible, 'mixed': mixed, 'attack': attack, 'attack_evidence': evidence}
-    assert compatible['result'] == 'committed', compatible
-    assert mixed['result'] == 'rolled_back' and mixed['version'] == '2.0.0', mixed
-    assert attack['result'] == 'recovery_failed' and evidence['old_app_executed'] is False, attack
+              'ui': 'pinned Volvo Qt models and original QML, plus CAPSTONE telemetry overlay'}
+    with serve(releases) as origin:
+        for name in ('compatible', 'mixed', 'attack'):
+            if scenario not in {'all', name}:
+                continue
+            options = {'source': 'latest' if name == 'compatible' else 'buffered', 'attack': name == 'attack'}
+            first = forward(origin, name, 'v2', **options)
+            assert first['result'] == 'committed', first
+            result[name] = forward(origin, name, 'v3', **options)
+    if 'compatible' in result:
+        assert result['compatible']['result'] == 'committed', result['compatible']
+    if 'mixed' in result:
+        assert result['mixed']['result'] == 'rolled_back' and result['mixed']['version'] == '2.0.0', result['mixed']
+    if 'attack' in result:
+        evidence = json.loads((output / 'attack-evidence.json').read_text())
+        evidence['old_app_executed'] = old_marker.exists()
+        result['attack_evidence'] = evidence
+        assert result['attack']['result'] == 'recovery_failed' and evidence['old_app_executed'] is False, result['attack']
     (output / 'result.json').write_text(json.dumps(result, indent=2))
     return result
 

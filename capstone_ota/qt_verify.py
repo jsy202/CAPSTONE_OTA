@@ -52,6 +52,11 @@ def snapshot(target, op='snapshot'):
 
 @contextmanager
 def rendering_environment(capture, log):
+    if os.environ.get('CAPSTONE_QT_LIVE') == '1':
+        if not os.environ.get('DISPLAY') and not os.environ.get('WAYLAND_DISPLAY'):
+            raise ValueError('live Qt presentation requires a display')
+        yield dict(os.environ, QT_QUICK_BACKEND='software')
+        return
     environment = dict(os.environ, QT_QPA_PLATFORM='offscreen', QT_QUICK_BACKEND='software')
     display = None
     try:

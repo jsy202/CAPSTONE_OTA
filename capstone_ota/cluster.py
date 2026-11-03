@@ -27,6 +27,8 @@ class ClusterDevice(Device):
         super()._activate(slot, state)
         if self.verifier_command is None:
             return
+        recovering = state.get("committed") and slot == state["committed"]["slot"]
+        self._progress("recheck" if recovering else "verify")
         try:
             rows, _pid = exchange([*self.verifier_command, str(self._slot(slot))], [], timeout=60,
                                   allow_negative_verdict=True)
@@ -38,4 +40,10 @@ class ClusterDevice(Device):
             report = {"passed": False, "error": str(exc)}
         self.reports.append(report)
         if report["passed"] is not True:
+            observed = report.get("observed", [])
+            if not isinstance(observed, list):
+                observed = []
+            mismatch = next((row for row in observed
+                             if isinstance(row, dict) and row.get("passed") is False), None)
+            self._progress("verification_failed", mismatch=mismatch, detail=str(report.get("error", "")))
             raise ValueError("Cluster external verification failed")
