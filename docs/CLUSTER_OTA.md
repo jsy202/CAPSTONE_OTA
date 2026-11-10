@@ -1,3 +1,5 @@
+> 현재 CPU 시나리오에서는 클러스터가 고정되고 IVI만 교체된다. 이 문서는 기존 전송·검증 기반 안내다. IVI 중계는 신뢰 target JSON에 `"application": "ivi"`를 지정하면 `ivi-update`를 호출한다(기본값은 기존 cluster 경로).
+
 # Central이 받아 Cluster에 전달하는 앱 OTA
 
 ```text

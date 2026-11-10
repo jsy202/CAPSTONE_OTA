@@ -11,7 +11,6 @@ def test_CAN_001_actual_two_way_frames(physical_bench):
 
 @pytest.mark.parametrize('profile,expected,version', [
     ('compatible', 'committed', '3.0.0'),
-    ('mixed', 'rolled_back', '2.0.0'),
     ('attack', 'recovery_failed', '2.0.0'),
 ])
 def test_OTA_CAN_002_real_service_update_and_recovery(physical_bench, profile, expected, version):
@@ -24,14 +23,6 @@ def test_OTA_CAN_002_real_service_update_and_recovery(physical_bench, profile, e
     assert all(v.get('transport', '').startswith('SocketCAN') for v in status['verification'])
     if physical_bench.verifier:
         assert all(v.get('transport') == 'SocketCAN directly observed by verifier' for v in status['verification'])
-    if profile == 'mixed':
-        assert [v['passed'] for v in status['verification']] == [False, True]
-        failure = next(r for r in status['verification'][0]['observed'] if not r['passed'])
-        assert failure['expected'] == 62 and failure['qml'] == failure['model'] == 45
-        view = report['progress']
-        assert view['mismatch']['qml'] == 45 and view['observation']['qml'] == 65
-        assert view['verified_slot'] == view['slot_view']['selected'] == 'A'
-        assert view['slot_view']['B']['version'] == '3.0.0'
     if profile == 'attack':
         assert status['min_svn'] == 2
         assert report['old_app_executed'] is False

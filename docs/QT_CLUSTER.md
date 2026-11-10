@@ -1,59 +1,14 @@
-# Actual Qt Cluster, fault injection and automatic rollback
+# Fixed Qt digital cluster
 
-```text
-Laptop signs Cluster package → Central verifies/caches → Cluster verifies/stages
-                                                  ↓
-                                actual Volvo Qt application + gauge models
-                                                  ↑ vehicle frames
-                             Central source ← independent verifier's trace
-                                                  ↓
-                    verifier observes CAN + Qt model/QML → approve or rollback
-```
+클러스터는 CPU 경합을 관측하는 **고정 앱 한 종류**다. IVI만 V2/V3로 업데이트한다.
+클러스터의 버전 배지·버전별 색상·arrival-order 수신 분기·cluster.json은 제거했다.
+원본 카운터를 확인하는 수신 방식은 고정이며 CRC, 범위, 중복/과거 카운터, 500ms 신선도 검사를 유지한다.
 
-## Implemented PC scope
-
-- Real native Qt executable using the pinned Volvo C++ models and original QML.
-- Speed is read from both SpeedometerModel and the original displayed Gauge.value,
-  not only from a separate test label. RPM/warnings reuse original models. A small
-  overlay supplies gear and explicit stale status.
-- Dynamic verification covers speed, RPM, gear and the check-engine warning. Other
-  original gauges use static bench initial values; full vehicle-signal integration
-  is not implied by rendering the whole upstream layout.
-- Real HTTP on both OTA hops, Ed25519 signatures, target A/B and existing hash/floor.
-- A separate source process delivers raw 0x200 bytes; a separate verifier process
-  owns fault schedules and literal expected values. No forced FAIL API in the app.
-- Standalone and three-host paths exist. Actual three-board ARM/systemd/CAN results
-  are recorded in [the hardware report](THREE_BOARD_RESULTS_2026-11-03.md).
-  The PC demo uses explicit loopback UDP and a local SSH executor; it remains
-  separate from actual hardware evidence.
-
-## The compatibility scenario
-
-Two declared sender/receiver contracts are compared:
-
-| Central source | Cluster receiver | Result after link recovery |
-|---|---|---|
-| Legacy buffered bridge | V2 source-counter filtering | Old samples ignored |
-| New latest-only bridge | V3 arrival-order policy | Works with latest-only input |
-| **Legacy buffered bridge** | **V3 arrival-order policy** | **Old speed briefly replaces current speed** |
-
-The bridge's buffering/replay behavior is an application-level test model, not
-automatic CAN-controller replay and not a claim of a known OEM incident. V3 changes
-the receiver's dependency: freshness filtering is now expected from its peer.
-Its signed configuration selects that actual policy; the verifier does not tell
-the app to fail or insert impossible speed numbers inside the receiver.
-
-Fault injection silences the input for 650 ms, then interleaves current samples
-with older, CRC-valid source frames, and repeats three recovery cycles. For example,
-after current 62 km/h the bridge replays old 45 km/h. V2 stays at 62, V3 shows 45.
-The verifier compares a literal latest-value oracle to C++ model and actual gauge
-binding after each frame. It also checks stale→valid recovery, generation/counter,
-fresh response challenge, selected executable path and process identity.
-
-Counter ordering is modulo 256 and assumes less than 128 outstanding counts.
-Large gaps/restarts requiring a new source epoch are outside this small contract.
-This is a bounded compatibility acceptance test. It neither proves a week of
-operation nor discovers every latent failure or continuously monitors a vehicle.
+CAN 0x200을 처리해 Qt 속도 모델을 반영한 직후 0x300 응답을 보낸다.
+Pi3는 같은 번호의 입력과 응답 수신 시각을 비교해 지연·끊김을 감시한다.
+이는 화면 픽셀 표시 시간이나 악성 앱의 허위 보고를 검증하는 방식이 아니다.
+전체 구조와 현재 시나리오는 [README](../README.md), 실보드 CPU 실험은
+[결과 문서](IVI_FIELD_MONITOR_RESULTS_2026-11-05.md)를 참고한다.
 
 ## Build on PC
 
@@ -78,105 +33,34 @@ export CAPSTONE_QT_PREFIX=/home/jsy/Downloads/volvo-qt-runtime/root/usr
 ```
 
 Build output, imported upstream and binaries are ignored under .demo/qt-build.
-Release payload contains bin/app, libexec/dashboard, cluster.json and upstream
+Release payload contains bin/app, libexec/dashboard, upstream
 license. QML/images are compiled into the executable. Qt libraries stay external
 and must match the target architecture. PC x86 binaries must not be installed on Pi.
-The same overlay can be built natively on an ARM Pi; that build is not verified here.
+ARM 실보드 빌드의 과거 결과는 별도 실보드 보고서에 기록되어 있다.
 
-## Complete PC demo
+## Local checks
 
 ```bash
-.venv/bin/python -m demo.qt_run run --output .demo/qt-complete-run
-.venv/bin/python -m pytest -q
+.venv/bin/python -m pytest -q tests/test_qt_cluster.py tests/test_qt_source.py
 ```
 
-Use a NEW output directory each time. Keep CAPSTONE_QT_PREFIX exported if system
-Qt is not installed. Tests load the recorded local build runtime for their child
-processes. Qt tests are explicitly skipped when no compiled Qt binary is available;
-a Python-only green suite is not proof of Qt integration. They run fully here.
+기본 시험은 숨겨진 Qt 화면을 사용하며 UDP 루프백으로 CAN 전송을 대체한다.
+실제 모델/QML 값, 카운터 순환, CRC 거부, 신선도 만료·회복, 관찰자 PID/실행 경로를 확인한다.
+새 클러스터에는 버전별 payload 설정을 넣지 않는다:
 
-Expected complete-demo results:
-
-1. V2 baseline accepted; compatible V3/latest-only pairing committed.
-2. V3/buffered pairing rejected after real display regression; V2 restored and
-   the same fault profile passes again.
-3. Test fixture substitutes a genuine signed V1 only after observing V3 failure.
-   Journal remains unchanged. Recovery hash mismatch blocks V1 before execution.
-
-result.json includes actual model observations, per-trial PIDs and Qt captures.
-Signing keys stay in a private sibling keys/ directory, never in HTTP roots/Git.
-V1 is a controlled old-release fixture, not a real exploitable vulnerability.
-Normal tests use offscreen mode. Captures use a private Xvfb display, so repeated
-tests do not open windows on the user's desktop. bin/app --check is always headless.
-Native manual execution without --check may show the actual application window.
-The lower-right version badge reads the signed cluster.json version field: V1 is
-purple, V2 blue and V3 orange. This visual label is separate from the updater's
-signed release/security-version checks. V1 style previews do not imply execution
-of the blocked recovery image in the attack test.
-
-## Three-host execution paths
-
-Use the transport setup in [CLUSTER_OTA.md](CLUSTER_OTA.md). Install the new package
-on each host. The runtime service must start the selected Cluster bin/app with a
-CAN interface and model socket; deploy/capstone-cluster.service is an example for
-/opt/capstone-cluster/device. Configure its display/session/Qt libraries explicitly.
-It does not replace existing digital-dash.service automatically.
-
-Trusted SSH directions: Central→Cluster, Cluster→Verifier, Verifier→Central and
-Verifier→Cluster. Set dedicated identities and pinned host keys beforehand.
-The Cluster observation account needs access to the private runtime socket/group.
-
-On Pi3, place a copy of deploy/qt-verifier-peers.example.json with actual host paths,
-the Cluster runtime socket and Pi3's own observe_channel. Pi3 opens its own raw CAN
-socket and confirms each requested frame directly, not from Central's success claim.
-On Cluster, place qt-verifier-gate.example.json pointing at that Pi3 config.
-Replace initialization_only in Central's target JSON with:
-
-```json
-"check_command": [
-  "/home/otauser/CAPSTONE_OTA_MINIMAL/.venv/bin/python",
-  "-m", "capstone_ota.qt_verify", "remote-gate",
-  "--config", "/home/otauser/qt-verifier-gate.json"
-]
+```python
+from dashboard.qt_cluster.build import default_payload
+slot = default_payload()
 ```
 
-Set systemd=true only after the separate Cluster service/path has been provisioned.
-Cluster starts the candidate, then invokes Pi3. Pi3 controls Central's qt_source
-and reads actual selected Qt model via the Cluster-local snapshot command. It
-checks executable path/PID/challenge and reports to Cluster over authenticated SSH.
-Each external acceptance check is bounded to 60 seconds; remote-gate to 50 seconds.
-Any missing evidence, mismatch, process exit or timeout rejects approval.
+`capstone_ota.qt_verify`는 정상 입력 확인용 보조 도구이며 CPU 상시 감시기와 다르다.
+현재 CPU 판정은 `capstone_ota.monitor.service`, 시험 운영 감독은 `capstone_ota.probation`이 담당한다.
+IVI 공격 시험은 `demo.ivi_attack`으로 실행한다. 기존 `demo.qt_run`, `demo.qt_present`,
+`mixed`, `--source buffered`는 제거했다. 과거 실보드 기록은 당시 결과로 보존한다.
 
-All tests must run on an isolated bench with no other source sending 0x200; a
-single-byte/source-counter protocol is not cryptographic sender authentication.
-The remote gate assumes a freshly activated/restarted service for each acceptance
-trial. It is not a repeatable live test on an arbitrary existing counter epoch.
-The emulated_udp option exists only for same-machine command-path tests, not LAN
-UDP deployment. Actual500kbit CAN, pinned SSH and bounded load are exercised in the
-physical report. Physical display, deliberate bus-off recovery, waveform quality
-and power-cut behavior remain untested.
+실보드 연결 정보는 [THREE_BOARD_SETUP.md](THREE_BOARD_SETUP.md)를 참고한다.
+새 소스를 받는 것만으로 기존 보드의 바이너리나 systemd 서비스를 자동 교체하지 않는다.
 
-## Limits of the evidence
-
-Qt model/gauge telemetry is still reported by Cluster software. It proves the
-tested code's model/binding behavior, not independent pixels or protection against
-a malicious signed UI lying about its output. Captures aid human review and are not
-an automated optical oracle. Updating a slot on PC is not OS A/B or secure boot.
-After refusing substituted recovery, service restoration remains intentionally absent.
-
-## Validation record — 2026-10-27
-
-- Final full suite: **100 passed in 84.04s**, with all native Qt tests executed.
-- Rebuilt real C++/QML application; package wheel built and tested from outside the
-  source checkout against the installed V2 Qt payload and fault profile.
-- Complete signed two-hop demo: compatible V3 committed, mixed V3 rejected with
-  observed gauge regression and V2 recheck/rollback, genuine V1 substitution refused
-  without executing its marker. Replayed frames retain their original counter/data.
-- Independent review corrections: exact replay data consistency and unrelated CAN-ID
-  isolation; regressions failed before fixes and pass afterward.
-- Evidence: .demo/qt-validation-2026-10-27-final/result.json and private virtual-screen
-  captures. No original Downloads source, existing dashboard service or Pi OS changed.
-
-## Current physical acceptance
-
-Three-board CAN/ARM/systemd execution is now verified: [results](THREE_BOARD_RESULTS_2026-11-03.md), [setup](THREE_BOARD_SETUP.md), and [latency RCA](THREE_BOARD_LATENCY_RCA.md). Buffered faults now send the same fresh/retained frames in a bounded10ms burst before observation, preserving the500ms validity and650ms silence rules. Original two-board reports remain historical evidence.
+실보드에는 이번 변경을 배포하지 않았다. 적용 전에 새 소스로 ARM 바이너리를 재빌드해야 한다.
+기존 `cluster.json`을 요구하는 옛 ARM 바이너리를 새 고정 payload 생성기에 넣으면 초기화에 실패한다.
+하드웨어 설정의 `arm_binary`도 새 바이너리 경로로 맞춘 뒤 시험한다.

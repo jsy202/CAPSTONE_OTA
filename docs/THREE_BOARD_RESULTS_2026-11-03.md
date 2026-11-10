@@ -1,3 +1,5 @@
+> 과거 실행 기록: 당시 시나리오와 결과를 보존한다. 현재 CPU 경합 구조는 README를 참고한다. 재전송·표시 오류 데모는 제거되어 아래 재현 명령 일부는 더 이상 제공하지 않는다.
+
 # 세 보드 최종 검증 결과 · 2026-11-03
 
 Pi1 Central → Ethernet 앱 OTA → Pi2 native ARM Qt → Pi3 직접 CAN 관찰·원격 모델/QML 판정까지 실제 세 Raspberry Pi로 검증했다.

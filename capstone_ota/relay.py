@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 from .bundle import MAX_ARCHIVE, verify
 from .cluster import check_command
+from .ivi import IviDevice
 from .device import fetch
 from .process import exchange
 
@@ -67,10 +68,13 @@ def serving_release(directory, bind="127.0.0.1", advertise=None):
 def target_command(config):
     required = {"host", "checkout", "python", "root", "public_key"}
     if (not isinstance(config, dict) or not required <= config.keys()
-            or config.keys() - required - {"check_command", "initialization_only", "systemd"}
+            or config.keys() - required - {"check_command", "initialization_only", "systemd", "application"}
             or any(not isinstance(config[k], str) or not config[k] or "\x00" in config[k] for k in required)
             or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.@-]*", config["host"])):
         raise ValueError("invalid Cluster target configuration")
+    application = config.get("application", "cluster")
+    if not isinstance(application, str) or application not in {"cluster", "ivi"}:
+        raise ValueError("invalid target application")
     for key in ("checkout", "python", "root", "public_key"):
         if not config[key].startswith("/"):
             raise ValueError("target paths must be absolute")
@@ -81,7 +85,7 @@ def target_command(config):
             or (checker is None) != initial):
         raise ValueError("choose a check_command or explicit initialization_only=true")
     arguments = [config["python"], "-m", "capstone_ota", "--root", config["root"],
-                 "cluster-update", "--public-key", config["public_key"]]
+                 application + "-update", "--public-key", config["public_key"]]
     if initial:
         arguments.append("--initialization-only")
     else:
@@ -102,7 +106,9 @@ def forward(url, public_key, config, bind="127.0.0.1", advertise=None):
             command = ["ssh", "-oBatchMode=yes", "-oStrictHostKeyChecking=yes", "-oConnectTimeout=5",
                        config["host"], remote]
             try:
-                rows, _pid = exchange(command, [], timeout=300, allow_rollback=True, allow_negative_verdict=True)
+                # IVI probation can wait for standstill, then verify recovery for a second full interval.
+                deadline = 2 * IviDevice.verifier_timeout + 300 if config.get("application") == "ivi" else 300
+                rows, _pid = exchange(command, [], timeout=deadline, allow_rollback=True, allow_negative_verdict=True)
                 if len(rows) != 1 or not isinstance(rows[0], dict):
                     raise ValueError("missing Cluster status")
                 result = rows[0]
@@ -117,4 +123,4 @@ def forward(url, public_key, config, bind="127.0.0.1", advertise=None):
                     raise ValueError("invalid Cluster status")
             except (OSError, ValueError) as exc:
                 raise ValueError("Cluster outcome unconfirmed; query its status before retrying") from exc
-    return dict(result, target="cluster", transport="central-cache-http+ssh")
+    return dict(result, target=config.get("application", "cluster"), transport="central-cache-http+ssh")

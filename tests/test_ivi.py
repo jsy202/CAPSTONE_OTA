@@ -161,3 +161,11 @@ def test_v2_has_no_map_so_the_map_flag_does_nothing(tmp_path):
     finally:
         app.kill()
         app.wait()
+
+
+def test_ivi_initialization_preserves_the_signed_payload_tree(tmp_path):
+    from capstone_ota.bundle import tree_hash
+    slot = payload(tmp_path / 'readonly', 'V2')
+    before = tree_hash(slot)
+    assert run(slot, '--check').returncode == 0
+    assert tree_hash(slot) == before

@@ -124,14 +124,14 @@ def running_dashboard(payload, capture=None):
                     process.wait()
 
 
-def deliver(target, speed, counter, rpm=1500, gear=3, warnings=0, corrupt=False, following=None):
+def deliver(target, speed, counter, rpm=1500, gear=3, warnings=0, corrupt=False):
     before = snapshot(target)['generation']
     message = frame(speed, counter, rpm, gear, warnings)
     if corrupt:
         raw = bytearray.fromhex(message['data']); raw[-1] ^= 1
         message['data'] = raw.hex()
-    messages = [message] + ([frame(*following)] if following is not None else [])
-    injection = ['--frames', json.dumps(messages)] if following is not None else ['--frame', json.dumps(message)]
+    messages = [message]
+    injection = ['--frame', json.dumps(message)]
     witness = target.get('witness')
     if witness:
         witness.setblocking(False)
@@ -164,30 +164,28 @@ def deliver(target, speed, counter, rpm=1500, gear=3, warnings=0, corrupt=False,
     while time.monotonic() < deadline:
         report = snapshot(target)
         if report['generation'] >= before + len(messages):
-            if report['generation'] != before + len(messages) or report['received_counter'] != (following[1] if following is not None else counter):
+            if report['generation'] != before + len(messages) or report['received_counter'] != counter:
                 raise ValueError('unexpected extra or mismatched frame')
             return report
         time.sleep(0.005)
     raise ValueError('Cluster did not process input frame')
 
 
-def verify(target, source='buffered', cycles=3):
+def verify(target, source='latest', cycles=3):
+    if source != 'latest':
+        raise ValueError('unsupported source profile; replay display scenario was removed')
     evidence = []
     passed = True
     started = time.monotonic()
-    def sample(speed, counter, expected, following=None):
+    def sample(speed, counter, expected):
         nonlocal passed
-        actual = deliver(target, speed, counter, following=following)
+        actual = deliver(target, speed, counter)
         ok = (actual['model_speed'] == expected and actual['qml_speed'] == expected
               and actual['valid'] is True)
         passed &= ok
-        observed_speed, observed_counter = following if following is not None else (speed, counter)
-        evidence.append({'input_speed': observed_speed / 10, 'counter': observed_counter, 'expected': expected,
+        evidence.append({'input_speed': speed / 10, 'counter': counter, 'expected': expected,
                          'model': actual['model_speed'], 'qml': actual['qml_speed'], 'valid': actual['valid'],
                          'elapsed_s': round(time.monotonic() - started, 6), 'passed': ok})
-        if following is not None:
-            evidence[-1]['burst'] = [{'input_speed': speed / 10, 'counter': counter},
-                                     {'input_speed': following[0] / 10, 'counter': following[1]}]
         if not ok and sum(not row['passed'] for row in evidence) == 1:
             snapshot(target, 'capture')
     # Fixed literal oracle. V3 cannot know or choose these expected values.
@@ -198,20 +196,20 @@ def verify(target, source='buffered', cycles=3):
         time.sleep(0.65)  # Fault injection: link silence, not a fabricated invalid measurement.
         unavailable &= snapshot(target)['valid'] is False
         passed &= unavailable
-        sample(620, counter % 256, 62.0, (450, 241) if source == 'buffered' else None)
+        sample(620, counter % 256, 62.0)
         counter += 1
-        sample(650, counter % 256, 65.0, (600, 242) if source == 'buffered' else None)
+        sample(650, counter % 256, 65.0)
         counter += 1
     if passed:
         snapshot(target, 'capture')
     display_mismatch = any(row['model'] != row['expected'] or row['qml'] != row['expected'] for row in evidence)
-    error = None if passed else 'STALE_REPLAY_DISPLAY_MISMATCH' if display_mismatch else 'INPUT_FRESHNESS_FAILURE'
+    error = None if passed else 'SIGNAL_MODEL_MISMATCH' if display_mismatch else 'INPUT_FRESHNESS_FAILURE'
     return {'passed': bool(passed), 'error': error,
             'transport': target.get('transport', 'loopback UDP emulation'), 'source_profile': source, 'cycles': cycles,
             'timeout_detected': unavailable, 'pid': target.get('pid'), 'observed': evidence}
 
 
-def check_slot(slot, source='buffered', capture_dir=None):
+def check_slot(slot, source='latest', capture_dir=None):
     capture = None
     if capture_dir:
         Path(capture_dir).mkdir(parents=True, exist_ok=True)
@@ -312,7 +310,7 @@ def main():
             print(json.dumps({'passed': False, 'error': str(exc)}))
             return 1
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--source', choices=['buffered', 'latest'], default='buffered')
+    parser.add_argument('--source', choices=['latest'], default='latest')
     parser.add_argument('--capture-dir', type=Path)
     parser.add_argument('--remote', type=Path, help='Pi3 peer configuration; observe existing Qt service')
     parser.add_argument('slot', type=Path)

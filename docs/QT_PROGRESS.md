@@ -1,3 +1,5 @@
+> 현재 주 화면은 `dashboard/cockpit/Cockpit.qml`이다. 아래는 기존 범용 OTA 패널 안내이며 CPU 감시기와 구분한다.
+
 # Independent native Qt OTA progress panel
 
 The panel is a separate Qt Quick process outside application A/B slots. Replacing
@@ -13,8 +15,7 @@ malformed records show a waiting state; a nonterminal record whose updater exite
 is over 65 seconds old, or has a future timestamp shows an unconfirmed result.
 Completed records remain available after the updater exits.
 
-The first failed verifier observation remains visible through recovery: in the PC
-mixed scenario it records expected **62** and actual QML gauge **45 km/h**. A new
+The first failed verifier observation, when provided, remains visible through recovery. A new
 update clears that observation. Committed metadata and the candidate are labeled
 separately. `recovery_failed` means service restoration was not confirmed, even
 when the recorded committed version is still V2.
@@ -35,9 +36,8 @@ Build the dashboard first using [QT_CLUSTER.md](QT_CLUSTER.md#build-on-pc).
 # Observe an existing updater directory (read-only):
 dashboard/qt_progress/run --root /PATH/DEVICE_ROOT --x 1280 --y 0
 
-# Desktop presentation; choose a fresh output directory each time:
-.venv/bin/python -m demo.qt_present --scenario mixed --output .demo/qt-live-mixed
-.venv/bin/python -m demo.qt_present --scenario attack --output .demo/qt-live-attack
+# IVI security bench (no desktop presentation or CPU load):
+.venv/bin/python -m demo.ivi_attack run --output .demo/ivi-security-new
 ```
 
 Build output and the recorded Qt prefix live in ignored `.demo/progress-build`.
@@ -47,12 +47,8 @@ also be used. `CAPSTONE_QT_LIVE=1` opts verifier children into that display. Def
 tests continue to use hidden rendering. The dashboard opens at x=0 and the monitor
 at x=1280; use a display at least 1740 pixels wide for both windows.
 
-The presentation executes the real signed PC OTA scenario. On commit or successful
-rollback it reopens the accepted app and feeds 65 km/h for viewing; that final
-bench display is not evidence of target systemd provisioning. Refused recovery
-never reopens the old app. Closing the panel or pressing Ctrl-C ends the
-presentation and cleans up its children. The panel itself does not own updater
-processes. Existing output directories are refused rather than overwritten.
+The old desktop presentation and replay/display-regression scenario were removed.
+The IVI security bench exercises signed recovery protection without changing the fixed cluster.
 
 ## Verification evidence
 
@@ -65,8 +61,7 @@ Native panel tests launch the compiled C++/QML executable and read properties fr
 the loaded QML window; they do not replace it with a Python UI model. They cover
 measured percentage, missing/invalid data, stale/future timestamps, dead writer,
 successful rollback and refused recovery. They skip explicitly when the compiled
-panel is absent. Actual Qt scenario tests verify retained 62/45 evidence after V2
-recovery, alongside the existing signed two-hop compatible/mixed/attack checks.
+panel is absent. The IVI security test separately checks authentic V1 substitution refusal through signed two-hop delivery.
 
 Telemetry failure regressions cover an unwritable status file, a terminal display
 notification that must not add a verdict-affecting event write, and SIGALRM during

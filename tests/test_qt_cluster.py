@@ -24,22 +24,12 @@ def qt():
     return importlib.import_module('capstone_ota.qt_verify')
 
 
-@pytest.mark.parametrize('version', ['V1', 'V2', 'V3'])
-def test_actual_dashboard_displays_its_packaged_version(tmp_path, version):
-    slot = prepare_payload(ROOT / '.demo/qt-build/capstone-qt-cluster', tmp_path / version, 'source_counter')
-    import json
-    config = slot / 'cluster.json'
-    settings = json.loads(config.read_text())
-    settings['version'] = version
-    config.write_text(json.dumps(settings))
-    with qt().running_dashboard(slot) as target:
-        assert qt().snapshot(target)['version_label'] == version
 
 
 def test_readonly_qt_initialization_is_stable_without_accessing_user_display():
     import json,os,subprocess
     from capstone_ota.bundle import tree_hash
-    slot = default_payload('source_counter')
+    slot = default_payload()
     before = tree_hash(slot)
     environment = dict(os.environ, DISPLAY=':65530', QT_QPA_PLATFORM='xcb')
     for _ in range(12):
@@ -52,7 +42,7 @@ def test_readonly_qt_initialization_is_stable_without_accessing_user_display():
 
 def test_actual_qt_models_follow_vehicle_inputs_and_ignore_delayed_samples():
     q = qt()
-    payload = default_payload('source_counter')
+    payload = default_payload()
     with q.running_dashboard(payload) as target:
         first = q.deliver(target, speed=600, rpm=2200, gear=3, warnings=1, counter=250)
         assert first['model_speed'] == first['qml_speed'] == 60.0
@@ -69,7 +59,7 @@ def test_actual_qt_models_follow_vehicle_inputs_and_ignore_delayed_samples():
 def test_actual_qt_counter_wrap_timeout_and_recovery():
     import time
     q = qt()
-    with q.running_dashboard(default_payload('source_counter')) as target:
+    with q.running_dashboard(default_payload()) as target:
         q.deliver(target, speed=600, counter=255)
         wrapped = q.deliver(target, speed=610, counter=0)
         assert wrapped['model_speed'] == 61.0
@@ -80,19 +70,9 @@ def test_actual_qt_counter_wrap_timeout_and_recovery():
         assert recovered['qml_speed'] == 62.0
 
 
-def test_actual_qt_mixed_version_failure_is_observed_not_fabricated():
-    q = qt()
-    with q.running_dashboard(default_payload('arrival_order')) as target:
-        q.deliver(target, speed=600, counter=250)
-        q.deliver(target, speed=620, counter=251)
-        stale = q.deliver(target, speed=350, counter=249)
-        assert stale['model_speed'] == stale['qml_speed'] == 35.0
-        assert stale['pid'] != __import__('os').getpid()
-
-
 def test_invalid_crc_does_not_change_qt_display():
     q = qt()
-    with q.running_dashboard(default_payload('source_counter')) as target:
+    with q.running_dashboard(default_payload()) as target:
         q.deliver(target, speed=600, counter=250)
         report = q.deliver(target, speed=2000, counter=251, corrupt=True)
         assert report['qml_speed'] == 60.0
@@ -102,7 +82,7 @@ def test_invalid_crc_does_not_change_qt_display():
 def test_snapshot_observer_runs_as_separate_process_and_binds_candidate_identity():
     import sys
     q = qt()
-    with q.running_dashboard(default_payload('source_counter')) as target:
+    with q.running_dashboard(default_payload()) as target:
         target['observer_command'] = [sys.executable, '-m', 'capstone_ota.qt_verify',
                                       'snapshot', '--socket', target['socket']]
         assert q.deliver(target, speed=600, counter=1)['qml_speed'] == 60.0
@@ -119,7 +99,7 @@ def test_snapshot_observer_runs_as_separate_process_and_binds_candidate_identity
 def test_third_role_remote_gate_drives_source_and_observes_existing_qt(tmp_path, local_ssh):
     import sys,json,subprocess
     q = qt()
-    slot = default_payload('source_counter')
+    slot = default_payload()
     with q.running_dashboard(slot) as target:
         peer = {'host': 'cluster-test', 'checkout': str(ROOT), 'python': sys.executable}
         peers = tmp_path / 'peers.json'
@@ -135,27 +115,11 @@ def test_third_role_remote_gate_drives_source_and_observes_existing_qt(tmp_path,
         assert report['pid'] == target['pid']
 
 
-@pytest.mark.parametrize('policy,source,expected', [('source_counter', 'buffered', True),
-                                                   ('arrival_order', 'latest', True),
-                                                   ('arrival_order', 'buffered', False)])
-def test_version_combination_matrix_with_real_qt_fault_injection(policy, source, expected):
-    q = qt()
-    with q.running_dashboard(default_payload(policy)) as target:
-        report = q.verify(target, source=source, cycles=2)
-    assert report['passed'] is expected
-    assert report['timeout_detected'] is True
-    assert report['cycles'] == 2
-    if source == 'buffered':
-        originals = {240: 40.0, 241: 45.0, 242: 60.0, 243: 62.0, 244: 65.0, 245: 62.0, 246: 65.0}
-        for row in report['observed']:
-            assert row['input_speed'] == originals[row['counter']]
-
-
 def test_unrelated_bus_identifier_does_not_advance_vehicle_evidence():
     import time
     from capstone_ota.qt_source import send
     q = qt()
-    with q.running_dashboard(default_payload('source_counter')) as target:
+    with q.running_dashboard(default_payload()) as target:
         before = q.deliver(target, speed=600, counter=1)
         send({'id': 0x201, 'data': '0000000000000000'}, udp_port=target['port'])
         time.sleep(.05)
@@ -163,25 +127,12 @@ def test_unrelated_bus_identifier_does_not_advance_vehicle_evidence():
         assert q.deliver(target, speed=610, counter=2)['qml_speed'] == 61.0
 
 
-def test_qt_signed_relay_rolls_back_and_rejects_authentic_old_recovery(tmp_path):
-    runner = importlib.import_module('demo.qt_run')
-    result = runner.run(tmp_path / 'qt-chain')
-    assert result['compatible']['result'] == 'committed'
-    assert result['compatible']['version'] == '3.0.0'
-    assert result['mixed']['result'] == 'rolled_back'
-    assert result['mixed']['version'] == '2.0.0'
-    assert [r['passed'] for r in result['mixed']['verification']] == [False, True]
-    assert result['attack']['result'] == 'recovery_failed'
-    assert result['attack']['min_svn'] == 2
-    assert result['attack_evidence']['old_signature_valid'] is True
-    assert result['attack_evidence']['trusted_journal_unchanged'] is True
-    assert result['attack_evidence']['old_app_executed'] is False
 
 
 def test_local_observer_binds_existing_qt_identity_and_rejects_wrong_candidate(tmp_path, local_ssh):
     import sys
     q = qt()
-    slot = default_payload('source_counter')
+    slot = default_payload()
     with q.running_dashboard(slot) as target:
         peer = {'host': 'local-source', 'checkout': str(ROOT), 'python': sys.executable}
         config = {'cluster': {'socket': target['socket']}, 'central': peer, 'emulated_udp': True}
@@ -206,40 +157,11 @@ def test_missing_local_model_observation_is_bounded_and_fails_closed(tmp_path):
     assert time.monotonic() - started < 7
 
 
-def test_verifier_records_freshness_and_timing_for_display_failure():
+def test_normal_signal_acceptance_with_real_qt():
     q = qt()
-    with q.running_dashboard(default_payload('arrival_order')) as target:
-        report = q.verify(target, cycles=1)
-    failure = next(row for row in report['observed'] if not row['passed'])
-    assert report['error'] == 'STALE_REPLAY_DISPLAY_MISMATCH'
-    assert failure['expected'] == 62 and failure['qml'] == 45
-    assert failure['valid'] is True
-    assert failure['elapsed_s'] >= .65
-
-
-def test_single_presentation_scenario_keeps_real_failure_after_recovery(tmp_path):
-    import json
-    runner = importlib.import_module('demo.qt_run')
-    output = tmp_path / 'presentation'
-    result = runner.run(output, scenario='mixed')
-    assert result['mixed']['result'] == 'rolled_back'
-    assert 'attack' not in result and not (output / 'attack-cluster').exists()
-    progress = json.loads((output / 'mixed-cluster/progress.json').read_text())
-    assert progress['stage'] == 'rolled_back'
-    assert progress['version'] == '2.0.0'
-    assert progress['mismatch']['expected'] == 62
-    assert progress['mismatch']['qml'] == 45
-
-
-@pytest.mark.parametrize('policy,expected', [('source_counter', 62), ('arrival_order', 45)])
-def test_fresh_and_retained_frames_are_injected_as_one_timed_burst(policy, expected):
-    q = qt()
-    with q.running_dashboard(default_payload(policy)) as target:
-        q.deliver(target, 400, 240)
-        q.deliver(target, 450, 241)
-        before = q.deliver(target, 600, 242)['generation']
-        report = q.deliver(target, 620, 243, following=(450, 241))
-        assert report['generation'] == before + 2
-        assert report['received_counter'] == 241
-        assert report['model_speed'] == report['qml_speed'] == expected
-        assert report['valid'] is True
+    with q.running_dashboard(default_payload()) as target:
+        report = q.verify(target, cycles=2)
+    assert report['passed'] is True
+    assert report['timeout_detected'] is True
+    assert report['source_profile'] == 'latest'
+    assert report['cycles'] == 2

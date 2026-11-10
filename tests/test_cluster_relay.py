@@ -342,3 +342,31 @@ def test_first_observed_mismatch_identity_is_not_taken_from_an_earlier_timeout(k
     data=json.loads((root/'progress.json').read_text())
     assert data['mismatch']['qml']==35
     assert data['mismatch_slot']=='A' and data['mismatch_version']=='2.0.0'
+
+
+def test_relay_can_select_ivi_without_changing_the_cluster():
+    from capstone_ota.relay import target_command
+    config = {'host': 'cockpit', 'checkout': '/runtime', 'python': '/runtime/python',
+              'root': '/opt/capstone-ivi/device', 'public_key': '/keys/update.pub',
+              'initialization_only': True, 'application': 'ivi'}
+    assert 'ivi-update' in target_command(config)
+    config['application'] = 'unknown'
+    with pytest.raises(ValueError, match='application'):
+        target_command(config)
+
+
+def test_ivi_forward_deadline_covers_trial_and_recovery_checks(releases, keys, tmp_path, local_ssh, monkeypatch):
+    from capstone_ota import relay
+    from capstone_ota.ivi import IviDevice
+    original = relay.exchange
+    deadlines = []
+    def observe_deadline(*args, **kwargs):
+        deadlines.append(kwargs['timeout'])
+        return original(*args, **kwargs)
+    monkeypatch.setattr(relay, 'exchange', observe_deadline)
+    config = {'host': 'cockpit', 'checkout': str(Path(__file__).resolve().parents[1]),
+              'python': sys.executable, 'root': str(tmp_path / 'ivi'), 'public_key': str(keys[1]),
+              'initialization_only': True, 'application': 'ivi'}
+    with serving(releases) as origin:
+        assert relay.forward(origin + '/v2', keys[1], config)['result'] == 'committed'
+    assert deadlines[0] > 2 * IviDevice.verifier_timeout

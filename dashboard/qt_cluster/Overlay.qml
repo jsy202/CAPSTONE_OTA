@@ -18,19 +18,4 @@ Item {
                   : "NO FRESH VEHICLE DATA"
         }
     }
-    Rectangle {
-        visible: false  // the digital cluster is not versioned in the IVI scenario; keep the object for snapshots
-        width: 100; height: 44
-        anchors.right: parent.right; anchors.bottom: parent.bottom
-        anchors.rightMargin: 16; anchors.bottomMargin: 12
-        radius: 8
-        color: capstoneVersion === "V1" ? "#7354a5" : capstoneVersion === "V2" ? "#2164c3" : "#a8500c"
-        Text {
-            objectName: "capstoneVersionLabel"
-            anchors.centerIn: parent
-            text: capstoneVersion
-            textFormat: Text.PlainText
-            color: "white"; font.pixelSize: 28; font.bold: true
-        }
-    }
 }

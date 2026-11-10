@@ -87,11 +87,6 @@ int main(int argc, char **argv) {
         const int i = args.indexOf(name);
         return i >= 0 && i + 1 < args.size() ? args[i + 1] : fallback;
     };
-    QFile config(QCoreApplication::applicationDirPath() + "/../cluster.json");
-    if (!config.open(QIODevice::ReadOnly)) return 2;
-    const auto settings = QJsonDocument::fromJson(config.readAll()).object();
-    const auto policy = settings.value("policy").toString();
-    if (policy != "source_counter" && policy != "arrival_order") return 2;
     SpeedometerModel speed;
     speed.setMinValue(0); speed.setMaxValue(220); speed.setUnits("km/h"); speed.setTopUnits("°C");
     TachometerModel rpm;
@@ -105,7 +100,6 @@ int main(int argc, char **argv) {
     // The engine must be destroyed before the models its bindings observe.
     QQmlApplicationEngine engine;
     auto context = engine.rootContext();
-    context->setContextProperty("capstoneVersion", settings.value("version").toString("DEV"));
     context->setContextProperty("speedoModel", &speed);
     context->setContextProperty("rpmModel", &rpm);
     context->setContextProperty("tempFuelModel", &temp);
@@ -177,7 +171,7 @@ int main(int argc, char **argv) {
         const int counter = quint8(data[6]);
         const int delta = (counter - last + 256) % 256;
         if (value > 3000 || revs > 9000 || quint8(data[4]) > 6
-                || (policy == "source_counter" && last >= 0 && (delta == 0 || delta >= 128))) {
+                || (last >= 0 && (delta == 0 || delta >= 128))) {
             ++rejected; return;
         }
         last = counter;
@@ -237,8 +231,6 @@ int main(int argc, char **argv) {
                     if (!path.isEmpty()) window->grabWindow().save(path);
                 }
                 QJsonObject out{{"nonce", input.value("nonce")}, {"pid", int(QCoreApplication::applicationPid())},
-                    {"version_label", findVisual(window->contentItem(), "capstoneVersionLabel")
-                        ? findVisual(window->contentItem(), "capstoneVersionLabel")->property("text").toString() : QString()},
                     {"ui_ready", uiReady()},
                     {"model_speed", speed.currentValue()}, {"qml_speed", findVisual(window->contentItem(), "capstoneSpeedNeedle")
                         ? findVisual(window->contentItem(), "capstoneSpeedNeedle")->property("value").toDouble() : -1.0},
@@ -246,7 +238,7 @@ int main(int argc, char **argv) {
                     {"warning", panel->property("displayedWarning").toBool()}, {"valid", panel->property("displayedValid").toBool()},
                     {"source_counter", last}, {"received_counter", received}, {"generation", generation}, {"rejected", rejected},
                     {"executable", QCoreApplication::applicationFilePath()},
-                    {"udp_port", int(udp.localPort())}, {"policy", policy}};
+                    {"udp_port", int(udp.localPort())}};
                 client->write(QJsonDocument(out).toJson(QJsonDocument::Compact) + '\n');
                 client->disconnectFromServer();
             });

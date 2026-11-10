@@ -5,7 +5,7 @@
 독립된 Pi3가 CAN 입력과 클러스터 처리 응답을 직접 관찰한다.
 
 현재 대표 시나리오는 **IVI CPU 경합으로 인한 자원·타이밍 호환성 문제**다.
-이전의 CAN 재전송·표시 회귀와 복구 슬롯 바꿔치기 시나리오도 보조 시험으로 남겨 두었다.
+이전 CAN 재전송·표시 오류 시나리오는 제거했다. 복구 슬롯 바꿔치기 공격 시험은 유지하며 IVI 패키지로 검증한다.
 
 ## 왜 검증하는가
 
@@ -38,6 +38,7 @@ Pi1 Central ── 검증·중계 ──▶ Pi2 Cockpit
 - 실제 장치: Raspberry Pi 세 대, MCP2515 HAT(12MHz 발진기), `can0` 500kbit/s.
 - OTA 파일은 LAN으로, 차량 입력과 처리 응답은 CAN으로 전달한다.
 - **업데이트·롤백 대상은 IVI다.** Central과 클러스터는 이 시나리오에서 교체하지 않는다.
+- 클러스터는 **버전·색상·수신 정책 분기가 없는 단일 구현**이다. V1·V2·V3는 IVI 릴리스 구분이다.
 - **A/B는 앱 디렉터리 두 개**다. OS 파티션·커널·부트로더 OTA가 아니다.
 - 릴리스는 `release.json`, `release.sig`, `app.tar.gz`로 구성한다.
   Ed25519 서명·파일 해시·복구 앱 트리 해시 확인과 기존 A/B 복구 경로를 재사용한다.
@@ -103,6 +104,7 @@ Pi1 Central ── 검증·중계 ──▶ Pi2 Cockpit
 Pi2의 [통합 콕핏 화면](dashboard/cockpit/Cockpit.qml)은 클러스터 캡처, IVI 화면,
 A/B 슬롯, Pi3 판정, 지연과 이벤트 로그를 보여준다.
 큰 지연 숫자는 Pi2의 빠른 로컬 버스 관측이고 **롤백 판정은 별도 Pi3 결과**를 사용한다.
+응답 대기 중인 프레임이 길게 쌓이면 그 대기 시간의 하한도 표시값에 반영한다.
 화면은 표시용이며 독립 검증기를 대체하지 않는다.
 
 부하 실험·측정기 간섭·정차 판정·리셋 경쟁 상태 등의 실패와 수정 과정은
@@ -141,32 +143,43 @@ python3 -m venv .venv
 .venv/bin/python -m pytest -q
 ```
 
-2026-11-10 푸시 전 로컬 결과는 **262 passed, 10 skipped**다.
-10개 skip은 `--hardware-config`가 필요한 기존 실보드 전용 시험이다.
+2026-11-10 시나리오 정리 후 로컬 결과는 **258 passed, 9 skipped (95.71s)**다.
+고정 클러스터 C++/Qt 빌드와 IVI 공격 시험을 포함하며, `--hardware-config` 없는 실행은 실보드 전용 시험을 제외한다.
 컴파일된 Qt 앱이 없으면 Qt 관련 시험도 skip되므로 Python 시험 통과만으로 Qt 검증을 주장하면 안 된다.
 이번 로컬 시험은 과거 실보드 측정을 새로 수행했다는 뜻이 아니다.
 Qt 빌드와 기존 보드 설정은 [QT_CLUSTER.md](docs/QT_CLUSTER.md),
 [THREE_BOARD_SETUP.md](docs/THREE_BOARD_SETUP.md)를 참고한다.
 새 IVI·감시기의 보드 서비스 설정까지 자동 설치하는 단일 명령은 제공하지 않는다.
+이번 단일 클러스터 정리는 보드에 배포하지 않았다. 실보드 적용·하드웨어 시험 전 새 ARM 바이너리를 재빌드해야 하며,
+`cluster.json`을 요구하는 옛 바이너리는 새 고정 payload와 호환되지 않는다.
 
-## 이전 시나리오와 보조 보안 시험
+## 복구 슬롯 바꿔치기 공격 시험
 
-다음 구현은 삭제하지 않았다. **현재 CPU 경합 시나리오와 별도인 기존 검증 경로**다.
+IVI V2를 정상 설치하고 V3를 시험 설치한 뒤, 시험 코드가 복구 슬롯을 **정식 서명된 IVI V1**으로
+바꾼다. 신뢰 상태 기록은 그대로 유지한다. 시험용 실패 판정으로 복구를 요청하면 기록된 V2 앱 트리
+해시와 달라 V1 실행 전에 `recovery_failed`로 차단한다. 이전 표시 오류를 이용하지 않는다.
 
-| 시험 | 내용 | 코드·기록 |
-|---|---|---|
-| CAN 재전송·표시 회귀 | V3가 도착 순서대로 과거 프레임을 반영해 기대 62 대신 45 표시. V2는 원본 카운터로 과거 프레임 거부 | [qt_verify.py](capstone_ota/qt_verify.py), [qt_run.py](demo/qt_run.py), [기존 Qt 안내](docs/QT_CLUSTER.md) |
-| 정식 V1 복구 슬롯 바꿔치기 | 시험 코드가 복구 슬롯의 V2를 유효 서명의 V1으로 교체. 기록된 앱 트리 해시와 달라 실행 전 차단 | [실보드 시험](tests/hardware/test_physical_can.py), [기존 결과](docs/THREE_BOARD_RESULTS_2026-11-03.md) |
-| 전송·검증 기반 기능 | 실제 HTTP 전송, 서명·해시 확인, 앱 A/B, 외부 검증 실패 시 복구 | [CLUSTER_OTA.md](docs/CLUSTER_OTA.md), [검증 안내](docs/VERIFICATION_RUNBOOK.md) |
+```bash
+# 새 출력 폴더 사용. 실제 HTTP 두 구간, SSH는 로컬 실행 대역.
+.venv/bin/python -m demo.ivi_attack run --output .demo/ivi-security-new
+.venv/bin/python -m pytest -q tests/test_ivi_attack.py
+```
 
-기존 재전송은 시험기가 주입한 합성 입력이며 실제 Central의 버퍼 결함 재현은 아니다.
-V1 시험은 제어된 파일 교체이며 실제 침입·취약점 악용은 아니다. V1 차단 뒤 자동 서비스 복원도 없다.
-V1 공격 시험을 새 IVI CPU 경합 경로와 통합해서 다시 검증한 것은 아니다.
-`demo.qt_run`과 기존 하드웨어 시나리오를 실행하면 이 예전 시험이 실행된다.
+이 시험은 IVI의 실제 초기화·서명·해시·A/B·복구 검사를 실행하며 클러스터를 만들거나 교체하지 않는다.
+**롤백 계기는 명시적인 시험용 판정**이며 CPU 이상을 실제 측정한 결과가 아니다.
+CPU 경합 감시와 V1 바꿔치기를 합친 실보드 연속 시연은 이번 변경에서 검증하지 않았다.
+정상 대조군도 초기화 경로만 검사하며 정상 CPU 호환성을 입증하지 않는다.
+실제 침입·V1 취약점 악용은 아니며 V1 차단 뒤 자동 서비스 복원은 없다.
 
-[Qt 진행 패널](docs/QT_PROGRESS.md), [이전 패널 결과](docs/VISUAL_MONITOR_RESULTS_2026-11-04.md),
+이전 `demo.qt_run`, `demo.qt_present`, `mixed` 표시 오류 시나리오와 그 전용 회귀 시험은 제거했다.
+정상 CAN 수신·카운터·CRC·신선도·관찰자 신원 검사는 유지한다.
+[실보드 기반 시험](tests/hardware/test_physical_can.py)의 기존 OTA/공격 항목은 고정 클러스터 바이너리를
+이용하는 전송·보안 인프라 회귀 시험이다. 현재 IVI CPU 시나리오의 실보드 자동화로 해석하지 않는다.
+
+[과거 실보드 결과](docs/THREE_BOARD_RESULTS_2026-11-03.md),
+[이전 패널 결과](docs/VISUAL_MONITOR_RESULTS_2026-11-04.md),
 [초기 가상 시험](docs/VIRTUAL_COMPATIBILITY.md), [architecture.html](docs/architecture.html)은
-이전 경로의 자료다. 새 CPU 경합 구조의 안내와 구분한다.
+변경 전의 역사적 기록이다. 삭제된 시나리오 설명·명령이 포함되어 현재 실행 안내로 사용하면 안 된다.
 초기 MQTT 구현은 [legacy/](legacy/ARCHIVE.md)에 보존되어 있다.
 
 ## 현재 한계와 남은 일

@@ -100,10 +100,9 @@ class PhysicalBench:
         pub = private.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
         self.put(self.cluster, self.public, pub, root=True, mode='644')
         self.put(self.central, self.runtime + '/' + self.run_id + '.pub', pub, mode='644')
-        for label, version, svn, policy in [('v1', '1.0.0', 1, 'arrival_order'),
-                                           ('v2', '2.0.0', 2, 'source_counter'),
-                                           ('v3', '3.0.0', 2, 'arrival_order')]:
-            slot = payload(self.binary, Path(self.secrets.name) / label, policy, label.upper())
+        for label, version, svn in [('v1', '1.0.0', 1), ('v2', '2.0.0', 2), ('v3', '3.0.0', 2)]:
+            slot = payload(self.binary, Path(self.secrets.name) / label)
+            (slot / 'bench-release.txt').write_text(label)
             app = slot / 'bin/app'
             text = app.read_text().replace('set -eu', 'set -eu\nif [ "${1:-}" = "--check" ]; then id -u >> '
                                           + shlex.quote(self.uid_log) + '; fi', 1)
@@ -182,7 +181,7 @@ class PhysicalBench:
     def put_observer(self, path, spec):
         self.put(self.verifier or self.cluster, path, json.dumps(spec).encode(), root=not self.verifier)
 
-    def new_device(self, case, source='buffered', missing=False, attack=False):
+    def new_device(self, case, source='latest', missing=False, attack=False):
         device = self.base + '/' + case + '/device'
         observer = self.observer_config(missing)
         observer_path = '/opt/capstone-cluster/configs/' + self.run_id + '-' + case + '.json'
@@ -223,8 +222,10 @@ class PhysicalBench:
         return {'exit_code': p.returncode, 'status': status}
 
     def scenario(self, name):
+        if name not in {'compatible', 'attack', 'missing-evidence', 'missing-witness'}:
+            raise ValueError('unknown hardware scenario')
         case = name + '-' + uuid.uuid4().hex[:6]
-        device, config, observer = self.new_device(case, source='latest' if name == 'compatible' else 'buffered',
+        device, config, observer = self.new_device(case, source='latest',
                                                    attack=name == 'attack')
         baseline = self.forward('v2', config)
         if baseline['status']['result'] != 'committed':
@@ -240,8 +241,6 @@ class PhysicalBench:
         result = {'device': device, 'baseline': baseline, 'candidate': candidate, 'progress': progress}
         if name == 'attack':
             result['old_app_executed'] = self.cluster.run('test -e ' + shlex.quote(self.old_marker), check=False).returncode == 0
-        if name == 'mixed' and candidate['status']['result'] == 'rolled_back':
-            self.last_good = (device, observer)
         self.record('SCENARIO-' + case, result)
         return result
 
@@ -276,7 +275,11 @@ class PhysicalBench:
 
     def select_good(self):
         if self.last_good is None:
-            self.scenario('mixed')
+            device, config, observer = self.new_device('normal-' + uuid.uuid4().hex[:6])
+            baseline = self.forward('v2', config)
+            if baseline['status']['result'] != 'committed':
+                raise AssertionError(baseline)
+            self.last_good = (device, observer)
         device, observer = self.last_good
         self.root("from pathlib import Path\nimport subprocess\nsubprocess.run(['systemctl','stop','capstone-cluster.service'],check=True)\nPath('/opt/capstone-cluster/selected-device').write_text("+repr(device+'\n')+")\nsubprocess.run(['systemctl','start','capstone-cluster.service'],check=True)\n")
         return device, observer
@@ -296,7 +299,7 @@ class PhysicalBench:
  time.sleep(.65)
  assert snapshot(t)['valid'] is False
  e=deliver(t,620,1)
- assert e['valid'] is True and e['qml_speed']==62 and e['version_label']=='V2'
+ assert e['valid'] is True and e['qml_speed']==62
  print(json.dumps({'passed':True,'checks':['speed/model/QML','RPM','gear','warning','CRC','255-to-0 wrap','stale replay','timeout','fresh recovery'],'final':e}))
 '''
         result = (self.verifier.run(shlex.join([self.python, '-']), data=code)
@@ -376,7 +379,7 @@ class PhysicalBench:
                 code = "import json\nfrom capstone_ota.qt_verify import socket_request\nprint(json.dumps(socket_request('/run/capstone-cluster/model.sock',{'op':'snapshot','nonce':'bench-cleanup'})))\n"
                 result = self.root(code)
                 state = json.loads(result.stdout)
-                if not state.get('valid') or state.get('qml_speed') != 65 or state.get('version_label') != 'V2':
+                if not state.get('valid') or state.get('qml_speed') != 65:
                     raise ValueError('normal V2 demo cleanup did not produce fresh 65 km/h')
                 self.record('BENCH-CLEANUP', {'operator_cleanup': True, 'device': device,
                                             'snapshot': state, 'automatic_attack_recovery': False})
