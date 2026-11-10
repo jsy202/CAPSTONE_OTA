@@ -14,6 +14,7 @@
 #include <QFile>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QDateTime>
 #include <QTimer>
 #include <QTextStream>
 #include <csignal>
@@ -60,6 +61,22 @@ static quint8 crc8(QByteArray bytes) {
         for (int i = 0; i < 8; ++i) value = value & 128 ? (value << 1) ^ 7 : value << 1;
     }
     return value;
+}
+
+// Status echo (CAN 0x300) so an independent observer can time how long this ECU took to process a
+// vehicle frame: >H displayed speed (tenths), B source counter, B flags (bit0 valid), B start id,
+// two zero bytes, CRC8 over those seven bytes plus data id 00 31. Non-blocking: if the TX queue is
+// full this status frame is simply dropped.
+static void sendEcho(int fd, int speedTenths, int counter, bool valid, quint8 startId) {
+    if (fd < 0) return;
+    can_frame out{};
+    out.can_id = 0x300; out.can_dlc = 8;
+    out.data[0] = quint8(speedTenths >> 8); out.data[1] = quint8(speedTenths);
+    out.data[2] = quint8(counter); out.data[3] = valid ? 1 : 0; out.data[4] = startId;
+    const QByteArray head(reinterpret_cast<const char *>(out.data), 7);
+    out.data[7] = crc8(head + QByteArray::fromHex("0031"));
+    const ssize_t sent = ::write(fd, &out, sizeof(out));
+    (void)sent;
 }
 
 int main(int argc, char **argv) {
@@ -146,6 +163,8 @@ int main(int argc, char **argv) {
     if (!control.listen(socketPath)) return 2; // Never unlink an existing socket owned by another app.
     QElapsedTimer age;
     int last = -1, received = -1, generation = 0, rejected = 0;
+    int can = -1;  // SocketCAN fd, also used to transmit the 0x300 status echo
+    const quint8 startId = quint8(QDateTime::currentSecsSinceEpoch() & 0xFF);
     auto consume = [&](int identifier, const QByteArray &data) {
         if (identifier != 0x200) return;
         ++generation;
@@ -167,9 +186,9 @@ int main(int argc, char **argv) {
         state.gear = quint8(data[4]); state.valid = true;
         warning->setOn(quint8(data[5]) & 1);
         age.restart(); emit state.changed();
+        sendEcho(can, qRound(speed.currentValue() * 10), counter, state.valid, startId);
     };
     QUdpSocket udp;
-    int can = -1;
     QSocketNotifier *canNotifier = nullptr;
     if (args.contains("--udp-port")) {
         bool ok = false; int port = argument("--udp-port").toInt(&ok);

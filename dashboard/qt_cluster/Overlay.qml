@@ -19,6 +19,7 @@ Item {
         }
     }
     Rectangle {
+        visible: false  // the digital cluster is not versioned in the IVI scenario; keep the object for snapshots
         width: 100; height: 44
         anchors.right: parent.right; anchors.bottom: parent.bottom
         anchors.rightMargin: 16; anchors.bottomMargin: 12

@@ -7,6 +7,7 @@ import sys
 from .bundle import pack
 from .device import Device
 from .cluster import ClusterDevice, check_command
+from .ivi import IviDevice
 from .relay import forward
 
 
@@ -31,6 +32,13 @@ def main(argv=None) -> int:
     validation.add_argument("--check-command", help="trusted external command as a JSON argument array; slot path appended")
     validation.add_argument("--initialization-only", action="store_true")
     target.add_argument("--systemd", action="store_true", help="first-install opt-in to capstone-cluster.service")
+    ivi = commands.add_parser("ivi-update", help="install/recover the IVI app on this Cockpit board")
+    ivi.add_argument("url", nargs="?")
+    ivi.add_argument("--public-key", type=Path)
+    ivi_validation = ivi.add_mutually_exclusive_group(required=True)
+    ivi_validation.add_argument("--check-command", help="trusted probation command as a JSON argument array; slot path appended")
+    ivi_validation.add_argument("--initialization-only", action="store_true")
+    ivi.add_argument("--systemd", action="store_true", help="first-install opt-in to capstone-ivi.service")
     relay = commands.add_parser("forward", help="Central verifies/caches a release and sends it to Cluster")
     relay.add_argument("url")
     relay.add_argument("--public-key", required=True, type=Path, help="Central's trusted PUBLIC update key")
@@ -44,9 +52,9 @@ def main(argv=None) -> int:
             result = pack(args.payload, args.output, args.version, args.svn, args.key)
         elif args.command == "update":
             result = Device(args.root).update(args.url, args.public_key, args.systemd)
-        elif args.command == "cluster-update":
+        elif args.command in ("cluster-update", "ivi-update"):
             checker = check_command(json.loads(args.check_command)) if args.check_command is not None else None
-            device = ClusterDevice(args.root, checker)
+            device = (IviDevice if args.command == "ivi-update" else ClusterDevice)(args.root, checker)
             try:
                 result = device.update(args.url, args.public_key, args.systemd)
             except (OSError, ValueError) as exc:
@@ -59,7 +67,7 @@ def main(argv=None) -> int:
             result = forward(args.url, args.public_key, json.loads(args.target.read_text()), args.bind, args.advertise)
         else:
             result = Device(args.root).status()
-        print(json.dumps(result, indent=None if args.command == "cluster-update" else 2, sort_keys=True))
+        print(json.dumps(result, indent=None if args.command in ("cluster-update", "ivi-update") else 2, sort_keys=True))
         return (1 if result.get("result") == "recovery_failed" else
                 2 if result.get("result") in {"rolled_back", "failed"} else 0)
     except (OSError, ValueError) as exc:

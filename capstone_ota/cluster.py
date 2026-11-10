@@ -13,6 +13,9 @@ def check_command(value):
 
 
 class ClusterDevice(Device):
+    service_name = "capstone-cluster.service"   # subclasses manage another service with the same A/B logic
+    verifier_timeout = 60                        # seconds an external verifier may take
+
     def __init__(self, root, verifier_command=None):
         super().__init__(root)
         self.verifier_command = check_command(verifier_command) if verifier_command is not None else None
@@ -25,7 +28,7 @@ class ClusterDevice(Device):
         return super()._check_arguments(app)
 
     def _service(self, action):
-        return subprocess.run(["systemctl", action, "capstone-cluster.service"], timeout=10,
+        return subprocess.run(["systemctl", action, self.service_name], timeout=10,
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
 
     def _activate(self, slot, state):
@@ -41,7 +44,7 @@ class ClusterDevice(Device):
         stage = "recheck" if recovering else "verify"
         self._progress(stage, verified_slot=None, observation=None)
         try:
-            rows, _pid = exchange([*self.verifier_command, str(self._slot(slot))], [], timeout=60,
+            rows, _pid = exchange([*self.verifier_command, str(self._slot(slot))], [], timeout=self.verifier_timeout,
                                   allow_negative_verdict=True)
             if (len(rows) != 1 or not isinstance(rows[0], dict)
                     or type(rows[0].get("passed")) is not bool):
