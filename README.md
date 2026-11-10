@@ -1,175 +1,185 @@
 # 다중 ECU 환경에서의 OTA 소프트웨어 호환성 검증 및 자동 롤백 시스템
 
-**CAPSTONE_OTA**는 디지털 클러스터 앱을 OTA로 설치하고, 시험 입력에 대한 실제
-Qt 모델·QML 게이지 값을 검증한 뒤 업데이트를 확정하거나 이전 앱으로 되돌리는 프로젝트다.
-복구 슬롯이 과거 정식 이미지로 바뀌어 있으면 실행 전에 거부하는 공격 시험도 포함한다.
+**CAPSTONE_OTA**는 IVI 업데이트가 같은 보드의 디지털 클러스터와 CPU를 두고 경합하여
+클러스터 처리를 늦추는 상황을 감지하고, 이전 IVI 앱으로 자동 롤백하는 Raspberry Pi 프로젝트다.
+독립된 Pi3가 CAN 입력과 클러스터 처리 응답을 직접 관찰한다.
 
-현재는 **실제 Raspberry Pi 세 대에서 Ethernet OTA → CAN 입력 → Pi3 직접 관찰 → native ARM Qt 판정 → V2 롤백 → 정식 V1 바꿔치기 차단**까지 시험했다. MCP2515(12MHz), can0 500kbit/s, systemd 서비스를 사용한다. 표시값은 Cluster의 모델/QML 소켓에서 읽으며 독립 카메라·픽셀 검증은 아니다.
+현재 대표 시나리오는 **IVI CPU 경합으로 인한 자원·타이밍 호환성 문제**다.
+이전의 CAN 재전송·표시 회귀와 복구 슬롯 바꿔치기 시나리오도 보조 시험으로 남겨 두었다.
 
-2026-11-03 [세 보드 실행 결과](docs/THREE_BOARD_RESULTS_2026-11-03.md): PC137개 통과(hardware 선택 전용10개 skip), 실제 세 보드10개 통과. [지연 원인 분석](docs/THREE_BOARD_LATENCY_RCA.md), [세 보드 설정](docs/THREE_BOARD_SETUP.md), [테스트케이스](docs/TEST_CASES.md), [도구 안내](docs/VERIFICATION_RUNBOOK.md)에 과정과 재현 명령을 기록했다. pytest/JUnit/Allure, coverage, can-utils, tcpdump/tshark 증적을 수집하며 PNG는 Xvfb 캡처다.
+## 왜 검증하는가
 
-큰 기준값/실제값 비교와 A/B 슬롯·복구 경로를 보여주는 [Qt 검증 패널](docs/QT_PROGRESS.md)을 추가했다. 실제 Pi2 기록을 노트북에서 읽으며, 복구 후 첫 실패 기록과 정상 재검증 결과를 구분한다. [이번 패널 검증 결과](docs/VISUAL_MONITOR_RESULTS_2026-11-04.md)는 PC148개 통과(하드웨어10개 skip), 실제 세 보드10개 통과다.
+업데이트한 앱 자체가 실행된다고 기존 기능과 함께 정상 동작한다는 뜻은 아니다.
+같은 컴퓨팅 자원을 공유하면 새 기능의 CPU 사용과 실행 우선순위가 기존 기능의 응답 시간을
+깨뜨릴 수 있다. 이 프로젝트는 설치 직후의 실행 확인에 더해, 시험 운영 기간 동안 기존
+클러스터의 처리 지연·끊김을 감시하고 문제가 지속되면 업데이트한 IVI를 되돌리는 흐름을 구현한다.
 
-## 전체 구조
+Pi2의 IVI와 클러스터는 **한 Linux 보드에서 실행되는 별도 앱/서비스**다.
+물리적으로 분리된 두 ECU가 아니라 통합 콕핏의 공유 자원 환경을 모사한다.
+특정 제조사의 실제 결함이나 양산 시스템을 재현했다고 주장하지 않는다.
 
-```text
-노트북: 서명된 Cluster 앱 릴리스 제공
-  │ HTTP
-  ▼
-Pi 1 · Central: 서명·해시 검증 → 임시 캐시 → Cluster에 전달
-  │ HTTP 파일 전송 + SSH 설치 명령
-  ▼
-Pi 2 · Cluster: 자체 검증 → 앱 A/B 시험 설치 → 실제 Qt 계기판 실행
-  │                                       ├─ PASS: 새 앱 확정
-  │                                       └─ FAIL: 이전 앱 무결성 확인 → 복원·재검증
-  │
-Verifier: 시험 입력 지시 + CAN 직접 관찰 + Cluster의 Qt 모델·QML 값 확인
-          현재 실물 시험: Pi 3에서 직접 CAN 관찰, Pi 2 모델/QML은 SSH로 읽음
-```
-
-- **업데이트 파일**은 LAN으로 전달한다. CAN은 Central → Cluster 차량 데이터용이다.
-- **A/B는 앱 디렉터리 두 개**다. OS 파티션 OTA나 재부팅 기반 복구가 아니다.
-- Central은 Cluster 릴리스를 전달하며, 이 과정에서 Central 자신의 앱은 교체하지 않는다.
-- 검증기는 별도 프로세스/장치지만 표시 결과는 **Cluster 소프트웨어가 제공하는 관찰값**을
-  읽는다. 독립 카메라·픽셀 검증이나 악성 Cluster의 허위 보고 방어는 아니다.
-
-PC 전체 데모는 실제 HTTP 두 구간과 실제 Qt를 사용한다. SSH는 로컬 명령 실행기로,
-CAN은 UDP 루프백으로 대체한다. 실제 장치 세 대를 시험했다는 의미는 아니다.
-
-## 현재 시험 시나리오
-
-### 1. 지연·재전송 입력에서 표시 오류 검출
-
-검증기가 고정 합성 CAN 프레임을 송신하도록 지시한다. ID는 `0x200`이고,
-속도·RPM·기어·경고·카운터·CRC를 담은 8바이트다.
-
-1. 카운터 240/241/242로 40 → 45 → 60 km/h를 보낸다.
-2. **650ms 동안 송신을 멈춰** Cluster의 500ms 입력 유효 시간 초과를 확인한다.
-3. Central의 한 명령에서 새 프레임 `243 / 62 km/h` 뒤10ms 간격으로 원래 프레임 `241 / 45 km/h`를 재전송한다.
-4. 같은 방식으로 `244 / 65 km/h` 뒤에 원래 프레임 `242 / 60 km/h`를 재전송한다. Pi3는 각 쌍의 두 raw프레임과 Qt generation+2를 확인한다.
-5. 단절·복구를 총 세 번 반복한다. 새 카운터는 증가하고 과거 프레임은 그대로 유지한다.
-
-과거 데이터도 CRC가 정상이다. 잘못된 숫자를 넣거나 앱 내부에서 강제 FAIL을 만드는
-대신, **최신 값이 유지되어야 하는데 과거 값으로 덮이는지** 확인한다.
-
-| 입력과 앱 조합 | 실제 동작 | OTA 결과 |
-|---|---|---|
-| 최신 프레임만 전달 + V3 | 기대 표시와 일치 | `committed`: V3 확정 |
-| 과거 프레임 재전송 + V3 | 기대 62 대신 45 표시 | V3 거부 → V2 복원·재검증 |
-| 동일 재전송 + V2 | 과거 프레임 무시, 62 유지 | `rolled_back`: V2 복구 확인 |
-
-V2는 `source_counter`로 오래된 프레임을 거르고, V3는 `arrival_order`로 도착 순서대로
-반영한다. 현재 두 버전은 **같은 실행 파일에 서로 다른 정책 설정을 넣은 시험용 릴리스**다.
-화면 오른쪽 아래는 V1 보라색, V2 파란색, V3 주황색으로 구분한다.
-
-**시나리오의 한계:** 재전송은 검증기가 주입하며 실제 Central 버퍼 기능은 구현하지 않았다.
-CAN 컨트롤러가 자동으로 과거 값을 재생한다는 가정도 아니다. 현재 직접 입증한 것은
-지연·재전송 입력에 대한 수신 처리 회귀다. 이를 대표 ECU 호환성 사례로 유지·보완할지는
-재검토 중이다. 실제 ECU 조합 비호환이나 일주일 사용 후 버그를 입증했다고 주장하지 않는다.
-
-### 2. 복구 슬롯의 정식 V1 바꿔치기 차단
+## 현재 구조
 
 ```text
-A = 정상 V2, B = 시험 V3
-        ↓ V3 표시 불일치 검출
-시험 코드가 복구 슬롯 A를 정식 서명된 V1으로 교체
-        ↓ 신뢰 상태 기록은 그대로 유지
-복구 전 기록된 V2 앱 트리 해시와 실제 파일 비교
-        ↓ 불일치
-V1 실행 전 거부 → recovery_failed
+노트북: 서명된 앱 릴리스 제공
+  │ LAN 파일 전송
+  ▼
+Pi1 Central ── 검증·중계 ──▶ Pi2 Cockpit
+  │                          ├─ 디지털 클러스터: CAN 수신 → Qt 모델 반영 → 0x300 응답
+  │                          └─ IVI: 앱 A/B 시험 설치 → 시험 운영 → 확정 또는 롤백
+  │ CAN 0x200 차량 입력                              ▲
+  └───────────────── CAN 버스 ──────────────────────┤
+                            │                      │ 판정 조회(SSH)
+                            ▼                      │
+                     Pi3 Verifier ─────────────────┘
+                     0x200·0x300 직접 수신 → 지연·끊김 판정
 ```
 
-시험은 V1의 서명이 유효하고 신뢰 기록이 바뀌지 않았음을 확인한다. V1 실행 시 생성되는
-표식이 없다는 것도 확인한다. 직접적인 차단 원인은 `recovery application tree hash mismatch`다.
+- 실제 장치: Raspberry Pi 세 대, MCP2515 HAT(12MHz 발진기), `can0` 500kbit/s.
+- OTA 파일은 LAN으로, 차량 입력과 처리 응답은 CAN으로 전달한다.
+- **업데이트·롤백 대상은 IVI다.** Central과 클러스터는 이 시나리오에서 교체하지 않는다.
+- **A/B는 앱 디렉터리 두 개**다. OS 파티션·커널·부트로더 OTA가 아니다.
+- 릴리스는 `release.json`, `release.sig`, `app.tar.gz`로 구성한다.
+  Ed25519 서명·파일 해시·복구 앱 트리 해시 확인과 기존 A/B 복구 경로를 재사용한다.
 
-공격자가 복구 슬롯 파일을 쓸 수 있다고 가정한 **제어된 파일 교체 시험**이며 실제 침입이나
-V1 취약점 악용은 아니다. 업데이터·공개키·신뢰 기록까지 바꾸는 관리자 공격은 방어하지 않는다.
-**V1 차단 이후 정상 서비스를 되살리는 별도 복구 경로는 아직 구현하지 않았다.**
-`recovery_failed`는 복구 거부이며, V2 서비스 정상 실행을 뜻하지 않는다.
+## 대표 시나리오: IVI V3의 CPU 경합
 
-## PC에서 실행하기
+1. **V2:** 지도가 없는 IVI. 기존 클러스터가 정상적으로 CAN 입력을 처리한다.
+2. **V3 설치:** 지도 기능이 추가되지만 지도가 닫혀 있으면 큰 부하가 없다.
+3. **지도 열기:** V3가 CPU 계산 워커를 코어 수만큼 실행한다. Pi4에서는 4개이며,
+   Linux `SCHED_RR` 실시간 우선순위 10을 사용한다.
+4. **기존 기능 저하:** 같은 보드의 클러스터가 CPU 실행 기회를 늦게 받아 입력 반영이 밀린다.
+5. **Pi3 감지:** 지연·끊김이 지속되면 이상을 확정한다.
+6. **IVI 롤백:** Pi2 감독기가 정차 조건을 확인한 뒤 V2로 복구하고 다시 감시해 정상화를 확인한다.
 
-Linux와 Python 3.10+를 사용한다. 네이티브 계기판은 C++17, make, Qt 5.15 개발·런타임
-라이브러리가 필요하고, 숨겨진 화면 캡처에는 Xvfb가 필요하다. MQTT·CA·Python Qt 바인딩은
-사용하지 않는다.
+**부하의 정체:** 직접 만든 Python 다중 프로세스 반복 계산이다. 실제 지도 타일 디코딩을
+측정해서 재현한 부하가 아니며, 지도 화면 자체의 렌더링이 지연 원인이라는 주장도 아니다.
+워커별 CPU 사용률 상한이나 코어 고정은 앱 코드에 없으며 워커 수와 우선순위로 부하를 조절한다.
+일반 우선순위 부하에서는 문제가 재현되지 않아, 전 코어 실시간 부하 조건을 선택했다.
+
+### 무엇을 측정하는가
+
+- Pi1의 **`0x200`**: 속도·RPM·기어·경고·원본 카운터·CRC.
+- Pi2의 **`0x300`**: Qt 속도 모델 반영 직후 보내는 속도·원본 카운터·유효 여부·시작 식별자·CRC.
+- Pi3는 자기 SocketCAN 소켓에서 두 프레임을 받고, **같은 카운터의 입력과 응답**을 짝지어
+  커널 수신 시각 차이를 계산한다. 보드 사이 시계 동기화나 SSH 왕복 시간으로 계산하지 않는다.
+- 응답 누락, 응답 간 긴 간격, 정상 기준선 대비 지연 변화도 집계한다.
+
+측정 대상은 **클러스터 처리 응답 지연**이다. 화면 픽셀이 실제로 그려진 시간은 아니며,
+응답은 클러스터 소프트웨어의 자기 보고다. 악성 클러스터의 허위 응답 방어는 구현하지 않았다.
+입력·응답 속도는 기록하지만 현재 감지 규칙은 지연·끊김 중심이며 값 불일치 판정은 포함하지 않는다.
+
+### 판정과 롤백 조건
+
+- CAN 수신은 계속 대기·처리하고 Pi3 결과 파일은 약 1초마다 갱신한다.
+  Pi2 감독기는 기본 2초 간격으로 SSH를 통해 결과를 조회한다.
+- 기본 판정 창은 **10초**, 이동 간격은 **5초**다.
+- 주요 요구사항은 **창 p99 처리 지연 ≤ 100ms**다. 위반이 같은 유형으로 3개 창 연속 지속되면
+  확정한다. 100ms는 CAN 입력 한 주기 안에 처리한다는 개발 기준이며 업계 공통 기준이 아니다.
+- 정상 기준선 대비 p99, CUSUM, 드리프트, 응답 끊김·누락, 입력 주기 이상도 검사한다.
+  선언 지연 기준 이외의 통계 규칙은 기본적으로 2개 이상 동시 발화와 지속 조건을 사용한다.
+  같은 지연 데이터에서 계산한 통계들이므로 통계적으로 독립된 증거는 아니다.
+- 정상 감시 시간이 충분하면 새 IVI를 확정한다. 이상이 확정되면 정차 창을 기다려 롤백한다.
+
+**현재 예외 동작:** Pi3 관측이 끊기면 정차 판단을 Pi2 자체 버스 관측으로 축소한다.
+정차 대기가 `max_wait_s`(기본 600초)를 넘으면 정차 확인 없이 롤백하는 폴백이 남아 있다.
+따라서 현재 구현을 “항상 정차 후에만 롤백한다”고 설명하면 안 된다.
+
+## 실보드 결과와 화면
+
+[2026-11-05 최종 실보드 결과](docs/IVI_FIELD_MONITOR_RESULTS_2026-11-05.md)에 기록된
+**1회 실행 측정값**이다. 반복 실험에 의한 일반화 결과는 아니다.
+
+| 구간 | 처리 지연 p99 | 최대 끊김 | 누락 |
+|---|---:|---:|---:|
+| V3 설치 후 지도 닫힘 | 9.8ms | 113ms | 0% |
+| V3 지도 열림·실시간 워커 부하 | 1854ms | 2012ms | 15% |
+| IVI V2 롤백 후 | 17.2ms | 154ms | 0% |
+
+해당 실행에서는 정차 중 롤백했고, V2를 약 62초 재검증해 `rolled_back`으로 종료했다.
+실행 증적은 로컬 `.demo/ivi-e2e-final2-20261105/`와 `.demo/gate0-20261105/`에 있으며
+로그·PCAP·캡처 등 `.demo/` 산출물은 Git에 포함하지 않는다.
+
+Pi2의 [통합 콕핏 화면](dashboard/cockpit/Cockpit.qml)은 클러스터 캡처, IVI 화면,
+A/B 슬롯, Pi3 판정, 지연과 이벤트 로그를 보여준다.
+큰 지연 숫자는 Pi2의 빠른 로컬 버스 관측이고 **롤백 판정은 별도 Pi3 결과**를 사용한다.
+화면은 표시용이며 독립 검증기를 대체하지 않는다.
+
+부하 실험·측정기 간섭·정차 판정·리셋 경쟁 상태 등의 실패와 수정 과정은
+[실패 기록](docs/FAILURE_LOG_2026-11-05.md)에 남겼다.
+
+## 코드 읽는 순서
+
+| 파일 | 역할 |
+|---|---|
+| [dashboard/ivi/ivi.py](dashboard/ivi/ivi.py) | IVI 실행·지도 활성화·CPU 워커 |
+| [dashboard/ivi/build.py](dashboard/ivi/build.py) | V2/V3 설정과 앱 payload 조립 |
+| [dashboard/qt_cluster/main.cpp](dashboard/qt_cluster/main.cpp) | CAN 수신·Qt 모델 반영·0x300 응답 |
+| [monitor/trace.py](capstone_ota/monitor/trace.py) | 프레임 해석·입력/응답 짝 맞추기 |
+| [monitor/metrics.py](capstone_ota/monitor/metrics.py) | 창 지표·정상 기준선 |
+| [monitor/detect.py](capstone_ota/monitor/detect.py) | 지연·끊김 규칙과 확정 조건 |
+| [monitor/service.py](capstone_ota/monitor/service.py) | Pi3 실시간 감시·판정·프리즈 프레임 |
+| [probation.py](capstone_ota/probation.py) | Pi2 시험 운영 감독·정차 대기 |
+| [ivi.py](capstone_ota/ivi.py) / [device.py](capstone_ota/device.py) | IVI 서비스 연결·앱 A/B 상태·복구 |
+| [relay.py](capstone_ota/relay.py) / [bundle.py](capstone_ota/bundle.py) | Central 중계·서명·해시 검사 |
+| [bench/load_phases.py](bench/load_phases.py) | 워커 개수·우선순위별 부하 측정 |
+| [bench/drive_cycle.py](bench/drive_cycle.py) | 합성 주행 사이클 |
+| [bench/cockpit_feeder.py](bench/cockpit_feeder.py) | 화면용 관측 데이터 수집 |
+
+## 로컬 검증
+
+Linux, Python 3.10+를 사용한다. 실제 Qt 통합 시험에는 C++17·Qt5 개발/런타임과 Xvfb가 필요하다.
 
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[dev]'
-```
 
-먼저 [Qt 빌드 절차](docs/QT_CLUSTER.md#build-on-pc)에 따라
-[고정 버전의 Volvo 원본](dashboard/qt_cluster/UPSTREAM.md)을 준비하고 빌드한다.
-아래 `/PATH/Volvo240-DigitalDash`는 실제 원본 체크아웃 경로로 바꾼다.
+# CPU 경합 감시·IVI·시험 운영 감독기 관련 시험
+.venv/bin/python -m pytest -q tests/test_monitor_*.py tests/test_probation.py tests/test_ivi.py tests/test_tap.py
 
-```bash
-# 시스템 Qt를 사용하는 경우
-.venv/bin/python dashboard/qt_cluster/build.py --source /PATH/Volvo240-DigitalDash
-
-# 매 실행마다 새로운 출력 디렉터리 사용
-.venv/bin/python -m demo.qt_run run --output .demo/qt-complete-run
+# 전체 시험: 실보드는 명시적으로 설정한 경우에만 실행
 .venv/bin/python -m pytest -q
 ```
 
-별도 위치의 Qt를 사용하면 빌드에 `--qt-prefix`를 지정하고 실행 환경의
-`CAPSTONE_QT_PREFIX`도 맞춘다. 상세 명령은 [QT_CLUSTER.md](docs/QT_CLUSTER.md)에 있다.
-PC x86 바이너리를 Pi에 설치하면 안 되며, 대상 아키텍처로 따로 빌드해야 한다.
+2026-11-10 푸시 전 로컬 결과는 **262 passed, 10 skipped**다.
+10개 skip은 `--hardware-config`가 필요한 기존 실보드 전용 시험이다.
+컴파일된 Qt 앱이 없으면 Qt 관련 시험도 skip되므로 Python 시험 통과만으로 Qt 검증을 주장하면 안 된다.
+이번 로컬 시험은 과거 실보드 측정을 새로 수행했다는 뜻이 아니다.
+Qt 빌드와 기존 보드 설정은 [QT_CLUSTER.md](docs/QT_CLUSTER.md),
+[THREE_BOARD_SETUP.md](docs/THREE_BOARD_SETUP.md)를 참고한다.
+새 IVI·감시기의 보드 서비스 설정까지 자동 설치하는 단일 명령은 제공하지 않는다.
 
-데모 결과는 출력 디렉터리의 `result.json`, `screenshots/`에 저장된다. 테스트는 offscreen,
-캡처는 별도 Xvfb에서 실행하므로 사용자 데스크톱에 시험 창을 반복해서 띄우지 않는다.
-**컴파일된 Qt가 없으면 Qt 테스트는 skip된다.** Python 테스트 통과만으로 Qt 통합 검증을
-완료했다고 볼 수 없다.
+## 이전 시나리오와 보조 보안 시험
 
-데모 서명 개인키는 출력 디렉터리의 별도 `keys/`에 생성한다. 개인키·SSH 키를 HTTP 제공
-폴더나 Git에 넣지 않는다. 빌드·시험 결과는 `.demo/` 아래에 두며 Git에 포함하지 않는다.
+다음 구현은 삭제하지 않았다. **현재 CPU 경합 시나리오와 별도인 기존 검증 경로**다.
 
-별도 네이티브 Qt 진행 패널은 [QT_PROGRESS.md](docs/QT_PROGRESS.md)에 빌드·실행 방법을 정리했다.
-실보드 모니터의 `--presentation` 옵션은 실제 Pi2 계기판을 왼쪽, 업데이트 상태를 오른쪽, 진행 이벤트와 Pi3 CAN 수신 로그를 아래에 표시한다. 화면 수신이 끊기면 이전 화면을 숨긴다.
-실제 다운로드 수신량과 검사·복구 단계를 표시하며, 계기판 교체 뒤에도 남아 최초 62/45 표시 오류를 유지한다.
+| 시험 | 내용 | 코드·기록 |
+|---|---|---|
+| CAN 재전송·표시 회귀 | V3가 도착 순서대로 과거 프레임을 반영해 기대 62 대신 45 표시. V2는 원본 카운터로 과거 프레임 거부 | [qt_verify.py](capstone_ota/qt_verify.py), [qt_run.py](demo/qt_run.py), [기존 Qt 안내](docs/QT_CLUSTER.md) |
+| 정식 V1 복구 슬롯 바꿔치기 | 시험 코드가 복구 슬롯의 V2를 유효 서명의 V1으로 교체. 기록된 앱 트리 해시와 달라 실행 전 차단 | [실보드 시험](tests/hardware/test_physical_can.py), [기존 결과](docs/THREE_BOARD_RESULTS_2026-11-03.md) |
+| 전송·검증 기반 기능 | 실제 HTTP 전송, 서명·해시 확인, 앱 A/B, 외부 검증 실패 시 복구 | [CLUSTER_OTA.md](docs/CLUSTER_OTA.md), [검증 안내](docs/VERIFICATION_RUNBOOK.md) |
 
-## 코드와 문서 읽는 순서
+기존 재전송은 시험기가 주입한 합성 입력이며 실제 Central의 버퍼 결함 재현은 아니다.
+V1 시험은 제어된 파일 교체이며 실제 침입·취약점 악용은 아니다. V1 차단 뒤 자동 서비스 복원도 없다.
+V1 공격 시험을 새 IVI CPU 경합 경로와 통합해서 다시 검증한 것은 아니다.
+`demo.qt_run`과 기존 하드웨어 시나리오를 실행하면 이 예전 시험이 실행된다.
 
-| 코드 | 역할 |
-|---|---|
-| [demo/qt_run.py](demo/qt_run.py) | PC 전체 OTA·Qt·공격 시험 실행 |
-| [relay.py](capstone_ota/relay.py) | Central 검증·캐시·Cluster 전달 |
-| [cluster.py](capstone_ota/cluster.py) | Cluster 서비스와 외부 판정 연결 |
-| [device.py](capstone_ota/device.py) | 앱 A/B 상태 관리·확정·복구 |
-| [bundle.py](capstone_ota/bundle.py) | 릴리스 묶기·서명·해시·안전한 압축 해제 |
-| [qt_source.py](capstone_ota/qt_source.py) | 차량 프레임 생성·송신 |
-| [qt_verify.py](capstone_ota/qt_verify.py) | 결함 주입 순서·관찰·기대값 비교 |
-| [main.cpp](dashboard/qt_cluster/main.cpp) | 실제 Qt 수신·모델·게이지 관찰 어댑터 |
-| [cli.py](capstone_ota/cli.py) | `pack`, `forward`, `cluster-update`, `update`, `status` |
+[Qt 진행 패널](docs/QT_PROGRESS.md), [이전 패널 결과](docs/VISUAL_MONITOR_RESULTS_2026-11-04.md),
+[초기 가상 시험](docs/VIRTUAL_COMPATIBILITY.md), [architecture.html](docs/architecture.html)은
+이전 경로의 자료다. 새 CPU 경합 구조의 안내와 구분한다.
+초기 MQTT 구현은 [legacy/](legacy/ARCHIVE.md)에 보존되어 있다.
 
-- **현재 Qt 시험·3대 연결:** [QT_CLUSTER.md](docs/QT_CLUSTER.md)
-- **Central → Cluster 배포·설정:** [CLUSTER_OTA.md](docs/CLUSTER_OTA.md)
-- **원본 Qt 출처·MIT 라이선스:** [UPSTREAM.md](dashboard/qt_cluster/UPSTREAM.md)
-- **기존 단일 장치 서비스 설정:** [PI_SETUP.md](docs/PI_SETUP.md)
+## 현재 한계와 남은 일
 
-기존 `ota update`는 Central 예제 앱용 기본 OTA 경로다. 현재 Cluster 배포는
-`ota forward` → `ota cluster-update`를 사용한다. 릴리스는 `release.json`, `release.sig`,
-`app.tar.gz` 세 파일이며, 진입점은 `bin/app`, 초기화 검사는 읽기 전용 `bin/app --check`다.
+- 부하는 실시간 우선순위 반복 계산을 이용한 인위적 시험이다. 실제 IVI의 부하 특성은 검증하지 않았다.
+- 주행 입력은 합성 데이터이며 일주일 사용·실차 내구·전원 차단 복구 시험을 대신하지 않는다.
+- 최종 실보드 실행에는 계측기 간섭을 줄이기 위한 코어 배치를 적용했다. 배치가 다른 환경의 결과를 보장하지 않는다.
+- 정차 대기 시간 초과 폴백과 Pi3 관측 상실 시의 축소 판단이 있어 엄격한 정차 보장은 없다.
+- Pi3 감시기는 재부팅 후 자동 시작 설정이 없다. listen-only 하드웨어 모드도 미설정이다.
+- 서명된 자원 계약·규칙 완화 금지 병합·설치 전 정적 자원 호환성 검사는 설계만 있고 미구현이다.
+- 최종 표시 수정 이후 라이브 화면 재확인은 하지 못했다. 보드 전원·열 제한 이력도 결과 문서에 기록했다.
+- OS OTA, 독립 광학 검증, 관리자 권한으로 신뢰 기록까지 변조하는 공격 방어는 범위 밖이다.
 
-## 검증 범위와 남은 일
-
-| 구분 | 현재 상태 |
-|---|---|
-| 실제 HTTP·서명·Cluster 앱 A/B | PC 및 실제 세 보드 통합 시험 완료 |
-| 실제 Qt 속도 모델·QML 비교, 실패 후 V2 복원·재검증 | PC 및 실제 세 보드 통합 시험 완료 |
-| 정식 V1 복구 슬롯 교체 및 실행 전 차단 | PC 및 실제 세 보드 통합 시험 완료 |
-| 세 호스트 명령·SocketCAN·외부 검증 경로 | 실제 세 보드 CAN·ARM Qt·systemd 통합 검증 완료 |
-| 원본 계기판의 모든 신호 | 미연결 계기는 고정 시험 초기값 사용 |
-| 대표 ECU 호환성 시나리오 | 현재 재전송 시나리오의 타당성 재검토 중 |
-| 독립 화면 픽셀 검증·관리자 변조 방어 | 미구현 |
-| V1 차단 뒤 정상 서비스 복구·OS OTA | 현재 범위에서 제외 |
-| 장기 내구·실제 전원 차단 | 미검증 |
-
-HTTP는 실험망에서 서명된 파일을 전달하는 용도이며 암호화·접속 인증을 제공하지 않는다.
-상태 기록·공개키는 앱 슬롯 밖에 보관하지만 하드웨어 보호 저장소가 아니다.
-새 브랜치를 받는 것만으로 기존 Pi의 `digital-dash.service`나 OS를 변경하지 않는다.
-
-과거 단일 장치 검증 기록은 [VALIDATION.md](docs/VALIDATION.md), 초기 가상 시험은
-[VIRTUAL_COMPATIBILITY.md](docs/VIRTUAL_COMPATIBILITY.md), 이전 CAN 벤치는
-[THREE_PI_BENCH.md](docs/THREE_PI_BENCH.md)에 남아 있다.
-[architecture.html](docs/architecture.html)도 초기 가상 시연 자료이며 현재 Qt 구현 설명과 구분한다.
-기존 MQTT·다중 ECU 구현은 [legacy/](legacy/ARCHIVE.md)에 보존했으며 기본 실행 경로가 아니다.
+HTTP 전송은 실험망 용도이며 암호화·접속 인증을 제공하지 않는다.
+개인키·SSH 키·Wi-Fi 비밀번호를 Git이나 릴리스 제공 폴더에 넣지 않는다.
+Volvo 원본 Qt 계기판 출처와 MIT 라이선스는 [UPSTREAM.md](dashboard/qt_cluster/UPSTREAM.md)에 있다.
