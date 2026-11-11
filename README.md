@@ -143,15 +143,17 @@ python3 -m venv .venv
 .venv/bin/python -m pytest -q
 ```
 
-2026-11-10 시나리오 정리 후 로컬 결과는 **258 passed, 9 skipped (95.71s)**다.
-고정 클러스터 C++/Qt 빌드와 IVI 공격 시험을 포함하며, `--hardware-config` 없는 실행은 실보드 전용 시험을 제외한다.
+2026-11-11 기준 로컬 결과는 **266 passed (93.7s)**, `--hardware-config`를 준 실보드 결과는
+**10 passed**다 (아래 "디버그 포트" 절 참고). 로컬 실행은 고정 클러스터 C++/Qt 빌드와 IVI
+공격 시험을 포함하며, `--hardware-config` 없는 실행은 실보드 전용 시험을 제외한다.
 컴파일된 Qt 앱이 없으면 Qt 관련 시험도 skip되므로 Python 시험 통과만으로 Qt 검증을 주장하면 안 된다.
-이번 로컬 시험은 과거 실보드 측정을 새로 수행했다는 뜻이 아니다.
 Qt 빌드와 기존 보드 설정은 [QT_CLUSTER.md](docs/QT_CLUSTER.md),
 [THREE_BOARD_SETUP.md](docs/THREE_BOARD_SETUP.md)를 참고한다.
 새 IVI·감시기의 보드 서비스 설정까지 자동 설치하는 단일 명령은 제공하지 않는다.
-이번 단일 클러스터 정리는 보드에 배포하지 않았다. 실보드 적용·하드웨어 시험 전 새 ARM 바이너리를 재빌드해야 하며,
-`cluster.json`을 요구하는 옛 바이너리는 새 고정 payload와 호환되지 않는다.
+단일 클러스터 정리는 2026-11-11에 실보드로 배포·검증했다(10/10). 배포에는
+`.demo/pi-qt-2026-11-11-fixed/capstone-qt-cluster-aarch64`(아래 절에서 설명하는
+`--check` 레이스 수정이 들어간 재빌드)를 썼다. `cluster.json`을 요구하는 옛 바이너리는
+새 고정 payload와 호환되지 않는다.
 
 ## 복구 슬롯 바꿔치기 공격 시험
 
@@ -182,6 +184,93 @@ CPU 경합 감시와 V1 바꿔치기를 합친 실보드 연속 시연은 이번
 변경 전의 역사적 기록이다. 삭제된 시나리오 설명·명령이 포함되어 현재 실행 안내로 사용하면 안 된다.
 초기 MQTT 구현은 [legacy/](legacy/ARCHIVE.md)에 보존되어 있다.
 
+## 디버그 포트를 이용한 복구 슬롯 바꿔치기 (리콜 정비 포트 시나리오)
+
+리콜 정비 때 열어 둔 진단/정비용 포트가 그대로 열려 있다고 가정한다. 이 포트는 복구 슬롯
+디렉터리 하나의 내용만 바꿀 수 있고(`capstone_ota/debug_port.py`), `state.json`·`trusted.pub`·
+`current`·`.lock`은 코드 구조상 건드릴 수 없다. IVI V2가 정상 커밋된 뒤 V3가 시험 중일 때
+이 포트로 복구 슬롯(V2)을 다른 정식 서명 릴리스로 바꾼다. CPU 경합으로 외부 검증(Pi3 역할)이
+실패를 보고하면 복구 절차가 시작되는데, **복구 슬롯을 실제로 실행하기 직전**에
+`Device._verify_record`가 그 슬롯의 해시를 커밋 시점에 기록해 둔 값과 **정확히 일치하는지**
+비교한다. "서명이 유효한가"가 아니라 "우리가 커밋했던 바로 그것인가"를 보기 때문에, 바꿔친
+것이 다른 정식 서명 릴리스여도 막힌다.
+
+이 재검증에는 데모 전용 끔 스위치(`Device(..., recovery_verification=False)`)가 있다. CLI
+(`capstone-ota cluster-update`/`ivi-update`)와 `forward`의 원격 대상 JSON 스키마 어디에도
+이 값을 노출하는 통로가 없어 네트워크·설정 파일로는 절대 켜지지 않으며, 끄면 바로 같은 공격이
+성공하는 대조군 시연에만 쓴다.
+
+```bash
+.venv/bin/python -m pytest -q tests/test_debug_port.py tests/test_debug_port_rollback_scenario.py
+```
+
+소프트웨어 시험(위 명령)은 가짜 Pi3 검증기 프로세스가 V3 시험 평가 도중 실제로 디버그 포트에
+접속해 복구 슬롯을 바꾸고, 방어 모드에서는 복구가 거부되며(`recovery_failed`, 재검증 사유:
+tree hash mismatch) 취약 모드에서는 바꿔친 이미지가 실제로 활성화되는 것까지 양쪽 다 확인한다.
+
+실보드(Pi1/Pi2/Pi3) 시험은 `bench/physical.py: PhysicalBench.debug_port_rollback()`과
+[`tests/hardware/test_physical_can.py`](tests/hardware/test_physical_can.py)의
+`test_SEC_005_...`로 작성돼 있고, **실제로 세 보드에서 돌려서 통과했다**:
+
+```bash
+.venv/bin/python -m pytest tests/hardware/test_physical_can.py \
+  --hardware-config .demo/three-board-config-fixed.json
+# 10 passed
+```
+
+이 실행에서 이 기능과 무관한 기존 버그 하나를 찾아 고쳤다: `dashboard/qt_cluster/main.cpp`의
+`--check`가 `engine.rootObjects().isEmpty()`를 `engine.load()` 직후 딱 한 번만 동기적으로
+검사해서, 실제 보드의 offscreen/software 렌더링에서는 QML 루트 오브젝트가 아직 준비되기 전에
+검사해버려 **항상** 실패하는 경쟁 상태(race condition)였다. 이 때문에 `compatible`/`attack`
+시나리오를 포함한 기존 실보드 시험 전체가 (이 변경과 무관하게) 막혀 있었다. `gdb`로 Pi2에서
+직접 디버그 빌드를 떠서 원인을 확인했고, `QCoreApplication::processEvents()`를 최대 500ms
+돌리는 재시도로 고쳤다. 함께 발견한 것: 아이폰 핫스팟 시절 IP가 박혀 있던 SSH 별칭
+(`capstone-verifier`, `capstone-source`) 두 개. 전부
+[`.planning/2026-11-11-debug-port-rollback-defense/progress.md`](.planning/2026-11-11-debug-port-rollback-defense/progress.md)에
+시행착오 그대로 기록했다.
+
+다만 이 실보드 시험의 V3 실패는 `scenario('attack')`과 같은 방식으로 **결정적으로 강제**한
+것이며, 실제 Pi3의 `Probation`/`monitor.detect` p99 CPU 경합 판정이 트리거한 것은 아니다
+(그 실시간 CAN 감시 서비스는 아직 Pi3에 상시 서비스로 올라가 있지 않음).
+`bench/load_phases.py`로 실제 CPU 부하는 함께 돌지만 판정에는 아직 반영되지 않는다. 이 부분을
+`PhysicalBench`에 제대로 연결하는 건 별도 후속 작업으로 남겨 둔다(README
+"현재 한계와 남은 일"의 "관리자 권한으로 신뢰 기록까지 변조하는 공격은 범위 밖" 원칙과 같은
+경계를, 복구 직전 재검증이라는 구체적인 메커니즘으로 보여 준다).
+
+## 검증 결과(pass/fail) 전달 경로를 와이파이에서 CAN 버스로 (Pi2 ↔ Pi3)
+
+위 디버그 포트 방어와는 별도의 질문: "3보드 검증 구조에서 Pi2가 Pi3한테 '통과했어?'를
+SSH(와이파이)로 물어보고 그 대답을 그대로 믿는 게 맞나?"에 대한 답으로 추가한 기능이다.
+
+**문제**: `ClusterDevice._activate()`가 업데이트 시험/복구 때마다 `verifier_command`로 SSH를
+실행해 Pi3의 검증 결과(JSON의 `passed` 필드)를 그대로 신뢰했다. 이 경로가 살아있는 동안은:
+- 와이파이를 방해(jamming)하면 업데이트 확인이 전부 실패로 떨어져 업데이트를 영구히 막을 수 있음
+- SSH 세션이 뚫리면(또는 중간에서 응답이 조작되면) `passed: true`를 위조해 바꿔친 복구본을
+  그대로 통과시킬 수 있음 — 디버그 포트 방어가 막는 것과 다른 종류의 공격 표면
+
+**바꾼 것**: SSH는 이제 "Pi3야, 지금 확인해봐"라는 트리거로만 쓰고(이게 막혀도 그냥 확인이
+안 일어날 뿐, 안전한 쪽으로 실패), **실제로 Device가 믿는 pass/fail 판정은 물리 CAN 버스로
+받는다**(`capstone_ota/can_verdict.py`). Pi2가 매번 새로 임의의 nonce를 만들어 CAN 소켓을
+먼저 열어 듣기 시작한 뒤에 SSH 트리거를 보내고(순서가 바뀌면 신호를 놓침 — CAN은 방송이라
+듣고 있지 않으면 그 순간 신호가 사라짐), Pi3는 자기 판정을 `HMAC-SHA256(사전 공유 비밀키,
+nonce ∥ 결과)`로 서명해 CAN 프레임(`0x7F1`)에 실어 보낸다. Pi2는 nonce와 서명이 모두
+맞아야만 그 판정을 받아들이고, 그 외(타임아웃, 다른 nonce, 잘못된 서명)는 전부 "확인 못
+했음"으로 처리해 실패 쪽으로 간다.
+
+이 설계가 지키는 것: 와이파이를 방해하거나 SSH를 조작해도 — 비밀키를 모르면 — **가짜
+PASS를 만들 수 없다.** 비밀키는 두 보드 바깥(배포 시점)에만 존재하며 어느 네트워크 경로로도
+노출되지 않는다.
+
+```bash
+.venv/bin/python -m pytest -q tests/test_can_verdict.py tests/test_cluster_can_verdict.py
+```
+
+소프트웨어 시험(노트북에서 `vcan0` 가상 CAN 인터페이스로): 정상 왕복, "SSH는 `passed:true`라고
+위조했지만 CAN에는 아무것도 안 보냄" 공격 차단, "CAN에 신호는 보냈지만 비밀키가 틀림" 공격
+차단까지 8개 테스트로 확인(274개 전체 스위트 통과). **아직 실보드(Pi2/Pi3)에는 배포하지
+않았다** — `qt-verifier-peers.example.json`에 `can_channel`/`can_secret_file` 필드를 추가해
+뒤서 다음에 실제 보드에 올릴 때 쓸 수 있게만 해 뒀다.
+
 ## 현재 한계와 남은 일
 
 - 부하는 실시간 우선순위 반복 계산을 이용한 인위적 시험이다. 실제 IVI의 부하 특성은 검증하지 않았다.
@@ -192,6 +281,12 @@ CPU 경합 감시와 V1 바꿔치기를 합친 실보드 연속 시연은 이번
 - 서명된 자원 계약·규칙 완화 금지 병합·설치 전 정적 자원 호환성 검사는 설계만 있고 미구현이다.
 - 최종 표시 수정 이후 라이브 화면 재확인은 하지 못했다. 보드 전원·열 제한 이력도 결과 문서에 기록했다.
 - OS OTA, 독립 광학 검증, 관리자 권한으로 신뢰 기록까지 변조하는 공격 방어는 범위 밖이다.
+- 디버그 포트 복구 슬롯 바꿔치기는 소프트웨어 시험과 실보드 시험(10/10 통과) 모두 확인했다.
+  단, 실보드 쪽 V3 실패는 아직 결정적 강제이며 실제 Pi3 CPU 경합 판정이 트리거한 게 아니다
+  (`Probation` 실시간 감시를 `PhysicalBench`에 연결하는 건 후속 작업).
+- Pi2-Pi3 검증 결과를 CAN 버스로 인증해 전달하는 기능은 소프트웨어 시험(`vcan0`)으로만
+  확인했다. 실보드 배포·실측은 아직 안 했다(사전 공유 비밀키를 두 보드에 안전하게 배치하는
+  절차부터 필요).
 
 HTTP 전송은 실험망 용도이며 암호화·접속 인증을 제공하지 않는다.
 개인키·SSH 키·Wi-Fi 비밀번호를 Git이나 릴리스 제공 폴더에 넣지 않는다.

@@ -17,6 +17,7 @@
 #include <QDateTime>
 #include <QTimer>
 #include <QTextStream>
+#include <QThread>
 #include <csignal>
 #include <linux/can.h>
 #include <linux/can/raw.h>
@@ -122,6 +123,15 @@ int main(int argc, char **argv) {
     }
     for (const auto name : {"leftBlinkerModel", "rightBlinkerModel"}) context->setContextProperty(name, new IndicatorModel(&app));
     engine.load(QUrl("qrc:/main.qml"));
+    // The root object can still be completing asynchronously (incubating QML
+    // components, deferred bindings) when load() returns; checking once,
+    // synchronously, races that completion and fails intermittently under
+    // offscreen/software rendering. Pump the event loop briefly instead of
+    // declaring failure on the first empty check.
+    for (int tries = 0; engine.rootObjects().isEmpty() && tries < 100; ++tries) {
+        QCoreApplication::processEvents();
+        QThread::msleep(5);
+    }
     if (engine.rootObjects().isEmpty()) return 2;
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
     if (window && qEnvironmentVariable("CAPSTONE_QT_LIVE") == "1") window->setPosition(0, 0);

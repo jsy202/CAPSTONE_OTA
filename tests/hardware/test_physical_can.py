@@ -47,6 +47,19 @@ def test_CAN_004_unrelated_traffic_with_measured_load(physical_bench):
     assert report['load_tool'] and report['load_active_before_and_after'] is True
 
 
+def test_SEC_005_debug_port_cannot_smuggle_a_rollback_under_real_cpu_contention(physical_bench):
+    """First real-board run combining genuine CPU contention with the debug-port
+    recovery-slot swap (previously only done in software -- see
+    .planning/2026-11-11-debug-port-rollback-defense/). Written but not yet run
+    against real boards."""
+    report = physical_bench.debug_port_rollback()
+    physical_bench.record('SEC-005', report)
+    status = report['candidate']['status']
+    assert status['result'] == 'recovery_failed'
+    assert status['version'] == '2.0.0'
+    assert report['old_app_executed'] is False
+
+
 def test_SEC_003_missing_evidence_cannot_commit(physical_bench):
     report = physical_bench.scenario('missing-evidence')
     physical_bench.record('SEC-003', report)

@@ -15,6 +15,7 @@ import sys
 import tempfile
 import time
 
+from . import can_verdict
 from .process import exchange
 from .qt_source import frame
 
@@ -296,11 +297,13 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] == 'remote-gate':
         parser = argparse.ArgumentParser(description='Cluster calls its trusted third-Pi verifier')
         parser.add_argument('--config', type=Path, required=True)
+        parser.add_argument('--nonce', help='hex nonce; when given, the verdict is also authenticated over CAN')
         parser.add_argument('slot')
         args = parser.parse_args(sys.argv[2:])
         try:
             config = json.loads(args.config.read_text())
-            command = remote_command(config, ['--remote', config['peers'], args.slot])
+            extra = ['--nonce', args.nonce] if args.nonce else []
+            command = remote_command(config, ['--remote', config['peers'], args.slot, *extra])
             rows, _pid = exchange(command, [], timeout=50, allow_negative_verdict=True)
             if len(rows) != 1 or not isinstance(rows[0], dict) or type(rows[0].get('passed')) is not bool:
                 raise ValueError('invalid third-Pi verdict')
@@ -313,12 +316,18 @@ def main():
     parser.add_argument('--source', choices=['latest'], default='latest')
     parser.add_argument('--capture-dir', type=Path)
     parser.add_argument('--remote', type=Path, help='Pi3 peer configuration; observe existing Qt service')
+    parser.add_argument('--nonce', help='hex nonce from the caller; when given, post an authenticated CAN verdict')
     parser.add_argument('slot', type=Path)
     args = parser.parse_args()
     try:
         if args.remote:
-            with remote_dashboard(json.loads(args.remote.read_text()), args.slot) as target:
+            remote_config = json.loads(args.remote.read_text())
+            with remote_dashboard(remote_config, args.slot) as target:
                 report = verify(target, args.source)
+            if args.nonce:
+                secret = Path(remote_config['can_secret_file']).read_bytes()
+                can_verdict.send_verdict(remote_config.get('can_channel', 'can0'),
+                                         secret, bytes.fromhex(args.nonce), report['passed'])
         else:
             report = check_slot(args.slot, args.source, args.capture_dir)
         print(json.dumps(report))

@@ -1,6 +1,8 @@
 """Target-side application installation; no Central slots or existing Qt services."""
 import subprocess
+from pathlib import Path
 
+from . import can_verdict
 from .device import Device
 from .process import exchange
 
@@ -16,9 +18,15 @@ class ClusterDevice(Device):
     service_name = "capstone-cluster.service"   # subclasses manage another service with the same A/B logic
     verifier_timeout = 60                        # seconds an external verifier may take
 
-    def __init__(self, root, verifier_command=None):
-        super().__init__(root)
+    def __init__(self, root, verifier_command=None, recovery_verification=True,
+                 verifier_can_channel=None, verifier_can_secret_path=None):
+        super().__init__(root, recovery_verification=recovery_verification)
         self.verifier_command = check_command(verifier_command) if verifier_command is not None else None
+        # SSH (verifier_command) only triggers the external check; when a CAN channel is
+        # configured, the pass/fail Device actually trusts arrives as an authenticated CAN
+        # verdict instead, so a jammed or compromised SSH/Wi-Fi hop cannot forge the result.
+        self.verifier_can_channel = verifier_can_channel
+        self._verifier_can_secret = Path(verifier_can_secret_path).read_bytes() if verifier_can_secret_path else None
         self.reports = []
         self._checking_service = False
 
@@ -43,15 +51,38 @@ class ClusterDevice(Device):
         recovering = state.get("committed") and slot == state["committed"]["slot"]
         stage = "recheck" if recovering else "verify"
         self._progress(stage, verified_slot=None, observation=None)
+        nonce = can_verdict.new_nonce() if self.verifier_can_channel else None
+        # Bind the CAN listener before triggering the remote check: a verdict frame
+        # sent while nobody is bound yet to hear it is simply gone (CAN has no
+        # replay), so listening has to start before the trigger goes out, not after.
+        listener = can_verdict.open_listener(self.verifier_can_channel) if nonce is not None else None
+        command = [*self.verifier_command, str(self._slot(slot))]
+        if nonce is not None:
+            command += ["--nonce", nonce.hex()]
         try:
-            rows, _pid = exchange([*self.verifier_command, str(self._slot(slot))], [], timeout=self.verifier_timeout,
-                                  allow_negative_verdict=True)
-            if (len(rows) != 1 or not isinstance(rows[0], dict)
-                    or type(rows[0].get("passed")) is not bool):
-                raise ValueError("invalid external verification result")
-            report = rows[0]
-        except (OSError, ValueError) as exc:
-            report = {"passed": False, "error": str(exc)}
+            try:
+                rows, _pid = exchange(command, [], timeout=self.verifier_timeout,
+                                      allow_negative_verdict=True)
+                if (len(rows) != 1 or not isinstance(rows[0], dict)
+                        or type(rows[0].get("passed")) is not bool):
+                    raise ValueError("invalid external verification result")
+                report = rows[0]
+            except (OSError, ValueError) as exc:
+                report = {"passed": False, "error": str(exc)}
+            if nonce is not None:
+                # The SSH round trip above only proves the remote check ran; it is no
+                # longer trusted for the verdict itself. Keep what it said as a
+                # diagnostic, but the authoritative result is the authenticated CAN frame.
+                report["ssh_diagnostic_passed"] = report.get("passed")
+                try:
+                    report["passed"] = can_verdict.await_verdict(
+                        listener, self._verifier_can_secret, nonce, timeout=self.verifier_timeout)
+                    report.pop("error", None)
+                except (OSError, ValueError, TimeoutError) as exc:
+                    report = {"passed": False, "error": str(exc), "ssh_diagnostic_passed": report.get("ssh_diagnostic_passed")}
+        finally:
+            if listener is not None:
+                listener.close()
         self.reports.append(report)
         observed = report.get("observed", [])
         if not isinstance(observed, list):

@@ -1,0 +1,25 @@
+# RAUC system.conf TEMPLATE -- not used anywhere yet, not deployed, not tested.
+# See ../../docs/OS_LEVEL_AB_DESIGN.md for why this exists and what is still missing.
+#
+# Fill in the real partition device paths for the target board (Pi2) before this
+# is usable, and only after the SD card has been partitioned into two root slots
+# and backed up. Do not install `rauc` or apply this on a live board without a
+# known-good backup of that board's SD card.
+
+[system]
+compatible=capstone-cockpit
+bootloader=uboot
+statusfile=/data/rauc-status.conf
+
+[keyring]
+path=/etc/rauc/keyring.pem
+
+[slot.rootfs.0]
+device=/dev/mmcblk0p2   # PLACEHOLDER -- confirm the real partition before use
+type=ext4
+bootname=A
+
+[slot.rootfs.1]
+device=/dev/mmcblk0p3   # PLACEHOLDER -- confirm the real partition before use
+type=ext4
+bootname=B

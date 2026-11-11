@@ -79,6 +79,37 @@ def test_failed_trial_restores_previous_app_without_raising_floor(device_type, r
     assert subprocess.run([str(device.root / "current/bin/app"), "--check"]).returncode == 0
 
 
+def test_debug_port_style_slot_swap_is_blocked_before_activation(device_type, releases, keys, tmp_path):
+    """Simulates an always-open debug port overwriting the recovery slot's bytes directly
+    (bypassing the OTA pipeline entirely), then forcing a rollback. The pinned tree-hash
+    check in _verify_record must catch the mismatch and must do so BEFORE the tampered
+    binary is ever activated."""
+    device = device_type(tmp_path / "device")
+    with serving(releases) as url:
+        device.update(url + "/v2", public_key=keys[1])
+        tampered = device.root / "slots/A/bin/app"
+        tampered.write_bytes(tampered.read_bytes() + b"\n# planted via an always-open debug port\n")
+        with pytest.raises(ValueError, match="tree hash mismatch"):
+            device.update(url + "/bad")
+    # Caught at the top of update()'s own recovery self-check, before the "bad" download
+    # even starts and long before any _activate() would run the tampered binary.
+    assert device.root.joinpath("current").readlink() == Path("slots/A")
+    assert b"planted via an always-open debug port" in tampered.read_bytes()
+
+
+def test_vulnerable_mode_toggle_actually_disables_the_block(device_type, releases, keys, tmp_path):
+    """Proves the demo toggle is not a no-op: with recovery_verification=False the exact
+    same tampered slot from the test above is activated instead of rejected."""
+    device = device_type(tmp_path / "device", recovery_verification=False)
+    with serving(releases) as url:
+        device.update(url + "/v2", public_key=keys[1])
+        tampered = device.root / "slots/A/bin/app"
+        tampered.write_bytes(tampered.read_bytes() + b"\n# planted via an always-open debug port\n")
+        result = device.update(url + "/bad")
+    assert result["result"] == "rolled_back"
+    assert device.root.joinpath("current").readlink() == Path("slots/A")
+
+
 def test_corrupt_archive_never_changes_current(device_type, releases, keys, tmp_path):
     device = device_type(tmp_path / "device")
     with serving(releases) as url:

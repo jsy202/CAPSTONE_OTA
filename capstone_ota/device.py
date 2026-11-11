@@ -89,9 +89,13 @@ def fetch(url: str, target: Path, limit: int, progress=None) -> bytes:
 
 
 class Device:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, recovery_verification: bool = True):
         self.root = Path(root).absolute()
         self._progress_data = {}
+        # Demo-only kill switch for the pinned recovery check below; never flip this from
+        # network input, and never default it off. It exists so a defended-vs-vulnerable
+        # demo can show the same tampered recovery slot being blocked, then not blocked.
+        self.recovery_verification = recovery_verification
 
     def _progress(self, stage: str, **fields) -> None:
         """Best-effort display telemetry, never an input to security decisions."""
@@ -272,6 +276,9 @@ class Device:
 
     def _verify_record(self, record: dict, floor: int) -> None:
         slot = self._slot(record["slot"])
+        if not self.recovery_verification:
+            self._event("VULNERABLE_MODE_RECOVERY_UNVERIFIED")
+            return
         if record["release"]["svn"] < floor:
             raise ValueError("recovery security version is below the floor")
         if tree_hash(slot) != record["tree_sha256"]:

@@ -244,6 +244,67 @@ class PhysicalBench:
         self.record('SCENARIO-' + case, result)
         return result
 
+    def debug_port_rollback(self):
+        """A real, unauthenticated debug port (capstone_ota.debug_port) swaps the
+        recovery slot WHILE V3 is on trial, through the real network service this
+        time rather than the trusted in-process substitute_old fixture scenario('attack')
+        uses. Device._verify_record's pinned tree-hash check must block the rollback
+        from activating the swapped slot.
+
+        The V3-trial failure here is forced deterministically by the check_command
+        itself (same mechanism as the fake-Pi3 verifier in the software test,
+        tests/test_debug_port_rollback_scenario.py) rather than by a genuine
+        Probation/monitor.detect p99 CPU-contention verdict: that real-time CAN
+        monitor is not deployed as a running service on the Verifier board in this
+        bench, so it cannot yet gate a real rollback here. bench/load_phases.py still
+        runs alongside for a real (if not yet verdict-gating) CPU load; wiring
+        Probation into PhysicalBench as the actual trigger is a separate follow-up
+        (see task_plan.md)."""
+        case = 'debugport-' + uuid.uuid4().hex[:6]
+        device, config, observer = self.new_device(case, source='latest', attack=False)
+        baseline = self.forward('v2', config)
+        if baseline['status']['result'] != 'committed':
+            self.record('BASELINE-FAIL-' + case, {'baseline': baseline})
+            raise AssertionError(baseline)
+
+        port_unit, load_unit, debug_port = 'capstone-debugport-' + self.run_id, 'capstone-cpuload-' + self.run_id, 7312
+        self.cluster.run(shlex.join(['sudo', 'systemd-run', '--quiet', '--collect', '--unit', port_unit,
+                         self.python, '-m', 'capstone_ota.debug_port', '--device-root', device,
+                         '--bind', '127.0.0.1', '--port', str(debug_port)]))
+        self.cluster.run(shlex.join(['sudo', 'systemd-run', '--quiet', '--collect', '--unit', load_unit,
+                         '--property=RuntimeMaxSec=180', self.python, self.runtime + '/bench/load_phases.py',
+                         self.remote_evidence + '/' + case + '-load.json']))
+        # self.fixture's archive is root:600 (prepare() uploads it that way for the
+        # trusted in-process attack fixture); this check_command instead runs as
+        # the ordinary user the SSH relay logs in as, so stage an otauser-readable
+        # copy for it to push -- the "attacker" in this scenario is assumed to
+        # already have that V1 archive, not to need root on the victim board.
+        planted = self.runtime + '/' + case + '-planted.tar.gz'
+        self.cluster.run('sudo cp ' + shlex.quote(self.fixture + '/app.tar.gz') + ' ' + shlex.quote(planted)
+                         + ' && sudo chmod 644 ' + shlex.quote(planted))
+        # This check_command replaces the default functional checker for the V3
+        # trial only (V2 above already committed with the default checker): it
+        # fires the debug-port attack against the recovery slot right when the
+        # trial is evaluated, then reports a confirmed failure, forcing a rollback.
+        verifier_script = (
+            "import json\n"
+            "from capstone_ota.debug_port import push\n"
+            "push('127.0.0.1', " + str(debug_port) + ", 'A', " + repr(planted) + ")\n"
+            "print(json.dumps({'passed': False, 'error': 'debug-port-attack-forced-failure'}))\n"
+        )
+        config['check_command'] = [self.python, '-c', verifier_script]
+        try:
+            candidate = self.forward('v3', config)
+        finally:
+            self.cluster.run(shlex.join(['sudo', 'systemctl', 'stop', port_unit]), check=False)
+            self.cluster.run(shlex.join(['sudo', 'systemctl', 'stop', load_unit]), check=False)
+
+        progress = json.loads(self.cluster.run('sudo cat ' + shlex.quote(device + '/progress.json')).stdout)
+        outcome = {'device': device, 'baseline': baseline, 'candidate': candidate, 'progress': progress,
+                  'old_app_executed': self.cluster.run('test -e ' + shlex.quote(self.old_marker), check=False).returncode == 0}
+        self.record('SCENARIO-' + case, outcome)
+        return outcome
+
     def two_way(self):
         directions = []
         peers = [(self.central, self.cluster, '123'), (self.cluster, self.central, '124')]
