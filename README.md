@@ -121,6 +121,8 @@ A/B 슬롯, Pi3 판정, 지연과 이벤트 로그를 보여준다.
 최신 UI 배포 과정, 화면 수집이 CAN 처리에 간섭했던 원인과 수정은
 [2026-11-12 시행착오 기록](docs/FAILURE_LOG_2026-11-12.md)에 정리했다.
 [검증 증적과 원격 화면 실행법](docs/verification/2026-11-12-cockpit/README.md)도 함께 보관한다.
+보드 없이 화면 흐름만 확인하려면 `.venv/bin/python -m demo.local_cockpit_replay`로
+로컬 합성 데이터 시연을 실행할 수 있다. 실제 OTA·CAN·CPU 부하는 실행하지 않는다.
 
 부하 실험·측정기 간섭·정차 판정·리셋 경쟁 상태 등의 실패와 수정 과정은
 [실패 기록](docs/FAILURE_LOG_2026-11-05.md)에 남겼다.

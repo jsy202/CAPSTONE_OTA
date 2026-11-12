@@ -95,3 +95,12 @@ UI 글꼴도 함께 배포한다. 기존에 설치된 서명 검증 대상 슬�
   이는 이번 한 번의 정상 상태 관측이며 장시간 안정성 보장은 아니다.
 - 최종 로컬 pytest: 271 passed, 18 skipped. 건너뛴 항목은 명시적으로 선택하지 않은
   하드웨어 시험 10개와 vcan0이 없는 환경의 CAN 인증 판정 시험 8개다.
+
+## 노트북 전용 재생 코드 정리
+
+임시 폴더에 있던 재생을 `demo/local_cockpit_replay.py`로 보관했다.
+이제 `.venv/bin/python -m demo.local_cockpit_replay` 한 명령으로 실행한다.
+Qt·IVI 파일의 실행용 복사본과 합성 데이터는 `.demo/local-cockpit`에 격리하며
+보드, `/run` 및 설치 슬롯에는 쓰지 않는다. 계기판 이미지는 고정이다.
+준비 전용 실행과 실제 offscreen Qt 로딩/재생 상태 시험을 추가했다.
+추가 후 전체 pytest 결과는 272 passed, 18 skipped이며 공개 JUnit 결과를 갱신했다.

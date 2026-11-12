@@ -12,6 +12,23 @@
 이 로그의 정상 관측은 실제 CAN, 애니메이션 순서 검사는 분리 시험이다.
 두 결과를 합쳐 전체 OTA 공격 시연에 성공했다고 주장하지 않는다.
 
+## 보드 없이 노트북에서 화면 시험
+
+```bash
+cd /home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota
+.venv/bin/python -m demo.local_cockpit_replay
+```
+
+`qmlscene`과 `pip install '.[cockpit]'` 의존성이 필요하다. 창을 열고
+준비 → 설치 완료·시험 운전 → 지연 의심/확정 → 롤백 준비 → 복구 거부를 재생한다.
+계기판 이미지는 고정이고 IVI·통계·이벤트는 합성 데이터다. 실제 CPU 워커,
+CAN 송수신, OTA 설치나 SSH 접속을 실행하지 않는다.
+
+실행 파일과 생성 데이터는 `.demo/local-cockpit/`에 격리한다. `/run`이나
+설치된 슬롯을 쓰지 않는다. 이미지와 지도 자료가 로컬에 없으면 계기판은
+대체 이미지로, 지도는 자료 없이 표시된다. 창을 닫거나 Ctrl+C로 종료한다.
+창 없이 파일 준비만 확인하려면 `--prepare-only`를 붙인다.
+
 ## 노트북에서 실제 Pi2 화면 보기
 
 Pi2와 같은 네트워크에 연결하고 기존 SSH 키·호스트 키 설정이 준비된 환경에서 실행한다.
