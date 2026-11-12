@@ -67,10 +67,16 @@ def serving_release(directory, bind="127.0.0.1", advertise=None):
 
 def target_command(config):
     required = {"host", "checkout", "python", "root", "public_key"}
+    optional = {"check_command", "initialization_only", "systemd", "application", "can_channel", "can_secret_file"}
+    present = config.keys() if isinstance(config, dict) else set()
+    has_can = "can_channel" in present or "can_secret_file" in present
     if (not isinstance(config, dict) or not required <= config.keys()
-            or config.keys() - required - {"check_command", "initialization_only", "systemd", "application"}
+            or config.keys() - required - optional
             or any(not isinstance(config[k], str) or not config[k] or "\x00" in config[k] for k in required)
-            or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.@-]*", config["host"])):
+            or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.@-]*", config["host"])
+            or (has_can and ({"can_channel", "can_secret_file"} - present))
+            or (has_can and any(not isinstance(config[k], str) or not config[k] or "\x00" in config[k]
+                                 for k in ("can_channel", "can_secret_file")))):
         raise ValueError("invalid Cluster target configuration")
     application = config.get("application", "cluster")
     if not isinstance(application, str) or application not in {"cluster", "ivi"}:
@@ -78,6 +84,8 @@ def target_command(config):
     for key in ("checkout", "python", "root", "public_key"):
         if not config[key].startswith("/"):
             raise ValueError("target paths must be absolute")
+    if has_can and not config["can_secret_file"].startswith("/"):
+        raise ValueError("can_secret_file must be an absolute path")
     initial = config.get("initialization_only", False)
     systemd = config.get("systemd", False)
     checker = config.get("check_command")
@@ -93,6 +101,9 @@ def target_command(config):
         arguments += ["--check-command", json.dumps(check_command(checker))]
     if systemd:
         arguments.append("--systemd")
+    if has_can:
+        arguments += ["--verifier-can-channel", config["can_channel"],
+                       "--verifier-can-secret-file", config["can_secret_file"]]
     return arguments
 
 

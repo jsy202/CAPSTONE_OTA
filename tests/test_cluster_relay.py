@@ -355,6 +355,21 @@ def test_relay_can_select_ivi_without_changing_the_cluster():
         target_command(config)
 
 
+def test_relay_adds_can_verdict_flags_only_when_both_fields_present():
+    from capstone_ota.relay import target_command
+    base = {'host': 'cockpit', 'checkout': '/runtime', 'python': '/runtime/python',
+            'root': '/opt/capstone-ivi/device', 'public_key': '/keys/update.pub',
+            'initialization_only': True}
+    arguments = target_command({**base, 'can_channel': 'can0', 'can_secret_file': '/etc/capstone-ota/can-verdict.key'})
+    assert arguments[-4:] == ['--verifier-can-channel', 'can0',
+                              '--verifier-can-secret-file', '/etc/capstone-ota/can-verdict.key']
+    assert '--verifier-can-channel' not in target_command(base)
+    with pytest.raises(ValueError, match='invalid Cluster target configuration'):
+        target_command({**base, 'can_channel': 'can0'})
+    with pytest.raises(ValueError, match='can_secret_file must be an absolute path'):
+        target_command({**base, 'can_channel': 'can0', 'can_secret_file': 'relative/path'})
+
+
 def test_ivi_forward_deadline_covers_trial_and_recovery_checks(releases, keys, tmp_path, local_ssh, monkeypatch):
     from capstone_ota import relay
     from capstone_ota.ivi import IviDevice

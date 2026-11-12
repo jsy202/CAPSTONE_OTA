@@ -32,6 +32,8 @@ def main(argv=None) -> int:
     validation.add_argument("--check-command", help="trusted external command as a JSON argument array; slot path appended")
     validation.add_argument("--initialization-only", action="store_true")
     target.add_argument("--systemd", action="store_true", help="first-install opt-in to capstone-cluster.service")
+    target.add_argument("--verifier-can-channel", help="CAN interface (e.g. can0) carrying the authenticated verdict; SSH becomes a trigger only")
+    target.add_argument("--verifier-can-secret-file", type=Path, help="pre-shared HMAC key file matching the verifier's")
     ivi = commands.add_parser("ivi-update", help="install/recover the IVI app on this Cockpit board")
     ivi.add_argument("url", nargs="?")
     ivi.add_argument("--public-key", type=Path)
@@ -39,6 +41,8 @@ def main(argv=None) -> int:
     ivi_validation.add_argument("--check-command", help="trusted probation command as a JSON argument array; slot path appended")
     ivi_validation.add_argument("--initialization-only", action="store_true")
     ivi.add_argument("--systemd", action="store_true", help="first-install opt-in to capstone-ivi.service")
+    ivi.add_argument("--verifier-can-channel", help="CAN interface (e.g. can0) carrying the authenticated verdict; SSH becomes a trigger only")
+    ivi.add_argument("--verifier-can-secret-file", type=Path, help="pre-shared HMAC key file matching the verifier's")
     relay = commands.add_parser("forward", help="Central verifies/caches a release and sends it to Cluster")
     relay.add_argument("url")
     relay.add_argument("--public-key", required=True, type=Path, help="Central's trusted PUBLIC update key")
@@ -54,7 +58,9 @@ def main(argv=None) -> int:
             result = Device(args.root).update(args.url, args.public_key, args.systemd)
         elif args.command in ("cluster-update", "ivi-update"):
             checker = check_command(json.loads(args.check_command)) if args.check_command is not None else None
-            device = (IviDevice if args.command == "ivi-update" else ClusterDevice)(args.root, checker)
+            device = (IviDevice if args.command == "ivi-update" else ClusterDevice)(
+                args.root, checker, verifier_can_channel=args.verifier_can_channel,
+                verifier_can_secret_path=args.verifier_can_secret_file)
             try:
                 result = device.update(args.url, args.public_key, args.systemd)
             except (OSError, ValueError) as exc:
