@@ -1,0 +1,330 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testsuites name="pytest tests">
+  <testsuite name="pytest" errors="0" failures="0" skipped="18" tests="289" time="100.866" timestamp="2026-11-12T14:07:36.850892+09:00">
+    <testcase classname="tests.hardware.test_physical_can" name="test_CAN_001_actual_two_way_frames" time="0.001">
+      <skipped type="pytest.skip" message="real hardware not selected; pass --hardware-config explicitly">/home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota/tests/hardware/test_physical_can.py:6: real hardware not selected; pass --hardware-config explicitly</skipped>
+    </testcase>
+    <testcase classname="tests.hardware.test_physical_can" name="test_OTA_CAN_002_real_service_update_and_recovery[compatible-committed-3.0.0]" time="0.000">
+      <skipped type="pytest.skip" message="real hardware not selected; pass --hardware-config explicitly">/home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota/tests/hardware/test_physical_can.py:12: real hardware not selected; pass --hardware-config explicitly</skipped>
+    </testcase>
+    <testcase classname="tests.hardware.test_physical_can" name="test_OTA_CAN_002_real_service_update_and_recovery[attack-recovery_failed-2.0.0]" time="0.000">
+      <skipped type="pytest.skip" message="real hardware not selected; pass --hardware-config explicitly">/home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota/tests/hardware/test_physical_can.py:12: real hardware not selected; pass --hardware-config explicitly</skipped>
+    </testcase>
+    <testcase classname="tests.hardware.test_physical_can" name="test_CAN_003_crc_wrap_timeout_and_signal_models" time="0.000">
+      <skipped type="pytest.skip" message="real hardware not selected; pass --hardware-config explicitly">/home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota/tests/hardware/test_physical_can.py:37: real hardware not selected; pass --hardware-config explicitly</skipped>
+    </testcase>
+    <testcase classname="tests.hardware.test_physical_can" name="test_CAN_004_unrelated_traffic_with_measured_load" time="0.000">
+      <skipped type="pytest.skip" message="real hardware not selected; pass --hardware-config explicitly">/home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota/tests/hardware/test_physical_can.py:43: real hardware not selected; pass --hardware-config explicitly</skipped>
+    </testcase>
+    <testcase classname="tests.hardware.test_physical_can" name="test_SEC_005_debug_port_cannot_smuggle_a_rollback_under_real_cpu_contention" time="0.000">
+      <skipped type="pytest.skip" message="real hardware not selected; pass --hardware-config explicitly">/home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota/tests/hardware/test_physical_can.py:50: real hardware not selected; pass --hardware-config explicitly</skipped>
+    </testcase>
+    <testcase classname="tests.hardware.test_physical_can" name="test_SEC_003_missing_evidence_cannot_commit" time="0.000">
+      <skipped type="pytest.skip" message="real hardware not selected; pass --hardware-config explicitly">/home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota/tests/hardware/test_physical_can.py:63: real hardware not selected; pass --hardware-config explicitly</skipped>
+    </testcase>
+    <testcase classname="tests.hardware.test_physical_can" name="test_SEC_004_app_initialization_is_not_root" time="0.000">
+      <skipped type="pytest.skip" message="real hardware not selected; pass --hardware-config explicitly">/home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota/tests/hardware/test_physical_can.py:71: real hardware not selected; pass --hardware-config explicitly</skipped>
+    </testcase>
+    <testcase classname="tests.hardware.test_physical_can" name="test_SEC_005_missing_third_board_can_witness_cannot_commit" time="0.000">
+      <skipped type="pytest.skip" message="real hardware not selected; pass --hardware-config explicitly">/home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota/tests/hardware/test_physical_can.py:77: real hardware not selected; pass --hardware-config explicitly</skipped>
+    </testcase>
+    <testcase classname="tests.hardware.test_physical_can" name="test_NET_001_actual_ethernet_http_exchange" time="0.000">
+      <skipped type="pytest.skip" message="real hardware not selected; pass --hardware-config explicitly">/home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota/tests/hardware/test_physical_can.py:87: real hardware not selected; pass --hardware-config explicitly</skipped>
+    </testcase>
+    <testcase classname="tests.test_analyze_phases" name="test_report_separates_quiet_and_loaded_phases" time="0.028" />
+    <testcase classname="tests.test_analyze_phases" name="test_report_counts_skipped_updates" time="0.024" />
+    <testcase classname="tests.test_analyze_phases" name="test_empty_phase_reports_none_not_zero" time="0.035" />
+    <testcase classname="tests.test_analyze_phases" name="test_margin_must_leave_a_window" time="0.025" />
+    <testcase classname="tests.test_bench_capture" name="test_capture_rejects_symlink_before_reading_private_content" time="0.003" />
+    <testcase classname="tests.test_bench_capture" name="test_dead_verifier_capture_cannot_silently_produce_passing_evidence" time="0.034" />
+    <testcase classname="tests.test_bench_cleanup" name="test_cleanup_continues_after_link_collection_fails" time="0.000" />
+    <testcase classname="tests.test_bench_packets" name="test_http_analysis_requires_matching_success_for_each_file" time="0.000" />
+    <testcase classname="tests.test_bench_remote_gate" name="test_checker_uses_selected_remote_verifier_and_preserves_source[verdict0-0]" time="0.101" />
+    <testcase classname="tests.test_bench_remote_gate" name="test_checker_uses_selected_remote_verifier_and_preserves_source[verdict1-1]" time="0.108" />
+    <testcase classname="tests.test_bench_remote_gate" name="test_checker_uses_selected_remote_verifier_and_preserves_source[verdict2-1]" time="0.099" />
+    <testcase classname="tests.test_bench_remote_gate" name="test_partial_third_board_selection_cannot_fall_back_to_local_observation[selected0]" time="0.001" />
+    <testcase classname="tests.test_bench_remote_gate" name="test_partial_third_board_selection_cannot_fall_back_to_local_observation[selected1]" time="0.001" />
+    <testcase classname="tests.test_bundle" name="test_signed_package_round_trip" time="0.014" />
+    <testcase classname="tests.test_bundle" name="test_modified_metadata_cannot_be_verified" time="0.003" />
+    <testcase classname="tests.test_bundle" name="test_invalid_release_is_not_packaged[1.0-1]" time="0.001" />
+    <testcase classname="tests.test_bundle" name="test_invalid_release_is_not_packaged[01.0.0-1]" time="0.001" />
+    <testcase classname="tests.test_bundle" name="test_invalid_release_is_not_packaged[1.0.0-beta-1]" time="0.001" />
+    <testcase classname="tests.test_bundle" name="test_invalid_release_is_not_packaged[1.0.0-0]" time="0.002" />
+    <testcase classname="tests.test_bundle" name="test_invalid_release_is_not_packaged[1.0.0-True]" time="0.002" />
+    <testcase classname="tests.test_bundle" name="test_invalid_release_is_not_packaged[1.0.0--1]" time="0.001" />
+    <testcase classname="tests.test_bundle" name="test_pack_refuses_existing_output_and_non_executable_app" time="0.002" />
+    <testcase classname="tests.test_bundle" name="test_extract_rejects_unsafe_entries[../escape-file]" time="0.001" />
+    <testcase classname="tests.test_bundle" name="test_extract_rejects_unsafe_entries[/escape-file]" time="0.001" />
+    <testcase classname="tests.test_bundle" name="test_extract_rejects_unsafe_entries[bin/../escape-file]" time="0.001" />
+    <testcase classname="tests.test_bundle" name="test_extract_rejects_unsafe_entries[bin/link-symlink]" time="0.001" />
+    <testcase classname="tests.test_bundle" name="test_extract_rejects_unsafe_entries[bin/link-hardlink]" time="0.001" />
+    <testcase classname="tests.test_bundle" name="test_extract_rejects_unsafe_entries[bin/pipe-fifo]" time="0.001" />
+    <testcase classname="tests.test_bundle" name="test_extract_does_not_follow_an_existing_destination" time="0.001" />
+    <testcase classname="tests.test_bundle" name="test_signed_invalid_schema_is_rejected" time="0.001" />
+    <testcase classname="tests.test_bundle" name="test_extracted_app_root_is_traversable_under_restrictive_umask" time="0.008" />
+    <testcase classname="tests.test_can_bench" name="test_data_id_change_keeps_can_id_and_length_but_breaks_receiver_validation" time="0.002" />
+    <testcase classname="tests.test_can_bench" name="test_three_bus_participants_compare_input_with_cluster_consumption[33-True]" time="0.483" />
+    <testcase classname="tests.test_can_bench" name="test_three_bus_participants_compare_input_with_cluster_consumption[34-False]" time="0.432" />
+    <testcase classname="tests.test_can_bench" name="test_stale_cluster_ack_cannot_start_verification" time="0.051" />
+    <testcase classname="tests.test_can_bench" name="test_silent_cluster_cannot_pass_even_with_valid_observed_frames" time="0.101" />
+    <testcase classname="tests.test_can_bench" name="test_trailing_extra_frame_and_report_cannot_be_ignored" time="0.001" />
+    <testcase classname="tests.test_can_bench" name="test_remote_gate_requires_successful_explicit_verdict[print('{&quot;passed&quot;:false}')-False]" time="0.058" />
+    <testcase classname="tests.test_can_bench" name="test_remote_gate_requires_successful_explicit_verdict[print(&quot;{}&quot;)-False]" time="0.056" />
+    <testcase classname="tests.test_can_bench" name="test_remote_gate_requires_successful_explicit_verdict[print('{&quot;passed&quot;:true}');raise SystemExit(1)-False]" time="0.057" />
+    <testcase classname="tests.test_can_bench" name="test_remote_gate_requires_successful_explicit_verdict[print('{&quot;passed&quot;:true}')-True]" time="0.055" />
+    <testcase classname="tests.test_can_verdict" name="test_genuine_verdict_round_trips" time="0.000">
+      <skipped type="pytest.skip" message="vcan0 is not available in this environment">/home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota/tests/test_can_verdict.py:29: vcan0 is not available in this environment</skipped>
+    </testcase>
+    <testcase classname="tests.test_can_verdict" name="test_genuine_failure_round_trips" time="0.000">
+      <skipped type="pytest.skip" message="vcan0 is not available in this environment">/home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota/tests/test_can_verdict.py:38: vcan0 is not available in this environment</skipped>
+    </testcase>
+    <testcase classname="tests.test_can_verdict" name="test_wrong_secret_cannot_forge_a_verdict" time="0.000">
+      <skipped type="pytest.skip" message="vcan0 is not available in this environment">/home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota/tests/test_can_verdict.py:47: vcan0 is not available in this environment</skipped>
+    </testcase>
+    <testcase classname="tests.test_can_verdict" name="test_stale_nonce_is_ignored" time="0.000">
+      <skipped type="pytest.skip" message="vcan0 is not available in this environment">/home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota/tests/test_can_verdict.py:57: vcan0 is not available in this environment</skipped>
+    </testcase>
+    <testcase classname="tests.test_can_verdict" name="test_no_verdict_at_all_times_out" time="0.000">
+      <skipped type="pytest.skip" message="vcan0 is not available in this environment">/home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota/tests/test_can_verdict.py:67: vcan0 is not available in this environment</skipped>
+    </testcase>
+    <testcase classname="tests.test_cluster_can_verdict" name="test_can_verdict_overrides_a_forged_stdout_pass" time="0.006">
+      <skipped type="pytest.skip" message="vcan0 is not available in this environment">/home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota/tests/test_cluster_can_verdict.py:29: vcan0 is not available in this environment</skipped>
+    </testcase>
+    <testcase classname="tests.test_cluster_can_verdict" name="test_can_verdict_accepts_a_genuine_authenticated_pass" time="0.006">
+      <skipped type="pytest.skip" message="vcan0 is not available in this environment">/home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota/tests/test_cluster_can_verdict.py:49: vcan0 is not available in this environment</skipped>
+    </testcase>
+    <testcase classname="tests.test_cluster_can_verdict" name="test_can_verdict_signed_with_the_wrong_secret_cannot_force_a_commit" time="0.006">
+      <skipped type="pytest.skip" message="vcan0 is not available in this environment">/home/jsy/CAPSTONE_OTA/.worktrees/physical-can-ota/tests/test_cluster_can_verdict.py:67: vcan0 is not available in this environment</skipped>
+    </testcase>
+    <testcase classname="tests.test_cluster_relay" name="test_cluster_cli_installs_only_in_target_root_and_requires_explicit_validation" time="0.702" />
+    <testcase classname="tests.test_cluster_relay" name="test_empty_external_check_argument_cannot_silently_install_without_validation" time="0.511" />
+    <testcase classname="tests.test_cluster_relay" name="test_systemd_initialization_never_falls_back_to_updater_identity" time="0.010" />
+    <testcase classname="tests.test_cluster_relay" name="test_external_checker_rejects_candidate_and_rechecks_previous_on_rollback" time="0.644" />
+    <testcase classname="tests.test_cluster_relay" name="test_target_never_commits_without_successful_explicit_external_verdict[print(&quot;{}&quot;)]" time="0.531" />
+    <testcase classname="tests.test_cluster_relay" name="test_target_never_commits_without_successful_explicit_external_verdict[print('{&quot;passed&quot;:true}');raise SystemExit(1)]" time="0.536" />
+    <testcase classname="tests.test_cluster_relay" name="test_target_never_commits_without_successful_explicit_external_verdict[print('{&quot;passed&quot;:false}')]" time="0.536" />
+    <testcase classname="tests.test_cluster_relay" name="test_target_recovery_blocks_authentic_v1_substitution_before_execution" time="0.560" />
+    <testcase classname="tests.test_cluster_relay" name="test_forward_cli_really_installs_on_cluster_and_preserves_rollback_result" time="1.948" />
+    <testcase classname="tests.test_cluster_relay" name="test_forward_external_gate_receives_target_slot_and_rechecks_rollback" time="1.707" />
+    <testcase classname="tests.test_cluster_relay" name="test_external_observer_runs_after_cluster_service_activation" time="1.532" />
+    <testcase classname="tests.test_cluster_relay" name="test_forward_lost_reply_reports_uncertainty_not_success" time="1.027" />
+    <testcase classname="tests.test_cluster_relay" name="test_forward_reports_target_recovery_refusal_as_known_failure" time="1.090" />
+    <testcase classname="tests.test_cluster_relay" name="test_forward_rejects_status_with_wrong_committed_security_floor" time="1.025" />
+    <testcase classname="tests.test_cluster_relay" name="test_invalid_target_configuration_is_rejected_before_transfer[change0]" time="0.002" />
+    <testcase classname="tests.test_cluster_relay" name="test_invalid_target_configuration_is_rejected_before_transfer[change1]" time="0.001" />
+    <testcase classname="tests.test_cluster_relay" name="test_invalid_target_configuration_is_rejected_before_transfer[change2]" time="0.001" />
+    <testcase classname="tests.test_cluster_relay" name="test_invalid_target_configuration_is_rejected_before_transfer[change3]" time="0.001" />
+    <testcase classname="tests.test_cluster_relay" name="test_verified_cache_survives_origin_shutdown_and_target_downloads_second_hop" time="1.245" />
+    <testcase classname="tests.test_cluster_relay" name="test_corrupt_release_is_not_forwarded" time="0.523" />
+    <testcase classname="tests.test_cluster_relay" name="test_target_independently_rejects_wrong_pinned_key" time="1.173" />
+    <testcase classname="tests.test_cluster_relay" name="test_progress_separates_historical_mismatch_from_successful_recovery" time="0.641" />
+    <testcase classname="tests.test_cluster_relay" name="test_first_observed_mismatch_identity_is_not_taken_from_an_earlier_timeout" time="0.641" />
+    <testcase classname="tests.test_cluster_relay" name="test_relay_can_select_ivi_without_changing_the_cluster" time="0.001" />
+    <testcase classname="tests.test_cluster_relay" name="test_relay_adds_can_verdict_flags_only_when_both_fields_present" time="0.001" />
+    <testcase classname="tests.test_cluster_relay" name="test_ivi_forward_deadline_covers_trial_and_recovery_checks" time="1.042" />
+    <testcase classname="tests.test_cockpit_feeder" name="test_collect_merges_sources_and_marks_missing_ones_as_none" time="0.001" />
+    <testcase classname="tests.test_cockpit_feeder" name="test_state_changes_and_device_events_become_log_lines_once" time="0.001" />
+    <testcase classname="tests.test_cockpit_feeder" name="test_ivi_version_change_is_logged_and_log_is_bounded" time="0.001" />
+    <testcase classname="tests.test_cockpit_feeder" name="test_unknown_events_are_described_not_dropped" time="0.001" />
+    <testcase classname="tests.test_cockpit_feeder" name="test_write_is_atomic_and_world_readable" time="0.003" />
+    <testcase classname="tests.test_cockpit_feeder" name="test_tap_is_passed_through_and_a_failing_tap_is_unknown" time="0.002" />
+    <testcase classname="tests.test_cockpit_feeder" name="test_capture_reads_external_framebuffer_without_requesting_qt_render" time="0.161" />
+    <testcase classname="tests.test_cockpit_transitions" name="test_fast_update_and_rejected_recovery_keep_order_without_false_success" time="0.025" />
+    <testcase classname="tests.test_cockpit_transitions" name="test_real_qml_animations_show_all_four_bands_in_order" time="6.950" />
+    <testcase classname="tests.test_debug_port" name="test_slot_path_rejects_anything_outside_slots" time="0.002" />
+    <testcase classname="tests.test_debug_port" name="test_push_replaces_the_named_slot_and_nothing_else" time="0.506" />
+    <testcase classname="tests.test_debug_port" name="test_push_rejects_an_invalid_slot_name_without_touching_anything" time="0.506" />
+    <testcase classname="tests.test_debug_port" name="test_a_stalled_client_cannot_hold_the_handler_thread_forever" time="0.503" />
+    <testcase classname="tests.test_debug_port_rollback_scenario" name="test_defended_rollback_blocks_the_planted_recovery_image" time="0.764" />
+    <testcase classname="tests.test_debug_port_rollback_scenario" name="test_vulnerable_mode_lets_the_planted_image_through" time="0.714" />
+    <testcase classname="tests.test_device" name="test_real_http_install_alternates_slots_and_pins_key" time="0.651" />
+    <testcase classname="tests.test_device" name="test_failed_trial_restores_previous_app_without_raising_floor" time="0.603" />
+    <testcase classname="tests.test_device" name="test_debug_port_style_slot_swap_is_blocked_before_activation" time="0.533" />
+    <testcase classname="tests.test_device" name="test_vulnerable_mode_toggle_actually_disables_the_block" time="0.596" />
+    <testcase classname="tests.test_device" name="test_corrupt_archive_never_changes_current" time="0.604" />
+    <testcase classname="tests.test_device" name="test_low_svn_is_rejected_even_with_higher_product_version" time="0.589" />
+    <testcase classname="tests.test_device" name="test_same_or_older_product_version_is_not_reinstalled" time="0.591" />
+    <testcase classname="tests.test_device" name="test_interrupted_trial_is_rolled_back_by_next_invocation" time="0.605" />
+    <testcase classname="tests.test_device" name="test_recovery_refuses_tampered_previous_slot" time="0.607" />
+    <testcase classname="tests.test_device" name="test_status_is_read_only_and_rejects_corrupted_journal" time="0.001" />
+    <testcase classname="tests.test_device" name="test_pinned_key_cannot_be_replaced" time="0.528" />
+    <testcase classname="tests.test_device" name="test_concurrent_update_is_rejected" time="0.536" />
+    <testcase classname="tests.test_device" name="test_missing_state_never_reinitializes_an_existing_device" time="0.532" />
+    <testcase classname="tests.test_device" name="test_device_root_and_slot_symlinks_are_rejected" time="0.625" />
+    <testcase classname="tests.test_device" name="test_cli_installs_and_reports_status" time="0.785" />
+    <testcase classname="tests.test_device" name="test_cli_failed_trial_returns_nonzero_but_reports_successful_recovery" time="0.841" />
+    <testcase classname="tests.test_device" name="test_error_after_durable_commit_never_rolls_back_the_security_floor" time="0.608" />
+    <testcase classname="tests.test_device" name="test_failed_first_install_does_not_claim_successful_recovery" time="0.531" />
+    <testcase classname="tests.test_device" name="test_unhealthy_previous_app_leaves_recovery_pending" time="0.605" />
+    <testcase classname="tests.test_device" name="test_crash_at_selector_boundary_recovers_committed_slot[False]" time="0.605" />
+    <testcase classname="tests.test_device" name="test_crash_at_selector_boundary_recovers_committed_slot[True]" time="0.596" />
+    <testcase classname="tests.test_device" name="test_optional_systemd_mode_controls_only_fixed_service" time="1.535" />
+    <testcase classname="tests.test_device" name="test_first_install_interrupted_during_staging_can_be_retried" time="0.576" />
+    <testcase classname="tests.test_device" name="test_first_systemd_trial_recovery_stops_the_running_candidate[True]" time="0.553" />
+    <testcase classname="tests.test_device" name="test_first_systemd_trial_recovery_stops_the_running_candidate[False]" time="0.556" />
+    <testcase classname="tests.test_device" name="test_floor_inconsistent_with_committed_release_is_rejected_before_download" time="0.532" />
+    <testcase classname="tests.test_device" name="test_http_deadline_interrupts_trickling_peer_and_next_update_still_works[headers]" time="1.042" />
+    <testcase classname="tests.test_device" name="test_http_deadline_interrupts_trickling_peer_and_next_update_still_works[body]" time="1.037" />
+    <testcase classname="tests.test_drive_cycle" name="test_loader_skips_headers_and_converts_mph" time="0.001" />
+    <testcase classname="tests.test_drive_cycle" name="test_loader_kmh_is_unchanged_and_rejects_empty" time="0.001" />
+    <testcase classname="tests.test_drive_cycle" name="test_loader_rejects_unknown_unit_and_non_increasing_time" time="0.001" />
+    <testcase classname="tests.test_drive_cycle" name="test_resample_length_endpoints_and_midpoint" time="0.000" />
+    <testcase classname="tests.test_drive_cycle" name="test_limit_acceleration_clamps_steps_and_keeps_stops" time="0.000" />
+    <testcase classname="tests.test_drive_cycle" name="test_gear_is_neutral_at_stop_and_rises_with_speed" time="0.001" />
+    <testcase classname="tests.test_drive_cycle" name="test_gear_hysteresis_prevents_hunting" time="0.000" />
+    <testcase classname="tests.test_drive_cycle" name="test_rpm_bounds_and_upshift_drop" time="0.001" />
+    <testcase classname="tests.test_drive_cycle" name="test_build_profile_is_deterministic_and_frame_compatible" time="0.014" />
+    <testcase classname="tests.test_drive_cycle" name="test_profile_has_changing_segments_and_stops" time="0.003" />
+    <testcase classname="tests.test_drive_cycle" name="test_frames_counter_wraps_and_increments" time="0.012" />
+    <testcase classname="tests.test_example" name="test_example_check_runs_real_initialization_and_rejects_bad_config" time="0.095" />
+    <testcase classname="tests.test_ivi" name="test_payload_layout_and_versions" time="0.008" />
+    <testcase classname="tests.test_ivi" name="test_check_passes_for_valid_config_and_fails_for_invalid" time="0.291" />
+    <testcase classname="tests.test_ivi" name="test_workers_follow_the_map_flag_and_stop_on_sigterm" time="3.568" />
+    <testcase classname="tests.test_ivi" name="test_realtime_request_falls_back_visibly_without_privilege" time="2.043" />
+    <testcase classname="tests.test_ivi" name="test_ivi_device_manages_its_own_service_with_a_long_verifier_deadline" time="0.001" />
+    <testcase classname="tests.test_ivi" name="test_cli_exposes_ivi_update" time="0.002" />
+    <testcase classname="tests.test_ivi" name="test_navigation_position_follows_the_route_when_a_map_is_shipped" time="0.104" />
+    <testcase classname="tests.test_ivi" name="test_v2_has_no_map_so_the_map_flag_does_nothing" time="1.626" />
+    <testcase classname="tests.test_ivi" name="test_ivi_initialization_preserves_the_signed_payload_tree" time="0.038" />
+    <testcase classname="tests.test_ivi_attack" name="test_ivi_security_fixture_blocks_authentic_old_release_without_a_cluster" time="3.461" />
+    <testcase classname="tests.test_ivi_release" name="test_make_signs_both_releases_and_keeps_the_private_key_out_of_them" time="0.085" />
+    <testcase classname="tests.test_load_phases" name="test_validate_rejects_bad_schedules" time="0.000" />
+    <testcase classname="tests.test_load_phases" name="test_run_spawns_and_kills_the_right_number_of_workers" time="0.000" />
+    <testcase classname="tests.test_load_phases" name="test_policy_is_optional_and_restricted" time="0.000" />
+    <testcase classname="tests.test_load_phases" name="test_run_passes_the_phase_policy_to_spawn" time="0.000" />
+    <testcase classname="tests.test_monitor_detect" name="test_quantile_and_regression_basics" time="0.000" />
+    <testcase classname="tests.test_monitor_detect" name="test_baseline_needs_enough_data" time="0.000" />
+    <testcase classname="tests.test_monitor_detect" name="test_baseline_describes_healthy_build" time="0.027" />
+    <testcase classname="tests.test_monitor_detect" name="test_healthy_traces_never_confirm_and_rarely_raise_suspicion[cycle0]" time="1.774" />
+    <testcase classname="tests.test_monitor_detect" name="test_healthy_traces_never_confirm_and_rarely_raise_suspicion[cycle1]" time="2.429" />
+    <testcase classname="tests.test_monitor_detect" name="test_seeded_faults_are_confirmed_with_correct_class[delay-delay-cycle0]" time="0.143" />
+    <testcase classname="tests.test_monitor_detect" name="test_seeded_faults_are_confirmed_with_correct_class[delay-delay-cycle1]" time="0.201" />
+    <testcase classname="tests.test_monitor_detect" name="test_seeded_faults_are_confirmed_with_correct_class[freeze-freeze-cycle0]" time="0.161" />
+    <testcase classname="tests.test_monitor_detect" name="test_seeded_faults_are_confirmed_with_correct_class[freeze-freeze-cycle1]" time="0.185" />
+    <testcase classname="tests.test_monitor_detect" name="test_seeded_faults_are_confirmed_with_correct_class[drift-delay-cycle0]" time="0.147" />
+    <testcase classname="tests.test_monitor_detect" name="test_seeded_faults_are_confirmed_with_correct_class[drift-delay-cycle1]" time="0.212" />
+    <testcase classname="tests.test_monitor_detect" name="test_no_alarm_before_fault_onset" time="0.031" />
+    <testcase classname="tests.test_monitor_detect" name="test_drift_is_caught_by_the_trend_rule_before_the_tail_rule" time="0.031" />
+    <testcase classname="tests.test_monitor_detect" name="test_input_jitter_is_not_actionable" time="0.052" />
+    <testcase classname="tests.test_monitor_detect" name="test_sparse_source_is_insufficient_not_normal" time="0.019" />
+    <testcase classname="tests.test_monitor_detect" name="test_confirm_requires_persistence_and_votes" time="0.033" />
+    <testcase classname="tests.test_monitor_detect" name="test_text_roundtrip_gives_same_pairs" time="0.049" />
+    <testcase classname="tests.test_monitor_detect" name="test_baseline_ignores_gaps_between_separate_healthy_segments" time="0.057" />
+    <testcase classname="tests.test_monitor_detect" name="test_cusum_ignores_small_shifts_but_catches_the_configured_effect_size" time="0.000" />
+    <testcase classname="tests.test_monitor_detect" name="test_declared_delay_limit_is_one_can_cycle_and_is_an_error_above_it" time="0.931" />
+    <testcase classname="tests.test_monitor_detect" name="test_limit_is_configurable_and_a_violation_counts_as_delay" time="0.089" />
+    <testcase classname="tests.test_monitor_service" name="test_healthy_stream_is_observed_and_never_confirmed" time="0.158" />
+    <testcase classname="tests.test_monitor_service" name="test_delay_fault_is_confirmed_with_class_and_evidence" time="0.132" />
+    <testcase classname="tests.test_monitor_service" name="test_silent_central_makes_the_monitor_blind_and_stops_the_clock" time="0.034" />
+    <testcase classname="tests.test_monitor_service" name="test_reset_clears_state_and_rotates_the_id" time="0.129" />
+    <testcase classname="tests.test_monitor_service" name="test_bus_stopped_seconds_follow_the_vehicle_speed" time="0.056" />
+    <testcase classname="tests.test_monitor_service" name="test_verdict_is_json_with_stable_keys" time="0.000" />
+    <testcase classname="tests.test_monitor_service" name="test_freeze_frame_returns_recent_frames" time="0.041" />
+    <testcase classname="tests.test_monitor_service" name="test_assess_window_matches_assess_trace" time="0.031" />
+    <testcase classname="tests.test_monitor_service" name="test_decode_message_uses_the_kernel_timestamp" time="0.000" />
+    <testcase classname="tests.test_monitor_service" name="test_verdict_shows_current_delay_and_the_declared_limit" time="0.164" />
+    <testcase classname="tests.test_monitor_service" name="test_reset_nonce_is_echoed_so_a_requester_can_prove_its_reset_was_applied" time="0.000" />
+    <testcase classname="tests.test_monitor_trace" name="test_parse_line_and_roundtrip" time="0.000" />
+    <testcase classname="tests.test_monitor_trace" name="test_parse_line_rejects_malformed[garbage]" time="0.001" />
+    <testcase classname="tests.test_monitor_trace" name="test_parse_line_rejects_malformed[(1.0) can0 2000#00]" time="0.000" />
+    <testcase classname="tests.test_monitor_trace" name="test_parse_line_rejects_malformed[(1.0) can0 200#0]" time="0.000" />
+    <testcase classname="tests.test_monitor_trace" name="test_parse_line_rejects_malformed[(x) can0 200#00]" time="0.000" />
+    <testcase classname="tests.test_monitor_trace" name="test_parse_text_orders_nothing_and_skips_blank" time="0.000" />
+    <testcase classname="tests.test_monitor_trace" name="test_decode_vehicle_matches_source_frame" time="0.000" />
+    <testcase classname="tests.test_monitor_trace" name="test_decode_vehicle_rejects_bad_crc_and_length" time="0.000" />
+    <testcase classname="tests.test_monitor_trace" name="test_echo_roundtrip_and_crc" time="0.000" />
+    <testcase classname="tests.test_monitor_trace" name="test_pair_latency_and_unmatched" time="0.001" />
+    <testcase classname="tests.test_monitor_trace" name="test_pair_uses_latest_source_after_counter_wrap" time="0.004" />
+    <testcase classname="tests.test_monitor_trace" name="test_pair_drops_echo_without_source_and_counts_invalid" time="0.000" />
+    <testcase classname="tests.test_monitor_trace" name="test_pair_ignores_echo_older_than_max_age" time="0.000" />
+    <testcase classname="tests.test_nav_map" name="test_projection_is_local_metres_with_north_positive" time="0.000" />
+    <testcase classname="tests.test_nav_map" name="test_build_map_projects_roads_and_route_and_drops_degenerate_ways" time="0.000" />
+    <testcase classname="tests.test_nav_map" name="test_position_interpolates_headings_and_wraps_around_the_loop" time="0.000" />
+    <testcase classname="tests.test_nav_map" name="test_route_needs_two_points" time="0.000" />
+    <testcase classname="tests.test_play_profile" name="test_sends_every_row_on_an_absolute_schedule" time="0.002" />
+    <testcase classname="tests.test_play_profile" name="test_slow_sender_does_not_accumulate_drift" time="0.002" />
+    <testcase classname="tests.test_play_profile" name="test_counter_is_continuous_across_loops_and_wraps" time="0.004" />
+    <testcase classname="tests.test_play_profile" name="test_stop_flag_ends_playback_early" time="0.002" />
+    <testcase classname="tests.test_probation" name="test_healthy_probation_passes_only_after_enough_monitored_time_since_reset" time="0.000" />
+    <testcase classname="tests.test_probation" name="test_confirmed_anomaly_waits_for_both_observers_to_report_standstill" time="0.001" />
+    <testcase classname="tests.test_probation" name="test_one_observer_alone_does_not_open_the_safe_window" time="0.000" />
+    <testcase classname="tests.test_probation" name="test_unknown_cluster_state_never_counts_as_stopped" time="0.001" />
+    <testcase classname="tests.test_probation" name="test_stale_or_failing_monitor_never_passes_and_fails_closed_at_the_cap" time="0.001" />
+    <testcase classname="tests.test_probation" name="test_blind_time_is_not_counted_toward_probation" time="0.001" />
+    <testcase classname="tests.test_probation" name="test_reset_must_be_acknowledged_before_counting" time="0.001" />
+    <testcase classname="tests.test_probation" name="test_intermittent_cluster_failures_do_not_reset_the_safe_window" time="0.000" />
+    <testcase classname="tests.test_probation" name="test_a_known_moving_observation_resets_the_safe_window_even_inside_the_grace" time="0.000" />
+    <testcase classname="tests.test_probation" name="test_stale_stopped_observation_expires" time="0.000" />
+    <testcase classname="tests.test_probation" name="test_every_safe_window_decision_is_traced_for_evidence" time="0.000" />
+    <testcase classname="tests.test_probation" name="test_decision_is_fast_when_the_wait_loop_polls_quickly" time="0.001" />
+    <testcase classname="tests.test_probation" name="test_a_stale_confirmed_verdict_from_before_the_reset_is_never_mistaken_for_the_new_probation" time="0.001" />
+    <testcase classname="tests.test_progress" name="test_real_http_progress_and_failed_candidate_restore_previous_version" time="0.599" />
+    <testcase classname="tests.test_progress" name="test_download_reports_measured_bytes_and_content_length" time="0.508" />
+    <testcase classname="tests.test_progress" name="test_download_deadline_cannot_be_swallowed_by_progress_write" time="0.531" />
+    <testcase classname="tests.test_progress" name="test_telemetry_failure_does_not_fail_real_update" time="0.522" />
+    <testcase classname="tests.test_progress" name="test_new_terminal_display_does_not_add_a_verdict_affecting_event_write" time="0.593" />
+    <testcase classname="tests.test_progress" name="test_recovery_refusal_is_not_reported_as_success" time="0.562" />
+    <testcase classname="tests.test_progress" name="test_slot_projection_retains_trial_history_but_marks_only_selected_slot" time="0.597" />
+    <testcase classname="tests.test_progress" name="test_recovery_refusal_keeps_recorded_version_separate_from_execution" time="0.559" />
+    <testcase classname="tests.test_progress" name="test_progress_preserves_fast_stages_for_slow_displays" time="0.021" />
+    <testcase classname="tests.test_qt_cluster" name="test_readonly_qt_initialization_is_stable_without_accessing_user_display" time="2.025" />
+    <testcase classname="tests.test_qt_cluster" name="test_actual_qt_models_follow_vehicle_inputs_and_ignore_delayed_samples" time="0.238" />
+    <testcase classname="tests.test_qt_cluster" name="test_actual_qt_counter_wrap_timeout_and_recovery" time="0.894" />
+    <testcase classname="tests.test_qt_cluster" name="test_invalid_crc_does_not_change_qt_display" time="0.229" />
+    <testcase classname="tests.test_qt_cluster" name="test_snapshot_observer_runs_as_separate_process_and_binds_candidate_identity" time="0.346" />
+    <testcase classname="tests.test_qt_cluster" name="test_third_role_remote_gate_drives_source_and_observes_existing_qt" time="3.907" />
+    <testcase classname="tests.test_qt_cluster" name="test_unrelated_bus_identifier_does_not_advance_vehicle_evidence" time="0.275" />
+    <testcase classname="tests.test_qt_cluster" name="test_local_observer_binds_existing_qt_identity_and_rejects_wrong_candidate" time="0.208" />
+    <testcase classname="tests.test_qt_cluster" name="test_missing_local_model_observation_is_bounded_and_fails_closed" time="5.022" />
+    <testcase classname="tests.test_qt_cluster" name="test_normal_signal_acceptance_with_real_qt" time="1.821" />
+    <testcase classname="tests.test_qt_progress" name="test_real_qml_panel_reports_download_and_distinguishes_refusal[download-\uc571 \ub2e4\uc6b4\ub85c\ub4dc-extra0]" time="0.608" />
+    <testcase classname="tests.test_qt_progress" name="test_real_qml_panel_reports_download_and_distinguishes_refusal[rolled_back-V2 \ubcf5\uad6c \uc644\ub8cc-extra1]" time="0.584" />
+    <testcase classname="tests.test_qt_progress" name="test_real_qml_panel_reports_download_and_distinguishes_refusal[recovery_failed-\ubcf5\uad6c \ucc28\ub2e8 \xb7 \uc11c\ube44\uc2a4 \ubbf8\ubcf5\uc6d0-extra2]" time="0.576" />
+    <testcase classname="tests.test_qt_progress" name="test_real_qml_panel_reports_download_and_distinguishes_refusal[None-\uc9c4\ud589 \uc815\ubcf4 \ub300\uae30-extra3]" time="0.613" />
+    <testcase classname="tests.test_qt_progress" name="test_panel_handles_interrupted_writers_without_inventing_success[{partial-\uc9c4\ud589 \uc815\ubcf4 \ub300\uae30-False-False]" time="0.410" />
+    <testcase classname="tests.test_qt_progress" name="test_panel_handles_interrupted_writers_without_inventing_success[contents1-\uc9c4\ud589 \uc815\ubcf4 \ub300\uae30-False-False]" time="0.404" />
+    <testcase classname="tests.test_qt_progress" name="test_panel_handles_interrupted_writers_without_inventing_success[contents2-\uc9c4\ud589 \uc911\ub2e8 \xb7 \uacb0\uacfc \ubbf8\ud655\uc778-True-False]" time="0.410" />
+    <testcase classname="tests.test_qt_progress" name="test_panel_handles_interrupted_writers_without_inventing_success[contents3-\uc9c4\ud589 \uc911\ub2e8 \xb7 \uacb0\uacfc \ubbf8\ud655\uc778-True-False]" time="0.409" />
+    <testcase classname="tests.test_qt_progress" name="test_panel_handles_interrupted_writers_without_inventing_success[contents4-\uc9c4\ud589 \uc911\ub2e8 \xb7 \uacb0\uacfc \ubbf8\ud655\uc778-True-False]" time="0.426" />
+    <testcase classname="tests.test_qt_progress" name="test_panel_handles_interrupted_writers_without_inventing_success[contents5-V2 \ubcf5\uad6c \uc644\ub8cc-False-True]" time="0.380" />
+    <testcase classname="tests.test_qt_progress" name="test_large_comparison_and_slots_do_not_confuse_history_with_healthy_execution[rolled_back-A-A-committed]" time="0.443" />
+    <testcase classname="tests.test_qt_progress" name="test_large_comparison_and_slots_do_not_confuse_history_with_healthy_execution[recovery_failed-B-None-recovery_failed]" time="0.431" />
+    <testcase classname="tests.test_qt_progress" name="test_remote_writer_identity_and_observer_freshness_are_distinct[0-verify-True-False-\uc2e4\uc81c \uacc4\uae30\ud310 \uac80\uc99d]" time="0.406" />
+    <testcase classname="tests.test_qt_progress" name="test_remote_writer_identity_and_observer_freshness_are_distinct[15-rolled_back-True-True-\uc6d0\uaca9 \uc5f0\uacb0 \ub04a\uae40 \xb7 \ub9c8\uc9c0\ub9c9 \uae30\ub85d]" time="0.412" />
+    <testcase classname="tests.test_qt_progress" name="test_equal_values_with_expired_input_are_not_labeled_as_a_speed_difference" time="0.414" />
+    <testcase classname="tests.test_qt_progress" name="test_presentation_places_real_preview_and_logs_beside_the_same_monitor[0-True]" time="0.586" />
+    <testcase classname="tests.test_qt_progress" name="test_presentation_places_real_preview_and_logs_beside_the_same_monitor[10-False]" time="0.606" />
+    <testcase classname="tests.test_qt_source" name="test_invalid_frame_sends_no_traffic[message0]" time="0.146" />
+    <testcase classname="tests.test_qt_source" name="test_invalid_frame_sends_no_traffic[message1]" time="0.153" />
+    <testcase classname="tests.test_remote_progress" name="test_mirror_reads_remote_status_and_keeps_last_timestamp_on_disconnect" time="0.015" />
+    <testcase classname="tests.test_remote_progress" name="test_mirror_rejects_non_ssh_configuration" time="0.001" />
+    <testcase classname="tests.test_remote_progress" name="test_presentation_preview_failure_does_not_reuse_old_image_as_live" time="0.018" />
+    <testcase classname="tests.test_remote_progress" name="test_can_reader_stops_only_its_owned_capture_process" time="0.024" />
+    <testcase classname="tests.test_remote_progress" name="test_hanging_screen_capture_does_not_leave_its_child_running" time="2.010" />
+    <testcase classname="tests.test_removed_display_scenario" name="test_retired_buffered_profile_is_rejected_before_accessing_a_target" time="0.000" />
+    <testcase classname="tests.test_removed_display_scenario" name="test_removed_mixed_demo_is_rejected_without_creating_output" time="0.001" />
+    <testcase classname="tests.test_removed_display_scenario" name="test_fixed_cluster_payload_has_no_version_or_receiver_policy" time="0.002" />
+    <testcase classname="tests.test_tap" name="test_healthy_traffic_reads_a_small_delay" time="0.101" />
+    <testcase classname="tests.test_tap" name="test_a_delay_fault_shows_up_within_about_a_second" time="0.259" />
+    <testcase classname="tests.test_tap" name="test_no_data_is_unknown_not_zero" time="0.000" />
+    <testcase classname="tests.test_tap" name="test_old_frames_age_out_of_the_window" time="0.015" />
+    <testcase classname="tests.test_tap" name="test_speed_tracker_reports_the_latest_speed_and_how_stale_it_is" time="0.001" />
+    <testcase classname="tests.test_tap" name="test_snapshot_carries_the_live_can_values_and_what_the_cluster_shows" time="0.013" />
+    <testcase classname="tests.test_tap" name="test_a_lagging_cluster_shows_an_old_speed_and_falls_behind_in_frames" time="0.013" />
+    <testcase classname="tests.test_tap" name="test_frames_still_waiting_for_an_echo_raise_the_delay_even_without_enough_pairs" time="0.013" />
+    <testcase classname="tests.test_tap" name="test_healthy_traffic_has_no_waiting_frames_inflating_the_delay" time="0.036" />
+    <testcase classname="tests.test_virtual_compatibility" name="test_wire_crc_uses_known_smbus_check_value" time="0.000" />
+    <testcase classname="tests.test_virtual_compatibility" name="test_v2_survives_wrap_and_reconnect_using_separate_real_processes" time="0.096" />
+    <testcase classname="tests.test_virtual_compatibility" name="test_v3_initializes_and_sends_valid_frames_but_receiver_stalls_after_reconnect" time="0.087" />
+    <testcase classname="tests.test_virtual_compatibility" name="test_malformed_actor_output_cannot_be_accepted" time="0.014" />
+    <testcase classname="tests.test_virtual_compatibility" name="test_demo_gate_initializes_payload_once" time="0.117" />
+    <testcase classname="tests.test_virtual_compatibility" name="test_hanging_or_flooding_actor_is_bounded[import time; time.sleep(10)]" time="0.203" />
+    <testcase classname="tests.test_virtual_compatibility" name="test_hanging_or_flooding_actor_is_bounded[import os\nwhile True: os.write(1, b&quot;x&quot; * 4096)]" time="0.012" />
+    <testcase classname="tests.test_virtual_compatibility" name="test_fixed_cluster_accepts_natural_counter_wrap" time="0.022" />
+    <testcase classname="tests.test_virtual_compatibility" name="test_verifier_reaps_child_workers_even_if_actor_parent_already_exited" time="0.212" />
+    <testcase classname="tests.test_virtual_compatibility" name="test_full_virtual_chain_distinguishes_init_compatibility_and_signed_slot_swap" time="1.505" />
+    <testcase classname="tests.test_virtual_compatibility" name="test_virtual_demo_cli_runs_in_fresh_workspace" time="1.552" />
+    <testcase classname="tests.test_virtual_compatibility" name="test_negative_verdict_preserves_evidence_but_nonzero_cannot_approve" time="0.051" />
+    <testcase classname="tests.test_virtual_compatibility" name="test_modified_v1_archive_is_not_misreported_as_an_authentic_old_image" time="0.010" />
+  </testsuite>
+</testsuites>

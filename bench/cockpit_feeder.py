@@ -10,7 +10,6 @@ import argparse
 import json
 import os
 import shlex
-import shutil
 import signal
 import subprocess
 import threading
@@ -84,11 +83,25 @@ def read_json(path):
     return json.loads(Path(path).read_text())
 
 
+def capture_cluster(socket_path, display, out_dir, revision):
+    from PIL import ImageGrab
+    from capstone_ota.qt_verify import socket_request
+    # Qt's grabWindow renders on its CAN-processing thread. Read X11's existing pixels instead.
+    report = socket_request(socket_path, {'op': 'snapshot', 'nonce': 'cockpit'})
+    temporary = Path(out_dir) / '.cluster.tmp'
+    ImageGrab.grab(xdisplay=display).save(temporary, format='BMP')
+    temporary.chmod(0o644)
+    os.replace(temporary, Path(out_dir) / 'cluster.bmp')
+    return {'valid': report['valid'], 'model_speed': report['model_speed'],
+            'rejected': report['rejected'], 'rev': revision}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out-dir', type=Path, default=Path('/run/cockpit'))
     parser.add_argument('--cluster-socket', required=True)
-    parser.add_argument('--cluster-capture', required=True, help='image the cluster writes on a capture request')
+    parser.add_argument('--cluster-capture', help='Legacy argument; captures now read the external X11 framebuffer')
+    parser.add_argument('--cluster-display', default=':93', help='Private cluster X11 display; requires Pillow/XCB')
     parser.add_argument('--device-root', type=Path, default=Path('/opt/capstone-ivi/device'))
     parser.add_argument('--ivi-run', type=Path, default=Path('/run/capstone-ivi'))
     parser.add_argument('--pi3-ssh', required=True, help='JSON argv list for ssh to the Verifier board')
@@ -115,22 +128,16 @@ def main(argv=None) -> int:
     revision = {'n': 0}
 
     def cluster():
-        from capstone_ota.qt_verify import socket_request
-        report = socket_request(args.cluster_socket, {'op': 'capture', 'nonce': 'cockpit'})
-        temporary = args.out_dir / '.cluster.tmp'
-        shutil.copyfile(args.cluster_capture, temporary)
-        temporary.chmod(0o644)
-        os.replace(temporary, args.out_dir / 'cluster.bmp')
         revision['n'] += 1
-        return {'valid': report['valid'], 'model_speed': report['model_speed'], 'rejected': report['rejected'],
-                'rev': revision['n']}
+        return capture_cluster(args.cluster_socket, args.cluster_display, args.out_dir, revision['n'])
 
     def pi3():
         return latest['verdict'] if time.time() - latest['at'] < 5 else None
 
     def ota():
         progress = read_json(args.device_root / 'progress.json')
-        return {k: progress.get(k) for k in ('stage', 'version', 'candidate', 'slot_view', 'detail')}
+        return {k: progress.get(k) for k in ('stage', 'version', 'candidate', 'slot_view', 'detail',
+                                           'timeline_id', 'timeline')}
 
     def events():
         return [json.loads(line) for line in (args.device_root / 'events.jsonl').read_text().splitlines() if line]

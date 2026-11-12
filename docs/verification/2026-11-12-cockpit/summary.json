@@ -1,0 +1,9 @@
+{
+  "sample_count": 9,
+  "monitored_s": 44.228,
+  "window_p99_min_ms": 2.19,
+  "window_p99_max_ms": 4.89,
+  "all_observing": true,
+  "all_sampled_windows_skip_ratio": 0,
+  "full_ota_attack_run_performed": false
+}

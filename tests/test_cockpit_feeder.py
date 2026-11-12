@@ -72,3 +72,48 @@ def test_tap_is_passed_through_and_a_failing_tap_is_unknown(tmp_path):
     def broken():
         raise OSError('socket gone')
     assert make(tmp_path, tap=broken).collect()['tap'] is None
+
+
+def test_capture_reads_external_framebuffer_without_requesting_qt_render(tmp_path):
+    from bench.cockpit_feeder import capture_cluster
+    import os
+    import selectors
+    import shutil
+    import socket
+    import subprocess
+    import threading
+    import pytest
+    Image = pytest.importorskip('PIL.Image')
+    if not shutil.which('Xvfb'):
+        pytest.skip('Xvfb is needed for a real framebuffer capture')
+    read_fd, write_fd = os.pipe()
+    xvfb = subprocess.Popen(['Xvfb', '-displayfd', str(write_fd), '-screen', '0', '32x24x24',
+                             '-nolisten', 'tcp', '-ac'], pass_fds=(write_fd,),
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    os.close(write_fd)
+    try:
+        with selectors.DefaultSelector() as selector:
+            selector.register(read_fd, selectors.EVENT_READ)
+            assert selector.select(5), 'Xvfb did not start'
+            display = ':' + os.read(read_fd, 100).decode().strip()
+        path = tmp_path / 'model.sock'
+        requests = []
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            server.bind(str(path)); server.listen(1)
+            def serve():
+                client, _ = server.accept()
+                with client:
+                    requests.append(json.loads(client.makefile('rb').readline()))
+                    client.sendall(json.dumps({'valid': True, 'model_speed': 65, 'rejected': 0}).encode() + b'\n')
+            worker = threading.Thread(target=serve, daemon=True)
+            worker.start()
+            observed = capture_cluster(str(path), display, tmp_path, 7)
+            worker.join(2)
+        assert requests[0]['op'] == 'snapshot'  # capture would synchronously render inside the ECU
+        assert observed == {'valid': True, 'model_speed': 65, 'rejected': 0, 'rev': 7}
+        with Image.open(tmp_path / 'cluster.bmp') as image:
+            assert image.size == (32, 24) and image.format == 'BMP'
+        assert (tmp_path / 'cluster.bmp').stat().st_mode & 0o044 == 0o044
+    finally:
+        os.close(read_fd)
+        xvfb.terminate(); xvfb.wait(timeout=5)

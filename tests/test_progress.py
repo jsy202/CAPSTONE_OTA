@@ -118,3 +118,14 @@ def test_recovery_refusal_keeps_recorded_version_separate_from_execution(release
     view = read(root)['slot_view']
     assert view['A']['version'] == '1.0.0'
     assert view['A']['role'] == 'recovery_failed'
+
+
+def test_progress_preserves_fast_stages_for_slow_displays(tmp_path):
+    device = Device(tmp_path / 'device')
+    device.root.mkdir()
+    for stage in ['metadata', 'trial', 'verify', 'verify', 'recover', 'recovery_failed']:
+        device._progress(stage, version='2.0.0', candidate='3.0.0')
+    progress = json.loads((device.root / 'progress.json').read_text())
+    assert progress['timeline_id']
+    assert [row['stage'] for row in progress['timeline']] == [
+        'metadata', 'trial', 'verify', 'recover', 'recovery_failed']

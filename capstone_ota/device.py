@@ -101,6 +101,12 @@ class Device:
         """Best-effort display telemetry, never an input to security decisions."""
         self._progress_data.update(fields, stage=stage, updated=time.time(), pid=os.getpid())
         try:
+            # Preserve brief transitions between display polls; telemetry never authorizes execution.
+            self._progress_data.setdefault('timeline_id', str(time.time_ns()))
+            timeline = self._progress_data.setdefault('timeline', [])
+            if not timeline or timeline[-1]['stage'] != stage:
+                timeline.append({key: self._progress_data.get(key)
+                                 for key in ('stage', 'version', 'candidate', 'updated')})
             previous = self._progress_data.get('slot_view', {})
             view = {name: {'version': previous.get(name, {}).get('version'), 'role': 'retained'}
                     for name in ('A', 'B')}
