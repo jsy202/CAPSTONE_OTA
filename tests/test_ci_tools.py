@@ -127,3 +127,21 @@ def test_signing_key_from_environment_leaves_no_temp_key_behind(tmp_path, key_fi
         tempfile.tempdir = None
     assert list((tmp_path / 'tmp').glob('*.pem')) == []
     assert (tmp_path / 'o/release/release.sig').is_file()
+
+
+def test_production_release_refuses_a_key_that_differs_from_the_published_public_key(tmp_path, key_file):
+    """A wrong secret must fail before anything is built, not produce a release boards will reject."""
+    with pytest.raises(ValueError, match='does not match'):
+        make_release.build('3.0.0', tmp_path / 'out', key_file, ROOT / 'release/versions.json',
+                           expect_public_key=ROOT / 'release/release-public.pem')
+    assert not (tmp_path / 'out').exists()
+
+
+def test_production_release_accepts_the_matching_key(tmp_path, key_file):
+    public = tmp_path / 'pub.pem'
+    private = serialization.load_pem_private_key(key_file.read_bytes(), password=None)
+    public.write_bytes(private.public_key().public_bytes(serialization.Encoding.PEM,
+                                                         serialization.PublicFormat.SubjectPublicKeyInfo))
+    info = make_release.build('3.0.0', tmp_path / 'out', key_file, ROOT / 'release/versions.json',
+                              expect_public_key=public)
+    assert info['verified_with_own_public_key'] is True

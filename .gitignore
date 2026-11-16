@@ -19,3 +19,5 @@ secrets/
 *.tar.gz
 .venv/
 .worktrees/
+# The official release PUBLIC key is meant to be published; private keys stay ignored.
+!release/release-public.pem

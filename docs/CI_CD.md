@@ -29,7 +29,7 @@ git tag ivi-v3.0.0 && git push origin ivi-v3.0.0
 ```
 
 1. 전체 테스트 통과 확인.
-2. 태그가 `main`에 포함된 커밋인지 확인.
+2. 태그가 `main`에 포함된 커밋인지 확인. Secret 키가 저장소의 공개키와 같은지 확인.
 3. `release/versions.json`에서 버전 → 라벨·SVN을 찾아 IVI 페이로드 생성, Ed25519 서명.
 4. **같은 공개키로 서명을 다시 검증**하고 `app.tar.gz` 해시를 `release.json`과 대조. 실패하면 게시하지 않는다.
 5. `release.json`, `release.sig`, `app.tar.gz`, `release-public.pem`, `build-info.json`(커밋 ID·해시),
@@ -38,7 +38,15 @@ git tag ivi-v3.0.0 && git push origin ivi-v3.0.0
 수동 실행(workflow_dispatch)은 임시 키로 만들어 아티팩트만 남기고 **Release는 만들지 않는다**.
 시크릿이 없는 태그 push는 실패한다.
 
-### 서명 키 등록 (직접 해야 하는 일)
+### 서명 키
+
+2026-11-16에 등록했다. 개인키는 `release-signing` environment의 `OTA_SIGNING_KEY`에만 있고 로컬 파일은 삭제했다.
+공개키는 [`release/release-public.pem`](../release/release-public.pem)
+(SHA-256 `d779264b272517f85c71b3deae95d51c43d98d6c71e1da39d1949b744574cb49`)이다.
+실제 릴리스는 Secret의 키가 이 공개키와 일치하지 않으면 아무것도 만들기 전에 실패한다(`--expect-public-key`).
+실보드는 지금 벤치에서 만든 임시 키를 신뢰하므로, 이 릴리스를 보드에 설치하려면 보드의 신뢰 공개키를 이 키로 바꿔야 한다.
+
+### 키 교체 방법
 
 ```bash
 python - <<'PY'
@@ -50,6 +58,7 @@ open('ota-release.pem', 'wb').write(k.private_bytes(serialization.Encoding.PEM,
 PY
 gh secret set OTA_SIGNING_KEY --env release-signing < ota-release.pem
 shred -u ota-release.pem   # 개인키는 저장소에 두지 않는다
+# 공개키를 release/release-public.pem 으로 교체해 커밋한다
 ```
 
 Settings → Environments → `release-signing`에서 필수 승인자를 지정하고 배포 태그를 `ivi-v*`로 제한하는 것을 권한다.

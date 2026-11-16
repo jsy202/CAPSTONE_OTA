@@ -38,10 +38,16 @@ def commit_id() -> str:
         return 'unknown'
 
 
-def build(version: str, output: Path, key_file: Path, versions_file: Path, map_file: Path | None = None) -> dict:
+def build(version: str, output: Path, key_file: Path, versions_file: Path, map_file: Path | None = None,
+          expect_public_key: Path | None = None) -> dict:
     versions = json.loads(Path(versions_file).read_text())
     if version not in versions:
         raise ValueError(f'version {version!r} is not in {versions_file}; known: {sorted(versions)}')
+    private = serialization.load_pem_private_key(Path(key_file).read_bytes(), password=None)
+    public_pem = private.public_key().public_bytes(serialization.Encoding.PEM,
+                                                    serialization.PublicFormat.SubjectPublicKeyInfo)
+    if expect_public_key is not None and Path(expect_public_key).read_bytes().strip() != public_pem.strip():
+        raise ValueError(f'signing key does not match the published public key {expect_public_key}')
     label, svn = versions[version]['label'], versions[version]['svn']
     output = Path(output).absolute()
     staging = output / '_payload'
@@ -49,9 +55,6 @@ def build(version: str, output: Path, key_file: Path, versions_file: Path, map_f
     release = output / 'release'
     pack(staging, release, version, svn, key_file)
 
-    private = serialization.load_pem_private_key(Path(key_file).read_bytes(), password=None)
-    public_pem = private.public_key().public_bytes(serialization.Encoding.PEM,
-                                                    serialization.PublicFormat.SubjectPublicKeyInfo)
     public_path = release / 'release-public.pem'
     public_path.write_bytes(public_pem)
     # A release that does not verify with its own public key must never be published.
@@ -80,6 +83,8 @@ def main(argv=None) -> int:
     parser.add_argument('--versions-file', type=Path, default=ROOT / 'release/versions.json')
     parser.add_argument('--key-file', type=Path, help='Ed25519 PEM private key; default: OTA_SIGNING_KEY env var')
     parser.add_argument('--map', type=Path, help='map.json to ship in map-enabled releases')
+    parser.add_argument('--expect-public-key', type=Path,
+                        help='fail unless the signing key matches this public key (production releases)')
     args = parser.parse_args(argv)
     temp = None
     try:
@@ -95,7 +100,7 @@ def main(argv=None) -> int:
             with os.fdopen(handle, 'w') as stream:
                 stream.write(pem if pem.endswith('\n') else pem + '\n')
             key_file = temp
-        info = build(args.version, args.output, key_file, args.versions_file, args.map)
+        info = build(args.version, args.output, key_file, args.versions_file, args.map, args.expect_public_key)
     except (ValueError, OSError) as exc:
         print(f'error: {exc}', file=sys.stderr)
         return 1

@@ -82,6 +82,38 @@
   named ivi-release`: a workflow_dispatch workflow is only registered once it is on the
   default branch. Dry-run release must wait for the merge.
 
+### Merge and release dry-run
+- Opened PR #3 (body via the `pr` skill). Told the user creating a PR does not merge it;
+  user then asked to merge too. Waited for checks first: both the push run (43870398845)
+  and the PR run (43870530517) passed all 4 jobs; `MERGEABLE CLEAN`.
+- Merged with a merge commit (keeps the 6 commits visible): 2f08eef. Kept the branch
+  because the local worktree uses it.
+- main CI after merge: run 43870904410, all 4 jobs success.
+- Dispatched `ivi-release` on main with version 3.0.0 (now registered because the file is
+  on the default branch): run 43870955138, test + build success. "Tag must point at main"
+  and "Publish GitHub Release" steps were skipped as designed for workflow_dispatch;
+  `gh release list` shows 0 releases. Downloaded artifact `ivi-3.0.0-dry-run`:
+  `sha256sum -c SHA256SUMS` OK; build-info.json has commit 2f08eef and the run ID.
+
+### Real signing key and public-key pinning
+- User approved making this the project's official release key (boards still trust the
+  bench throwaway key; installing these releases on a board needs the board's trusted
+  key replaced).
+- Generated Ed25519 key in the session scratchpad with umask 077, stored it with
+  `gh secret set OTA_SIGNING_KEY --env release-signing` (environment already existed,
+  auto-created by the dry-run), then `shred -u` the local file. Public key committed as
+  release/release-public.pem (sha256 d779264b...cb49).
+- Added `--expect-public-key`: production releases fail before building anything if the
+  secret's key differs from the committed public key (guards against pasting the wrong
+  secret). Dry-run (throwaway key) does not pin. 2 new tests -> 13/13.
+
+- PR #4 first CI run: pytest 3.10/3.12 failed with `FileNotFoundError: .../release/release-public.pem`
+  (lint and qt passed). Locally it passed because the file existed on disk. Root cause:
+  `.gitignore:12: *.pem` silently kept the public key out of the commit. Kept the `*.pem`
+  rule (it protects private keys) and added a single `!release/release-public.pem`
+  exception. Did not merge until green. Had this gone unnoticed, the first tagged
+  production release would have failed at `--expect-public-key`.
+
 ### Errors
 | Error | Resolution |
 |-------|------------|
@@ -94,6 +126,7 @@
 | trace_matrix crash on out-of-repo `--tests` | `is_relative_to` check, covered by test |
 | broken `sed` while editing docs | first edit had applied; verified by reading the file |
 | `ivi-release` not dispatchable from branch | needs merge to default branch first |
+| public key missing in CI (`*.pem` gitignored) | `!release/release-public.pem` exception |
 
 ### Test Results
 | Test | Expected | Actual | Status |
@@ -104,4 +137,5 @@
 | full suite, Qt built (local) | no Qt skips | 283 passed, 18 skipped | ok |
 | Actions run 43869114523 | all green, 0 Qt skips | all green, 29 passed / 0 skipped | ok |
 | Actions run 43869556468 (qt blocking) | all green | all green | ok |
-| `ivi-release` on Actions | dry-run artifact | not run yet (needs merge) | pending |
+| `ivi-release` dry-run (run 43870955138) | artifact, no Release | test+build success, Release step skipped, 0 releases, `sha256sum -c` OK | ok |
+| main after merge (run 43870904410) | all green | all green | ok |

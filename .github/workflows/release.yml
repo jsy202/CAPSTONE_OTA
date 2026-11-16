@@ -76,7 +76,11 @@ jobs:
       - name: Build, sign, and self-verify the release
         env:
           OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY || env.OTA_SIGNING_KEY }}
-        run: python -m tools.ci.make_release --version "${{ steps.v.outputs.version }}" --output out
+        run: |
+          pin=""
+          # Production releases must be signed by the key whose public half is committed in the repo.
+          if [ "${{ steps.key.outputs.mode }}" = "production" ]; then pin="--expect-public-key release/release-public.pem"; fi
+          python -m tools.ci.make_release --version "${{ steps.v.outputs.version }}" --output out $pin
       - name: Re-check hashes from the published file list
         run: cd out/release && sha256sum -c SHA256SUMS
       - uses: actions/upload-artifact@v4
