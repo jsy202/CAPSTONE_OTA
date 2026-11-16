@@ -20,7 +20,8 @@
 ### 알려진 skip
 
 - 실보드 테스트 10개: `--hardware-config` 없이는 의도적으로 skip.
-- `vcan0` 필요 테스트 8개: 공용 러너에서 가상 CAN 모듈을 올리는 설정을 아직 검증하지 못해 skip 상태다.
+`vcan0`가 필요한 CAN 판정 테스트 8개는 pytest 잡이 러너에 `vcan0`를 만들어 실행한다. 러너 커널에는 vcan 모듈이
+기본으로 없어 `linux-modules-extra`를 설치한다(잡당 약 55초). 이 테스트가 skip되면 잡이 실패한다.
 
 ## 릴리스 (`release.yml`)
 

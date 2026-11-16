@@ -114,6 +114,26 @@
   exception. Did not merge until green. Had this gone unnoticed, the first tagged
   production release would have failed at `--expect-public-key`.
 
+### Official release ivi-v3.0.0
+- PR #4 merged after the fix: b73ac6e. Tagged `ivi-v3.0.0` (annotated) on b73ac6e and
+  pushed. Release run 43872712225: test + build success, including "Tag must point at a
+  commit that is on main" and "Publish GitHub Release".
+- Verified independently: downloaded the Release, `sha256sum -c` OK, attached
+  release-public.pem is byte-identical to the repo's, signature verifies with the repo
+  key via capstone_ota.bundle.verify, build-info commit = b73ac6e.
+  https://github.com/jsy202/CAPSTONE_OTA/releases/tag/ivi-v3.0.0
+
+### vcan on the hosted runner
+- The 8 skipped tests (tests/test_can_verdict.py, tests/test_cluster_can_verdict.py) only
+  need a bindable `vcan0` via Python AF_CAN; no can-utils.
+- Added a pytest-job step: `modprobe vcan`, falling back to installing
+  `linux-modules-extra-$(uname -r)`; then `ip link add vcan0 type vcan` + up. Added a
+  blocking skip guard `--forbid 'vcan0'`. Tried on the branch first, not on main.
+- First run: `modprobe: FATAL: Module vcan not found in directory /lib/modules/6.8.0-1070-azure`
+  -> fallback installed the extra modules (~55 s), vcan0 came up. pytest 3.12:
+  265 passed, 38 skipped (was 256 / 46). Remaining skips: 27 Qt (covered by the qt job)
+  + 10 hardware + 1 other. Job time grew ~100 s -> ~170 s.
+
 ### Errors
 | Error | Resolution |
 |-------|------------|
@@ -127,6 +147,7 @@
 | broken `sed` while editing docs | first edit had applied; verified by reading the file |
 | `ivi-release` not dispatchable from branch | needs merge to default branch first |
 | public key missing in CI (`*.pem` gitignored) | `!release/release-public.pem` exception |
+| `Module vcan not found` on hosted runner | install `linux-modules-extra-$(uname -r)` then modprobe |
 
 ### Test Results
 | Test | Expected | Actual | Status |
