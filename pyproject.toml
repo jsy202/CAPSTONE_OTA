@@ -26,3 +26,11 @@ markers = ["hardware: opt-in real Raspberry Pi/CAN bench; requires --hardware-co
 
 [tool.setuptools.packages.find]
 include = ["capstone_ota*"]
+
+[tool.ruff]
+extend-exclude = ["legacy", ".demo"]
+
+[tool.ruff.lint]
+# Blocking: syntax errors and undefined names only. Style rules are deliberately off so the
+# gate never fails on code that merely looks different; unused imports run as advisory in CI.
+select = ["E9", "F63", "F7", "F82"]
