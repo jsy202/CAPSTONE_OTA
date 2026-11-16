@@ -95,6 +95,18 @@
   `gh release list` shows 0 releases. Downloaded artifact `ivi-3.0.0-dry-run`:
   `sha256sum -c SHA256SUMS` OK; build-info.json has commit 2f08eef and the run ID.
 
+### Real signing key and public-key pinning
+- User approved making this the project's official release key (boards still trust the
+  bench throwaway key; installing these releases on a board needs the board's trusted
+  key replaced).
+- Generated Ed25519 key in the session scratchpad with umask 077, stored it with
+  `gh secret set OTA_SIGNING_KEY --env release-signing` (environment already existed,
+  auto-created by the dry-run), then `shred -u` the local file. Public key committed as
+  release/release-public.pem (sha256 d779264b...cb49).
+- Added `--expect-public-key`: production releases fail before building anything if the
+  secret's key differs from the committed public key (guards against pasting the wrong
+  secret). Dry-run (throwaway key) does not pin. 2 new tests -> 13/13.
+
 ### Errors
 | Error | Resolution |
 |-------|------------|
