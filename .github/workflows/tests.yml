@@ -67,12 +67,9 @@ jobs:
 
   # Without the compiled Qt apps, test_qt_cluster.py and test_qt_progress.py skip, so a green
   # `pytest` job says nothing about Qt. This job builds them and fails if any such test skips.
-  # TODO: the apt package list below was written without a CI run to confirm it. Remove
-  # `continue-on-error` after the first green run on this runner image.
   qt:
     runs-on: ubuntu-22.04
     timeout-minutes: 25
-    continue-on-error: true
     env:
       UPSTREAM_PIN: 793452919127065536bcb7a08f98838fa963d75e  # keep equal to PIN in dashboard/qt_cluster/build.py
     steps:
