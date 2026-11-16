@@ -107,6 +107,13 @@
   secret's key differs from the committed public key (guards against pasting the wrong
   secret). Dry-run (throwaway key) does not pin. 2 new tests -> 13/13.
 
+- PR #4 first CI run: pytest 3.10/3.12 failed with `FileNotFoundError: .../release/release-public.pem`
+  (lint and qt passed). Locally it passed because the file existed on disk. Root cause:
+  `.gitignore:12: *.pem` silently kept the public key out of the commit. Kept the `*.pem`
+  rule (it protects private keys) and added a single `!release/release-public.pem`
+  exception. Did not merge until green. Had this gone unnoticed, the first tagged
+  production release would have failed at `--expect-public-key`.
+
 ### Errors
 | Error | Resolution |
 |-------|------------|
@@ -119,6 +126,7 @@
 | trace_matrix crash on out-of-repo `--tests` | `is_relative_to` check, covered by test |
 | broken `sed` while editing docs | first edit had applied; verified by reading the file |
 | `ivi-release` not dispatchable from branch | needs merge to default branch first |
+| public key missing in CI (`*.pem` gitignored) | `!release/release-public.pem` exception |
 
 ### Test Results
 | Test | Expected | Actual | Status |
