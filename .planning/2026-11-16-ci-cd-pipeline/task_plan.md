@@ -18,17 +18,15 @@ boards or signing keys to a runner.
 |---|-------|--------|
 | 1 | Root-cause the red main run (systematic-debugging) | complete |
 | 2 | Stage 1: CI fix, ruff lint, Qt build+Xvfb job, skip guard | complete, green on Actions |
-| 3 | Stage 2: release builder + `release.yml` | complete locally; workflow not yet run on Actions |
+| 3 | Stage 2: release builder + `release.yml` | complete; dry-run verified on Actions |
 | 4 | Stage 3: TC traceability matrix | complete, runs in CI summary |
 | 5 | Docs (`docs/CI_CD.md`, README link) | complete |
 | 6 | Push + verify on real runner, make Qt job blocking | complete (runs 43869114523, 43869556468) |
+| 7 | PR #3, merge (2f08eef), release dry-run on Actions | complete (runs 43870904410, 43870955138) |
 
 ## Next Step
-1. Merge `ci/cicd-pipeline` into main (user decision).
-2. After merge, run `ivi-release` manually (workflow_dispatch) once: dry-run with a
-   throwaway key, artifacts only, no Release. It cannot be dispatched before the file
-   exists on the default branch.
-3. User generates the real Ed25519 key and stores it as `OTA_SIGNING_KEY` in the
+1. Done: merged (PR #3) and release dry-run passed on Actions.
+2. User generates the real Ed25519 key and stores it as `OTA_SIGNING_KEY` in the
    `release-signing` environment (steps in docs/CI_CD.md), adds required reviewers.
-4. Optional: enable `vcan` on the hosted runner so 8 more tests stop skipping.
-5. Optional: add TC rows for the two `SEC_005` hardware tests in docs/TEST_CASES.md.
+3. Optional: enable `vcan` on the hosted runner so 8 more tests stop skipping.
+4. Optional: add TC rows for the two `SEC_005` hardware tests in docs/TEST_CASES.md.

@@ -82,6 +82,19 @@
   named ivi-release`: a workflow_dispatch workflow is only registered once it is on the
   default branch. Dry-run release must wait for the merge.
 
+### Merge and release dry-run
+- Opened PR #3 (body via the `pr` skill). Told the user creating a PR does not merge it;
+  user then asked to merge too. Waited for checks first: both the push run (43870398845)
+  and the PR run (43870530517) passed all 4 jobs; `MERGEABLE CLEAN`.
+- Merged with a merge commit (keeps the 6 commits visible): 2f08eef. Kept the branch
+  because the local worktree uses it.
+- main CI after merge: run 43870904410, all 4 jobs success.
+- Dispatched `ivi-release` on main with version 3.0.0 (now registered because the file is
+  on the default branch): run 43870955138, test + build success. "Tag must point at main"
+  and "Publish GitHub Release" steps were skipped as designed for workflow_dispatch;
+  `gh release list` shows 0 releases. Downloaded artifact `ivi-3.0.0-dry-run`:
+  `sha256sum -c SHA256SUMS` OK; build-info.json has commit 2f08eef and the run ID.
+
 ### Errors
 | Error | Resolution |
 |-------|------------|
@@ -104,4 +117,5 @@
 | full suite, Qt built (local) | no Qt skips | 283 passed, 18 skipped | ok |
 | Actions run 43869114523 | all green, 0 Qt skips | all green, 29 passed / 0 skipped | ok |
 | Actions run 43869556468 (qt blocking) | all green | all green | ok |
-| `ivi-release` on Actions | dry-run artifact | not run yet (needs merge) | pending |
+| `ivi-release` dry-run (run 43870955138) | artifact, no Release | test+build success, Release step skipped, 0 releases, `sha256sum -c` OK | ok |
+| main after merge (run 43870904410) | all green | all green | ok |
