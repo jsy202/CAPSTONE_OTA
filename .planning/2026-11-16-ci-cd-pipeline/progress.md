@@ -132,7 +132,15 @@
 - First run: `modprobe: FATAL: Module vcan not found in directory /lib/modules/6.8.0-1070-azure`
   -> fallback installed the extra modules (~55 s), vcan0 came up. pytest 3.12:
   265 passed, 38 skipped (was 256 / 46). Remaining skips: 27 Qt (covered by the qt job)
-  + 10 hardware + 1 other. Job time grew ~100 s -> ~170 s.
+  + 10 hardware + 1 `qmlscene is needed for the actual animation queue check`. Job time grew ~100 s -> ~170 s.
+
+### qmlscene checks
+- The 1 extra skip was tests/test_cockpit_transitions.py (needs `qmlscene`). Also found
+  tests/test_local_cockpit_replay.py uses `if shutil.which('qmlscene'):` and silently
+  drops its QML load check with no skip recorded at all.
+- Qt job: install `qmlscene`, run both files there, `command -v qmlscene` as a hard check,
+  guard forbids `qmlscene` skips. Run 43874005183: qt 32 passed (was 29), 0 skipped.
+- Net: across the pytest + qt jobs the only skipped tests left are the 10 hardware ones.
 
 ### Errors
 | Error | Resolution |
