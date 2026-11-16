@@ -26,7 +26,7 @@ boards or signing keys to a runner.
 
 ## Next Step
 1. Done: merged (PR #3) and release dry-run passed on Actions.
-2. User generates the real Ed25519 key and stores it as `OTA_SIGNING_KEY` in the
-   `release-signing` environment (steps in docs/CI_CD.md), adds required reviewers.
-3. Optional: enable `vcan` on the hosted runner so 8 more tests stop skipping.
-4. Optional: add TC rows for the two `SEC_005` hardware tests in docs/TEST_CASES.md.
+2. Done: official key registered, public key pinned, `ivi-v3.0.0` released and verified.
+3. Done: vcan0 on the hosted runner; the 8 CAN-verdict tests run and may not skip.
+4. User (optional): add required reviewers / tag rule to the `release-signing` environment.
+5. Optional: add TC rows for the two `SEC_005` hardware tests in docs/TEST_CASES.md.
