@@ -35,6 +35,56 @@ def _valid_report(report) -> bool:
         return False
 
 
+LINE = 32  # hash characters per line: a 64-character hash reads as two clear rows
+
+_STYLE = (
+    "body{font:16px sans-serif;max-width:980px;margin:2em auto;padding:0 1em}"
+    "section{border:2px solid #666;border-radius:12px;padding:1.2em 1.5em;margin:1.2em 0}"
+    "h2{margin-top:0}.s{font-size:.6em;border:2px solid;border-radius:6px;padding:.1em .6em;vertical-align:middle}"
+    ".s.reported{color:#92400e;background:#fef3c7}.s.approved{color:#166534;background:#dcfce7}"
+    ".s.rejected{color:#991b1b;background:#fee2e2}.s.closed{color:#374151;background:#e5e7eb}"
+    "th{text-align:left;padding:.2em 1.2em .2em 0;white-space:nowrap}td{word-break:break-all}"
+    ".hash{background:#f8fafc;border:1px solid #cbd5e1;border-radius:10px;padding:1em 1.2em;margin:0 0 1em}"
+    ".hl{font-size:1.05em;font-weight:700;margin-top:.5em}.hl small{font-weight:400;color:#475569}"
+    ".h{font:600 28px/1.5 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.05em;word-break:break-all}"
+    ".h .d{border-radius:3px}.h.ok .d{background:#fde68a}.h.bad .d{background:#dc2626;color:#fff}"
+    ".verdict{margin-top:.7em;font-size:1.5em;font-weight:800;color:#b91c1c}"
+    ".b{display:flex;gap:1em;margin-top:1.2em}.b form{flex:1}"
+    "button{width:100%;font-size:28px;font-weight:800;padding:.9em 0;border:0;border-radius:14px;color:#fff;cursor:pointer}"
+    "button.go{background:#15803d}button.go:hover{background:#166534}"
+    "button.no{background:#b91c1c}button.no:hover{background:#991b1b}"
+)
+
+
+def _hash_lines(mine: str, other: str) -> str:
+    """`mine` split into rows, with every character that differs from `other` marked."""
+    lines = []
+    for start in range(0, len(mine), LINE):
+        runs, current, flag = [], "", None
+        for index in range(start, min(start + LINE, len(mine))):
+            differs = index >= len(other) or other[index] != mine[index]
+            if differs != flag and current:
+                runs.append((flag, current))
+                current = ""
+            flag, current = differs, current + mine[index]
+        runs.append((flag, current))
+        lines.append("".join(f'<span class="d">{escape(text)}</span>' if flag else escape(text) for flag, text in runs))
+    return "<br>".join(lines)
+
+
+def _hash_block(expected, observed) -> str:
+    if not isinstance(expected, str) or not isinstance(observed, str):
+        return ""
+    wrong = sum(1 for index, char in enumerate(expected) if index >= len(observed) or observed[index] != char)
+    wrong += max(0, len(observed) - len(expected))
+    verdict = (f'<div class="verdict">⚠ 해시 불일치 — {wrong}/{max(len(expected), len(observed))}자가 다름</div>'
+               if wrong else '<div class="verdict" style="color:#166534">해시 일치</div>')
+    return ('<div class="hash"><div class="hl">기대 해시 <small>(커밋 기록)</small></div>'
+            f'<div class="h ok">{_hash_lines(expected, observed)}</div>'
+            '<div class="hl">관측 해시 <small>(현재 슬롯)</small></div>'
+            f'<div class="h bad">{_hash_lines(observed, expected)}</div>{verdict}</div>')
+
+
 class _Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(args[2].releases_dir), **kwargs)
@@ -232,7 +282,6 @@ class IncidentServer(ThreadingHTTPServer):
             fields = [("시각", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(item["reported_at"]))),
                       ("차량", report["vehicle"]), ("유형", report.get("type", "")),
                       ("대상 슬롯", f"{report.get('slot', '')} (커밋 버전 {report['committed_version']}, svn {report.get('committed_svn', '')})"),
-                      ("기대 해시", report.get("expected_tree_sha256")), ("관측 해시", report.get("observed_tree_sha256")),
                       ("출발지", report.get("source")), ("게이트 상태", report.get("gateway_state")),
                       ("클러스터", report.get("cluster")), ("상세", report.get("detail")),
                       ("결과", (item.get("outcome") or {}).get("result"))]
@@ -240,19 +289,16 @@ class IncidentServer(ThreadingHTTPServer):
                             for name, value in fields if value is not None)
             buttons = ""
             if status == "reported":
-                buttons = (f'<form method="post" action="/incidents/{item["id"]}/approve"><button>V2로 복원 승인</button></form>'
-                           f'<form method="post" action="/incidents/{item["id"]}/reject"><button>거부 · 입고 지시</button></form>')
-            rows.append(f'<section><h2>{escape(item["id"])} <span class="s">{escape(status)}</span></h2>'
+                buttons = (f'<form method="post" action="/incidents/{item["id"]}/approve"><button class="go">V2로 복원 승인</button></form>'
+                           f'<form method="post" action="/incidents/{item["id"]}/reject"><button class="no">거부 · 입고 지시</button></form>')
+            rows.append(f'<section><h2>{escape(item["id"])} <span class="s {escape(status)}">{escape(status)}</span></h2>'
+                        f'{_hash_block(report.get("expected_tree_sha256"), report.get("observed_tree_sha256"))}'
                         f'<table>{table}</table><div class="b">{buttons}</div></section>')
         body = "".join(rows) or "<p>접수된 사고가 없습니다.</p>"
         return ('<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta http-equiv="refresh" content="2">'
-                '<title>보안 사고 관제</title><style>body{font:15px sans-serif;max-width:760px;margin:2em auto;padding:0 1em}'
-                'th{text-align:left;padding-right:1em;white-space:nowrap}td{word-break:break-all}.s{font-size:.7em;'
-                'border:1px solid;padding:0 .4em}.b{display:flex;gap:.5em;margin-top:.5em}section{border:1px solid #888;'
-                'padding:1em;margin:1em 0}</style></head><body><h1>보안 사고 관제</h1>'
+                '<title>보안 사고 관제</title><style>' + _STYLE + '</style></head><body><h1>보안 사고 관제</h1>'
                 '<p><small>시연 환경: V3 실패 판정은 시험용으로 강제한 것이며 실제 CPU 경합 측정이 아닙니다.</small></p>'
                 + body + "</body></html>")
-
 
 def _address(text: str) -> tuple[str, int]:
     host, _, port = text.rpartition(":")

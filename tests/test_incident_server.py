@@ -2,6 +2,7 @@
 import base64
 import http.client
 import json
+import re
 import threading
 import time
 
@@ -112,7 +113,11 @@ def test_index_lists_incident_and_escapes_values(server):
     report(server, detail="<script>alert(1)</script>")
     status, page = call(server, "GET", "/")
     text = page.decode()
-    assert status == 200 and REPORT["expected_tree_sha256"] in text and REPORT["observed_tree_sha256"] in text
+    visible = re.sub(r"<[^>]+>", "", text).replace("\n", "")
+    assert status == 200
+    # Differing characters are wrapped in highlight tags, so compare what the operator reads.
+    for name in ("expected_tree_sha256", "observed_tree_sha256"):
+        assert REPORT[name][:32] in visible and REPORT[name][32:] in visible
     assert "<script>alert(1)" not in text and "&lt;script&gt;" in text
 
 
@@ -144,3 +149,19 @@ def test_corrupt_store_is_not_overwritten(tmp_path, order_keys):
     with pytest.raises(ValueError, match="incident store"):
         IncidentServer(("127.0.0.1", 0), tmp_path, store, order_keys[0], release_labels={})
     assert store.read_text() == "{not json"
+
+
+def test_index_highlights_only_the_characters_that_differ(server):
+    expected, observed = "a" * 64, "a" * 60 + "b" * 4
+    report(server, expected_tree_sha256=expected, observed_tree_sha256=observed)
+    text = call(server, "GET", "/")[1].decode()
+    assert text.count('<span class="d">bbbb</span>') == 1      # observed: the 4 wrong characters
+    assert text.count('<span class="d">aaaa</span>') == 1      # expected: the same 4 positions
+    assert "4/64자가 다름" in text
+
+
+def test_matching_hashes_are_not_flagged(server):
+    same = "c" * 64
+    report(server, expected_tree_sha256=same, observed_tree_sha256=same)
+    text = call(server, "GET", "/")[1].decode()
+    assert '<span class="d">' not in text and "해시 일치" in text
