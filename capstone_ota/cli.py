@@ -43,6 +43,14 @@ def main(argv=None) -> int:
     ivi.add_argument("--systemd", action="store_true", help="first-install opt-in to capstone-ivi.service")
     ivi.add_argument("--verifier-can-channel", help="CAN interface (e.g. can0) carrying the authenticated verdict; SSH becomes a trigger only")
     ivi.add_argument("--verifier-can-secret-file", type=Path, help="pre-shared HMAC key file matching the verifier's")
+    for name, what in (("cluster-repair", "Cluster"), ("ivi-repair", "IVI")):
+        repair = commands.add_parser(name, help=f"reinstall exactly the committed {what} release after recovery_failed")
+        repair.add_argument("url")
+        repair_validation = repair.add_mutually_exclusive_group(required=True)
+        repair_validation.add_argument("--check-command", help="trusted external command as a JSON argument array; slot path appended")
+        repair_validation.add_argument("--initialization-only", action="store_true")
+        repair.add_argument("--verifier-can-channel", help="CAN interface carrying the authenticated verdict")
+        repair.add_argument("--verifier-can-secret-file", type=Path, help="pre-shared HMAC key file matching the verifier's")
     relay = commands.add_parser("forward", help="Central verifies/caches a release and sends it to Cluster")
     relay.add_argument("url")
     relay.add_argument("--public-key", required=True, type=Path, help="Central's trusted PUBLIC update key")
@@ -69,11 +77,18 @@ def main(argv=None) -> int:
                     raise
                 result.update(passed=False, error=str(exc.__cause__ or exc))
             result.update(validation="external" if checker else "initialization_only", verification=device.reports)
+        elif args.command in ("cluster-repair", "ivi-repair"):
+            checker = check_command(json.loads(args.check_command)) if args.check_command is not None else None
+            device = (IviDevice if args.command == "ivi-repair" else ClusterDevice)(
+                args.root, checker, verifier_can_channel=args.verifier_can_channel,
+                verifier_can_secret_path=args.verifier_can_secret_file)
+            result = device.repair(args.url)
+            result.update(validation="external" if checker else "initialization_only", verification=device.reports)
         elif args.command == "forward":
             result = forward(args.url, args.public_key, json.loads(args.target.read_text()), args.bind, args.advertise)
         else:
             result = Device(args.root).status()
-        print(json.dumps(result, indent=None if args.command in ("cluster-update", "ivi-update") else 2, sort_keys=True))
+        print(json.dumps(result, indent=None if args.command in ("cluster-update", "ivi-update", "cluster-repair", "ivi-repair") else 2, sort_keys=True))
         return (1 if result.get("result") == "recovery_failed" else
                 2 if result.get("result") in {"rolled_back", "failed"} else 0)
     except (OSError, ValueError) as exc:

@@ -7,6 +7,10 @@
 현재 대표 시나리오는 **IVI CPU 경합으로 인한 자원·타이밍 호환성 문제**다.
 이전 CAN 재전송·표시 오류 시나리오는 제거했다. 복구 슬롯 바꿔치기 공격 시험은 유지하며 IVI 패키지로 검증한다.
 
+업데이트 경로 자체의 보안도 함께 다룬다. 정비 포트로 복구 슬롯을 낡은 이미지로 바꿔치기하는 공격은
+Pi2가 막고, 차단 뒤에는 Pi1 게이트웨이가 사고를 보고하고 **관제 서버에서 사람이 승인하면** 커밋된 버전으로
+복원한다 ([보안 시나리오](#보안-시나리오-세-가지), [상세](docs/GATEWAY_INCIDENT_RESPONSE.md)).
+
 ## 목차
 
 1. [왜 검증하는가](#왜-검증하는가)
@@ -47,6 +51,8 @@ Pi1 Central ── 검증·중계 ──▶ Pi2 Cockpit
 ```
 
 - 실제 장치: Raspberry Pi 세 대, MCP2515 HAT(12MHz 발진기), `can0` 500kbit/s.
+- Pi1은 릴리스 중계 외에 **진단 게이트웨이**도 맡는다. 정비 포트로 가는 요청은 Pi1을 거치며 기록되고,
+  사고 후에는 Pi1이 게이트를 닫는다 (보안 시나리오 2-1).
 - OTA 파일은 LAN으로, 차량 입력과 처리 응답은 CAN으로 전달한다.
 - **업데이트·롤백 대상은 IVI다.** Central과 클러스터는 이 시나리오에서 교체하지 않는다.
 - 클러스터는 **버전·색상·수신 정책 분기가 없는 단일 구현**이다. V1·V2·V3는 IVI 릴리스 구분이다.
@@ -143,6 +149,8 @@ A/B 슬롯, Pi3 판정, 지연과 이벤트 로그를 보여준다.
 | [relay.py](capstone_ota/relay.py) / [bundle.py](capstone_ota/bundle.py) | Central 중계·서명·해시 검사 |
 | [can_verdict.py](capstone_ota/can_verdict.py) | Pi2↔Pi3 검증 판정을 CAN으로 인증 전달 |
 | [debug_port.py](capstone_ota/debug_port.py) | 리콜 정비 포트 시나리오용 무인증 슬롯 쓰기 서비스 |
+| [gateway.py](capstone_ota/gateway.py) / [incident_responder.py](capstone_ota/incident_responder.py) | Pi1 진단 게이트웨이, 사고 보고·승인 후 복원 |
+| [incident_server.py](capstone_ota/incident_server.py) / [order.py](capstone_ota/order.py) | 관제 서버(승인 페이지)와 서명된 복원 지시서 |
 | [bench/load_phases.py](bench/load_phases.py) | 워커 개수·우선순위별 부하 측정 |
 | [bench/drive_cycle.py](bench/drive_cycle.py) | 합성 주행 사이클 |
 | [bench/cockpit_feeder.py](bench/cockpit_feeder.py) | 화면용 관측 데이터 수집 |
@@ -153,17 +161,23 @@ Linux, Python 3.10+를 사용한다. 실제 Qt 통합 시험에는 C++17·Qt5 �
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/python -m pip install -e '.[dev,cockpit]'
 
 # CPU 경합 감시·IVI·시험 운영 감독기 관련 시험
 .venv/bin/python -m pytest -q tests/test_monitor_*.py tests/test_probation.py tests/test_ivi.py tests/test_tap.py
+
+# 게이트웨이 경유 공격과 서버 승인 복원 (실보드 불필요)
+.venv/bin/python -m pytest -q tests/test_device_repair.py tests/test_gateway.py tests/test_incident_*.py
+.venv/bin/python -m demo.incident_drill run --output .demo/incident-drill   # 출력된 주소에서 승인 버튼 클릭
 
 # 전체 시험: 실보드는 명시적으로 설정한 경우에만 실행
 .venv/bin/python -m pytest -q
 ```
 
-2026-11-11 기준 로컬 결과는 **274 passed (약 95초)**, `--hardware-config`를 준 실보드 결과는
-**10 passed**다 (아래 "보안 시나리오" 절 참고). 로컬 실행은 고정 클러스터 C++/Qt 빌드와 IVI
+2026-11-17 기준 로컬 결과는 **313 passed, 45 skipped (약 2분)**다. skip은 실보드 전용 시험 10개,
+Qt 앱 빌드가 필요한 시험, `vcan0`가 필요한 시험이며 CI는 이 중 Qt와 vcan 시험이 skip되지 않도록 감시한다.
+`--hardware-config`를 준 실보드 결과는 2026-11-11에 **10 passed**였다 (아래 "보안 시나리오" 절 참고).
+이 값은 게이트웨이 사고 대응(2-1) 이전의 실보드 결과이며 2-1은 실보드에서 실행하지 않았다. 로컬 실행은 고정 클러스터 C++/Qt 빌드와 IVI
 공격 시험을 포함하며, `--hardware-config` 없는 실행은 실보드 전용 시험을 제외한다.
 컴파일된 Qt 앱이 없으면 Qt 관련 시험도 skip되므로 Python 시험 통과만으로 Qt 검증을 주장하면 안 된다.
 Qt 빌드와 기존 보드 설정은 [QT_CLUSTER.md](docs/QT_CLUSTER.md),
@@ -263,6 +277,21 @@ tree hash mismatch) 취약 모드에서는 바꿔친 이미지가 실제로 활�
 > 기록까지 변조하는 공격은 범위 밖"이라는 아래 원칙과 같은 경계를, 복구 직전 재검증이라는 구체적인
 > 메커니즘으로 보여 준다.)
 
+### 2-1) 정비 포트 공격을 Pi1 게이트웨이 경유로, 차단 뒤에는 서버 승인으로 복원
+
+위 2번에서는 공격자가 Pi2 포트에 직접 붙었다. 실차에서 진단 요청은 중앙 게이트웨이를 거쳐 도메인 ECU로 가므로,
+공격 경로를 **공격자 → Pi1 진단 게이트웨이 → Pi2**로 바꿨다(`capstone_ota/gateway.py`, Pi2 정비 서비스는 `127.0.0.1`만 받음).
+Pi2가 바꿔친 복구 슬롯을 거부해 `recovery_failed`가 되면 Pi1이 게이트를 닫고 서버에 사고를 보고한다.
+**사람이 서버 화면에서 승인**하면 서명된 복원 지시서가 발급되고, Pi1이 서버에서 V2 원본을 받아 Pi2의 `repair()`로
+설치한다. `repair()`는 커밋 기록과 정확히 같은 릴리스·tree hash만 받으며, 지시서는 차량·nonce·만료에 묶여 1회만 쓰인다.
+
+```bash
+.venv/bin/python -m demo.incident_drill run --output .demo/incident-drill   # 출력된 주소를 열어 승인 버튼 클릭
+```
+
+V3 실패 판정은 강제이고, 모든 구성요소가 한 노트북의 프로세스라 Pi1 경유는 네트워크가 아니라 설정으로 지켜진다.
+흐름, 방어 범위, 한계, 실보드 체크리스트(미실행)는 [GATEWAY_INCIDENT_RESPONSE.md](docs/GATEWAY_INCIDENT_RESPONSE.md)에 있다.
+
 ### 3) 검증 결과(pass/fail) 전달 경로를 와이파이에서 CAN 버스로 (Pi2 ↔ Pi3)
 
 위 디버그 포트 방어와는 별도의 질문: "3보드 검증 구조에서 Pi2가 Pi3한테 '통과했어?'를
@@ -312,6 +341,8 @@ PASS를 만들 수 없다.** 비밀키는 두 보드 바깥(배포 시점)에만
 - Pi2-Pi3 검증 결과를 CAN 버스로 인증해 전달하는 기능은 소프트웨어 시험(`vcan0`)으로만
   확인했다. 실보드 배포·실측은 아직 안 했다(사전 공유 비밀키를 두 보드에 안전하게 배치하는
   절차부터 필요).
+- 게이트웨이 경유 사고 대응(2-1)은 로컬 프로세스 시험이다. V3 실패는 강제이고, Pi1 경유는 네트워크로 강제되지
+  않으며, 실보드에서는 실행하지 않았다. 다운그레이드 방어 자체(부팅 전 검사, 기준값의 외부 보관)는 강화하지 않았다.
 
 HTTP 전송은 실험망 용도이며 암호화·접속 인증을 제공하지 않는다.
 개인키·SSH 키·Wi-Fi 비밀번호를 Git이나 릴리스 제공 폴더에 넣지 않는다.
