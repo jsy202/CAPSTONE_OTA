@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hmac
 from html import escape
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -85,9 +86,32 @@ def _hash_block(expected, observed) -> str:
             f'<div class="h bad">{_hash_lines(observed, expected)}</div>{verdict}</div>')
 
 
+_CONFLICT_PAGE = ("<!doctype html><meta charset=utf-8><title>이미 처리됨</title>"
+                  "<h1>이미 처리된 사고입니다</h1><p>다른 결정이 먼저 기록되었거나 복원할 수 있는 릴리스가 없습니다.</p>"
+                  '<p><a href="/">관제 화면으로 돌아가기</a></p>')
+
+
 class _Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(args[2].releases_dir), **kwargs)
+
+    def setup(self):
+        self.timeout = self.server.request_timeout  # A stalled client must not hold a thread forever.
+        super().setup()
+
+    def _authorized(self) -> bool:
+        token = self.server.api_token
+        if token is None:
+            return True
+        given = self.headers.get("Authorization", "")
+        return hmac.compare_digest(given.encode(), f"Bearer {token}".encode())
+
+    def _same_origin(self) -> bool:
+        """Refuse a decision form that another website made the browser submit."""
+        if self.headers.get("Sec-Fetch-Site", "same-origin") not in ("same-origin", "none"):
+            return False
+        origin = self.headers.get("Origin")
+        return origin is None or origin.split("://", 1)[-1] == self.headers.get("Host")
 
     def log_message(self, *_args):
         pass
@@ -150,6 +174,9 @@ class _Handler(SimpleHTTPRequestHandler):
             self._reply(413)
             return
         if path == "/incidents":
+            if not self._authorized():
+                self._json(401, {"error": "unauthorized"})
+                return
             try:
                 report = json.loads(body)
             except ValueError:
@@ -166,6 +193,9 @@ class _Handler(SimpleHTTPRequestHandler):
             return
         incident, action = match.groups()
         if action == "outcome":
+            if not self._authorized():
+                self._json(401, {"error": "unauthorized"})
+                return
             try:
                 outcome = json.loads(body)
             except ValueError:
@@ -176,19 +206,28 @@ class _Handler(SimpleHTTPRequestHandler):
             status = self.server.close_incident(incident, outcome)
             self._json(status, {})
             return
+        if not self._same_origin():
+            self._reply(403)
+            return
         status = self.server.decide(incident, action)  # The form body is deliberately ignored.
-        self._reply(status, location="/" if status == 303 else None)
+        if status == 409:
+            self._reply(409, _CONFLICT_PAGE.encode(), "text/html; charset=utf-8")
+        else:
+            self._reply(status, location="/" if status == 303 else None)
 
 
 class IncidentServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, releases_dir, store, order_key, release_labels, order_lifetime: float = 300.0):
+    def __init__(self, address, releases_dir, store, order_key, release_labels, order_lifetime: float = 300.0,
+                 api_token: str | None = None, request_timeout: float = 10.0):
         self.releases_dir = Path(releases_dir).resolve()
         self.store = Path(store)
         self.order_key = Path(order_key)
         self.release_labels = dict(release_labels)  # committed version -> release directory label
         self.order_lifetime = order_lifetime
+        self.api_token = api_token
+        self.request_timeout = request_timeout
         self._lock = threading.Lock()
         self._incidents: list[dict] = self._load()  # Before binding: a corrupt store must not open a port.
         super().__init__(address, _Handler)
@@ -289,7 +328,7 @@ class IncidentServer(ThreadingHTTPServer):
                             for name, value in fields if value is not None)
             buttons = ""
             if status == "reported":
-                buttons = (f'<form method="post" action="/incidents/{item["id"]}/approve"><button class="go">V2로 복원 승인</button></form>'
+                buttons = (f'<form method="post" action="/incidents/{item["id"]}/approve"><button class="go">{escape(str(report["committed_version"]))}로 복원 승인</button></form>'
                            f'<form method="post" action="/incidents/{item["id"]}/reject"><button class="no">거부 · 입고 지시</button></form>')
             rows.append(f'<section><h2>{escape(item["id"])} <span class="s {escape(status)}">{escape(status)}</span></h2>'
                         f'{_hash_block(report.get("expected_tree_sha256"), report.get("observed_tree_sha256"))}'
@@ -312,9 +351,13 @@ def main(argv=None) -> int:
     parser.add_argument("--store", required=True, type=Path)
     parser.add_argument("--order-key", required=True, type=Path)
     parser.add_argument("--release-label", action="append", default=[], metavar="VERSION=LABEL")
+    parser.add_argument("--api-token-file", type=Path,
+                        help="require this bearer token for vehicle reports and outcomes")
     args = parser.parse_args(argv)
+    token = args.api_token_file.read_text().strip() if args.api_token_file else None
     labels = dict(item.split("=", 1) for item in args.release_label)
-    with IncidentServer(_address(args.bind), args.releases, args.store, args.order_key, labels) as server:
+    with IncidentServer(_address(args.bind), args.releases, args.store, args.order_key, labels,
+                        api_token=token) as server:
         print(f"incident server http://{args.bind}/", file=sys.stderr)
         server.serve_forever()
     return 0

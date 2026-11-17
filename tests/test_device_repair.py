@@ -130,3 +130,12 @@ def test_recovery_failed_progress_records_observed_hash(tampered):
     state = json.loads((device.root / "state.json").read_bytes())
     assert progress["expected_tree_sha256"] == state["committed"]["tree_sha256"]
     assert progress["observed_tree_sha256"] != progress["expected_tree_sha256"]
+
+
+def test_repair_removes_staging_left_by_a_killed_run(tampered):
+    device, url = tampered
+    stale = device.root / ".repair-killed"
+    (stale / "payload").mkdir(parents=True)
+    (stale / "payload/leftover").write_text("x")
+    assert device.repair(url + "/v2")["result"] == "rolled_back"
+    assert not stale.exists()
