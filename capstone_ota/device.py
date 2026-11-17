@@ -287,7 +287,13 @@ class Device:
             return
         if record["release"]["svn"] < floor:
             raise ValueError("recovery security version is below the floor")
-        if tree_hash(slot) != record["tree_sha256"]:
+        try:
+            observed = tree_hash(slot)
+        except OSError:
+            observed = None
+        # Display/incident telemetry only; the comparison below is the security decision.
+        self._progress_data.update(expected_tree_sha256=record["tree_sha256"], observed_tree_sha256=observed)
+        if observed != record["tree_sha256"]:
             raise ValueError("recovery application tree hash mismatch")
 
     def _recover(self, state: dict) -> dict:
@@ -322,6 +328,68 @@ class Device:
             self._event("recovery_failed")
             raise ValueError("recovery failed; no successful recovery is claimed") from exc
 
+    def _download_release(self, url: str, public_key: Path, staging: Path, precheck=None) -> dict:
+        """Fetch release.json, release.sig and app.tar.gz into `staging`; return the verified release.
+
+        `precheck(release)` runs right after the signature is verified and before the archive
+        is downloaded, so a rejected release never costs a full download."""
+        base = url.rstrip("/") + "/"
+        fetch(base + "release.json", staging / "release.json", 16384)
+        fetch(base + "release.sig", staging / "release.sig", 64)
+        raw, signature = (staging / "release.json").read_bytes(), (staging / "release.sig").read_bytes()
+        self._progress("signature")
+        release = verify(raw, signature, public_key)
+        self._progress("signature_verified", candidate=release["version"])
+        if precheck:
+            precheck(release)
+        downloaded_hash = fetch(base + "app.tar.gz", staging / "app.tar.gz", MAX_ARCHIVE,
+                                progress=lambda received, total: self._progress(
+                                    "download", received=received, total=total)).hex()
+        self._progress("archive_verify")
+        if downloaded_hash != release["sha256"]:
+            raise ValueError("downloaded archive hash mismatch")
+        return release
+
+    def repair(self, url: str) -> dict:
+        """The only exit from recovery_failed: reinstall exactly the committed release.
+
+        Never relaxes update()'s version/svn rules; anything but the committed release, with
+        the committed tree hash, is rejected before the committed slot is touched."""
+        with self._locked():
+            self._progress_data = {}
+            state = self._load()
+            committed = state["committed"]
+            if state["phase"] != "trial" or state["result"] != "recovery_failed" or not committed:
+                raise ValueError("repair is only for a recovery_failed device")
+            pinned = self.root / "trusted.pub"
+            if pinned.is_symlink() or not pinned.is_file():
+                raise ValueError("pinned key must be a regular file")
+            self._event("repair_started")
+            with tempfile.TemporaryDirectory(prefix=".repair-", dir=self.root) as directory:
+                staging = Path(directory)
+                try:
+                    release = self._download_release(url, pinned, staging)
+                    if release != committed["release"]:
+                        raise ValueError("repair release is not the committed release")
+                    extract(staging / "app.tar.gz", staging / "payload")
+                    if tree_hash(staging / "payload") != committed["tree_sha256"]:
+                        raise ValueError("repair image tree hash mismatch")
+                except Exception:
+                    self._event("repair_rejected")
+                    raise
+                target = self._slot(committed["slot"])
+                if target.exists():
+                    shutil.rmtree(target)
+                os.replace(staging / "payload", target)
+                for path in sorted(target.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+                    if path.is_dir():
+                        sync_directory(path)
+                sync_directory(target)
+                sync_directory(target.parent)
+            self._event("repair_installed")
+            self._recover(state)  # Same verification, activation and external re-check as any rollback.
+            return self.status()
+
     def update(self, url: str | None = None, public_key: Path | None = None, systemd: bool = False) -> dict:
         with self._locked():
             self._progress_data = {}
@@ -347,24 +415,15 @@ class Device:
                            candidate=None, mismatch=None, detail="")
             with tempfile.TemporaryDirectory(prefix=".download-", dir=self.root) as directory:
                 staging = Path(directory)
-                base = url.rstrip("/") + "/"
-                fetch(base + "release.json", staging / "release.json", 16384)
-                fetch(base + "release.sig", staging / "release.sig", 64)
-                raw, signature = (staging / "release.json").read_bytes(), (staging / "release.sig").read_bytes()
-                self._progress("signature")
-                release = verify(raw, signature, public_key)
-                self._progress("signature_verified", candidate=release["version"])
-                if release["svn"] < state["min_svn"]:
-                    raise ValueError("release security version is below the committed floor")
+
+                def precheck(release):
+                    if release["svn"] < state["min_svn"]:
+                        raise ValueError("release security version is below the committed floor")
+                    if state["committed"] and version_key(release["version"]) <= version_key(state["committed"]["release"]["version"]):
+                        raise ValueError("release product version must be newer")
+
+                release = self._download_release(url, public_key, staging, precheck)
                 previous = state["committed"]
-                if previous and version_key(release["version"]) <= version_key(previous["release"]["version"]):
-                    raise ValueError("release product version must be newer")
-                downloaded_hash = fetch(base + "app.tar.gz", staging / "app.tar.gz", MAX_ARCHIVE,
-                                        progress=lambda received, total: self._progress(
-                                            "download", received=received, total=total)).hex()
-                self._progress("archive_verify")
-                if downloaded_hash != release["sha256"]:
-                    raise ValueError("downloaded archive hash mismatch")
                 self._progress("install")
                 extract(staging / "app.tar.gz", staging / "payload")
                 slot = "B" if previous and previous["slot"] == "A" else "A"
