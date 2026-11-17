@@ -205,3 +205,32 @@ def test_garbage_while_polling_for_the_decision_is_ignored(world, canned_server)
     _server, responder = build(server_url=canned_server(b"HTTP/1.0 201 Created\r\nContent-Length: 20\r\n\r\n{\"id\": \"INC-0001\"}"),
                                decision_timeout=1.0)
     assert responder.handle(device.status())["action"] == "maintenance_required"
+
+
+def test_order_for_another_version_is_refused_and_not_burned(world, order_keys):
+    _device, _gateway, build = world
+    _server, responder = build()
+    raw, signature = sign_order(make_order(version="3.0.0"), order_keys[0])
+    body = {"order": base64.b64encode(raw).decode(), "signature": base64.b64encode(signature).decode()}
+    with pytest.raises(ValueError, match="version"):
+        responder.accept_order("INC-0001", NONCE, body, version="2.0.0")
+    assert responder.accept_order("INC-0001", NONCE, body, version="3.0.0")["version"] == "3.0.0"
+
+
+def test_responder_sends_the_api_token(world, tmp_path, served, keys, order_keys):
+    device, gateway, _build = world
+    server = IncidentServer(("127.0.0.1", 0), served, tmp_path / "tok.json", order_keys[0], {"2.0.0": "v2"},
+                            api_token="tok-123")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        target = {"host": "local-pi2", "checkout": str(ROOT), "python": sys.executable, "root": str(device.root),
+                  "public_key": str(keys[1]), "check_command": PASS_CHECK, "application": "ivi"}
+        responder = IncidentResponder(f"http://127.0.0.1:{server.server_address[1]}", "PI2-001", order_keys[1],
+                                      keys[1], gateway, target, decision_timeout=15.0, poll_interval=0.1,
+                                      api_token="tok-123")
+        operate(server, "approve")
+        assert responder.handle(device.status())["action"] == "restored"
+        assert server.incidents[0]["status"] == "closed"
+    finally:
+        server.shutdown()
+        server.server_close()

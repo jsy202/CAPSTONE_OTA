@@ -350,6 +350,13 @@ class Device:
             raise ValueError("downloaded archive hash mismatch")
         return release
 
+    def _clear_stale_staging(self) -> None:
+        """Remove staging directories a killed run left behind. Callers hold the device lock."""
+        for pattern in (".repair-*", ".download-*"):
+            for leftover in self.root.glob(pattern):
+                if leftover.is_dir() and not leftover.is_symlink():
+                    shutil.rmtree(leftover, ignore_errors=True)
+
     def repair(self, url: str) -> dict:
         """The only exit from recovery_failed: reinstall exactly the committed release.
 
@@ -365,6 +372,7 @@ class Device:
             if pinned.is_symlink() or not pinned.is_file():
                 raise ValueError("pinned key must be a regular file")
             self._event("repair_started")
+            self._clear_stale_staging()
             with tempfile.TemporaryDirectory(prefix=".repair-", dir=self.root) as directory:
                 staging = Path(directory)
                 try:

@@ -80,3 +80,54 @@ def test_gate_closed_mid_upload_does_not_finish_the_upload(chain, tmp_path, payl
             response += chunk
     assert response.decode().startswith("ERROR gateway closed")
     assert not (root / "slots/A").exists()
+
+
+def test_forwarded_means_the_whole_upload_was_delivered(chain):
+    _root, gateway = chain
+    with socket.create_connection(gateway.server_address, timeout=3) as client:
+        client.sendall(b"A\n1000\n" + b"x" * 10)
+        client.shutdown(socket.SHUT_WR)
+        assert client.makefile().readline().startswith("ERROR")
+    time.sleep(0.2)
+    assert gateway.log_tail()[-1]["forwarded"] is False
+
+
+def test_extra_connections_are_refused_when_busy(tmp_path):
+    upstream = DebugPortServer(("127.0.0.1", 0), tmp_path)
+    gateway = DiagnosticGateway(("127.0.0.1", 0), upstream.server_address, tmp_path / "g.jsonl",
+                                connection_timeout=5.0, max_connections=1)
+    for server in (upstream, gateway):
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with socket.create_connection(gateway.server_address, timeout=3):  # holds the only slot, says nothing
+            time.sleep(0.2)
+            with socket.create_connection(gateway.server_address, timeout=3) as second:
+                assert second.makefile().readline().strip() == "ERROR gateway busy"
+    finally:
+        for server in (gateway, upstream):
+            server.shutdown()
+            server.server_close()
+
+
+def test_slow_drip_upload_hits_the_total_deadline(tmp_path):
+    upstream = DebugPortServer(("127.0.0.1", 0), tmp_path)
+    gateway = DiagnosticGateway(("127.0.0.1", 0), upstream.server_address, tmp_path / "g.jsonl",
+                                connection_timeout=2.0, request_deadline=0.6)
+    for server in (upstream, gateway):
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with socket.create_connection(gateway.server_address, timeout=5) as client:
+            client.sendall(b"A\n1000\n")
+            reply = ""
+            for _ in range(10):  # each pause is below the per-read timeout, together they are not
+                try:
+                    client.sendall(b"x")
+                except OSError:
+                    break
+                time.sleep(0.25)
+            reply = client.makefile().readline().strip()
+        assert reply == "ERROR request too slow"
+    finally:
+        for server in (gateway, upstream):
+            server.shutdown()
+            server.server_close()

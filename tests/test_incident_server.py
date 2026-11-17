@@ -165,3 +165,73 @@ def test_matching_hashes_are_not_flagged(server):
     report(server, expected_tree_sha256=same, observed_tree_sha256=same)
     text = call(server, "GET", "/")[1].decode()
     assert '<span class="d">' not in text and "해시 일치" in text
+
+
+# --- hardening (deferred minors) -------------------------------------------------------------
+def post_form(server, path, **headers):
+    connection = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+    connection.request("POST", path, body=b"", headers=headers)
+    response = connection.getresponse()
+    data = response.read()
+    connection.close()
+    return response.status, data
+
+
+def test_cross_origin_decision_is_refused(server):
+    _status, incident = report(server)
+    host = f"127.0.0.1:{server.server_address[1]}"
+    assert post_form(server, f"/incidents/{incident}/approve", Origin="http://evil.example")[0] == 403
+    assert post_form(server, f"/incidents/{incident}/approve", **{"Sec-Fetch-Site": "cross-site"})[0] == 403
+    assert server.incidents[0]["status"] == "reported"
+    assert post_form(server, f"/incidents/{incident}/approve", Origin=f"http://{host}")[0] == 303
+    assert server.incidents[0]["status"] == "approved"
+
+
+def test_outcome_and_reports_need_the_token_when_configured(tmp_path, order_keys):
+    secured = IncidentServer(("127.0.0.1", 0), tmp_path, tmp_path / "s.json", order_keys[0],
+                             release_labels={"2.0.0": "v2"}, api_token="s3cret-token")
+    threading.Thread(target=secured.serve_forever, daemon=True).start()
+    try:
+        def send(path, body, token=None):
+            connection = http.client.HTTPConnection("127.0.0.1", secured.server_address[1], timeout=5)
+            headers = {"Content-Type": "application/json"}
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            connection.request("POST", path, body=json.dumps(body).encode(), headers=headers)
+            response = connection.getresponse()
+            response.read()
+            connection.close()
+            return response.status
+        assert send("/incidents", REPORT) == 401
+        assert send("/incidents", REPORT, "wrong") == 401
+        assert send("/incidents", REPORT, "s3cret-token") == 201
+        assert send("/incidents/INC-0001/outcome", {"result": "rolled_back"}) == 401
+        assert secured.incidents[0]["status"] == "reported"
+    finally:
+        secured.shutdown()
+        secured.server_close()
+
+
+def test_decision_button_names_the_reported_version_and_conflict_is_readable(server):
+    _status, incident = report(server, committed_version="2.0.0")
+    _status, page = call(server, "GET", "/")
+    assert "2.0.0로 복원 승인" in page.decode()
+    assert post_form(server, f"/incidents/{incident}/approve")[0] == 303
+    status, body = post_form(server, f"/incidents/{incident}/reject", Accept="text/html")
+    assert status == 409 and "이미 처리" in body.decode("utf-8")
+
+
+def test_stalled_connection_is_dropped(tmp_path, order_keys):
+    import socket
+    slow = IncidentServer(("127.0.0.1", 0), tmp_path, tmp_path / "s.json", order_keys[0],
+                          release_labels={}, request_timeout=0.3)
+    threading.Thread(target=slow.serve_forever, daemon=True).start()
+    try:
+        with socket.create_connection(("127.0.0.1", slow.server_address[1]), timeout=3) as stalled:
+            stalled.sendall(b"POST /incidents HTTP/1.1\r\nContent-Le")  # never finishes
+            started = time.monotonic()
+            assert stalled.recv(100) == b""  # the server hangs up instead of waiting forever
+            assert time.monotonic() - started < 2.5
+    finally:
+        slow.shutdown()
+        slow.server_close()

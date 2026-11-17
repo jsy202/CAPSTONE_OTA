@@ -25,7 +25,28 @@ GATEWAY_PORT = 7400
 
 class _Handler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
+        if not self.server.slots.acquire(blocking=False):
+            self.server.record({"event": "busy", "source": "%s:%s" % self.client_address[:2]})
+            self._reply("ERROR gateway busy")
+            return
+        try:
+            self._serve()
+        finally:
+            self.server.slots.release()
+
+    def _reply(self, line: str) -> None:
+        try:
+            self.wfile.write((line + "\n").encode())
+        except OSError:
+            pass
+
+    def _check_deadline(self) -> None:
+        if time.monotonic() > self.deadline:
+            raise ValueError("request too slow")
+
+    def _serve(self) -> None:
         self.connection.settimeout(self.server.connection_timeout)
+        self.deadline = time.monotonic() + self.server.request_deadline
         self.forwarded = False
         source = "%s:%s" % self.client_address[:2]
         slot, size, response = "", 0, ""
@@ -43,35 +64,34 @@ class _Handler(socketserver.StreamRequestHandler):
             response = "ERROR " + str(exc)
         self.server.record({"event": "request", "source": source, "slot": slot, "size": size,
                             "forwarded": self.forwarded, "response": response})
-        try:
-            self.wfile.write((response + "\n").encode())
-        except OSError:
-            pass
+        self._reply(response)
 
     def _drain(self, size: int) -> None:
         remaining = size
         try:
-            while remaining and (chunk := self.rfile.read(min(65536, remaining))):
+            while remaining and (chunk := self.rfile.read1(min(65536, remaining))):
                 remaining -= len(chunk)
+                self._check_deadline()
         except OSError:
             pass
 
     def _forward(self, slot: str, size: int) -> str:
         with socket.create_connection(self.server.upstream, timeout=self.server.connection_timeout) as upstream:
-            self.forwarded = True
             upstream.sendall(slot.encode() + b"\n" + str(size).encode() + b"\n")
             remaining = size
             try:
                 while remaining:
-                    chunk = self.rfile.read(min(65536, remaining))
+                    chunk = self.rfile.read1(min(65536, remaining))
                     if not chunk:
                         raise ValueError("connection closed early")
+                    self._check_deadline()
                     if not self.server.is_open:
                         # Closed mid-upload: stop before the last bytes. Pi2 only installs complete uploads.
                         raise ValueError("gateway closed")
                     upstream.sendall(chunk)
                     remaining -= len(chunk)
                 upstream.shutdown(socket.SHUT_WR)
+                self.forwarded = True  # Only a complete upload counts as delivered.
             except (BrokenPipeError, ConnectionResetError):
                 pass  # Upstream already answered (for example an invalid slot); read that answer below.
             response = b""
@@ -84,10 +104,13 @@ class DiagnosticGateway(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-    def __init__(self, address, upstream, log_path, connection_timeout: float = 10.0):
+    def __init__(self, address, upstream, log_path, connection_timeout: float = 10.0,
+                 max_connections: int = 16, request_deadline: float = 60.0):
         self.upstream = tuple(upstream)
         self.log_path = Path(log_path)
         self.connection_timeout = connection_timeout
+        self.request_deadline = request_deadline
+        self.slots = threading.BoundedSemaphore(max_connections)
         self._open = threading.Event()
         self._open.set()
         self._log_lock = threading.Lock()

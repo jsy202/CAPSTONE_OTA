@@ -28,7 +28,8 @@ from .relay import cache_release, serving_release, target_command
 class IncidentResponder:
     def __init__(self, server_url: str, vehicle: str, order_public_key: Path, release_public_key: Path,
                  gateway, target: dict, decision_timeout: float = 300.0, poll_interval: float = 1.0,
-                 bind: str = "127.0.0.1", advertise: str | None = None):
+                 bind: str = "127.0.0.1", advertise: str | None = None,
+                 api_token: str | None = None):
         self.server_url = server_url.rstrip("/")
         self.vehicle = vehicle
         self.order_public_key = Path(order_public_key)
@@ -38,6 +39,7 @@ class IncidentResponder:
         self.decision_timeout = decision_timeout
         self.poll_interval = poll_interval
         self.bind, self.advertise = bind, advertise
+        self.api_token = api_token
         self._used: set[tuple[str, str]] = set()
 
     # --- public -----------------------------------------------------------------------------
@@ -58,7 +60,7 @@ class IncidentResponder:
                 raise ValueError("the control centre did not return an incident id")
         except (OSError, ValueError, HTTPException) as exc:
             return self._stop(None, f"control centre unreachable or invalid: {exc}")
-        order = self._await_order(incident, nonce)
+        order = self._await_order(incident, nonce, report["committed_version"])
         if order is None:
             return self._stop(incident, "no valid decision arrived before the timeout")
         if order["action"] == "reject":
@@ -66,7 +68,7 @@ class IncidentResponder:
             return self._stop(incident, "the control centre rejected the restore")
         return self._restore(incident, order)
 
-    def accept_order(self, incident: str, nonce: str, body: dict) -> dict:
+    def accept_order(self, incident: str, nonce: str, body: dict, version: str | None = None) -> dict:
         """Verify one order body from the server. Each (incident, nonce) order works once."""
         try:
             raw, signature = base64.b64decode(body["order"], validate=True), base64.b64decode(body["signature"], validate=True)
@@ -75,6 +77,8 @@ class IncidentResponder:
         order = verify_order(raw, signature, self.order_public_key, vehicle=self.vehicle, nonce=nonce, now=time.time())
         if order["incident"] != incident:
             raise ValueError("order is for another incident")
+        if order["action"] == "restore" and version is not None and order["version"] != version:
+            raise ValueError("order version differs from the version this vehicle reported")
         key = (order["incident"], order["nonce"])
         if key in self._used:
             raise ValueError("order was already used")
@@ -87,8 +91,10 @@ class IncidentResponder:
 
     def _call(self, method: str, path: str, body=None) -> tuple[int, bytes]:
         data = json.dumps(body).encode() if body is not None else None
-        request = Request(self.server_url + path, data=data, method=method,
-                          headers={"Content-Type": "application/json"})
+        headers = {"Content-Type": "application/json"}
+        if self.api_token:
+            headers["Authorization"] = f"Bearer {self.api_token}"
+        request = Request(self.server_url + path, data=data, method=method, headers=headers)
         try:
             with urlopen(request, timeout=5) as response:
                 return response.status, response.read()
@@ -124,13 +130,13 @@ class IncidentResponder:
                 "gateway_state": "open" if self.gateway.is_open else "closed",
                 "gateway_log_tail": self.gateway.log_tail(10), "cluster": "unaffected"}
 
-    def _await_order(self, incident: str, nonce: str):
+    def _await_order(self, incident: str, nonce: str, version: str):
         deadline = time.monotonic() + self.decision_timeout
         while time.monotonic() < deadline:
             try:
                 status, data = self._call("GET", f"/incidents/{incident}/order")
                 if status == 200:
-                    return self.accept_order(incident, nonce, json.loads(data))
+                    return self.accept_order(incident, nonce, json.loads(data), version)
             except (OSError, ValueError, HTTPException):
                 pass  # An invalid or unreachable answer is ignored; a later genuine one may still arrive.
             time.sleep(self.poll_interval)

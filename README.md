@@ -174,7 +174,7 @@ python3 -m venv .venv
 .venv/bin/python -m pytest -q
 ```
 
-2026-11-17 기준 로컬 결과는 **313 passed, 45 skipped (약 2분)**다. skip은 실보드 전용 시험 10개,
+2026-11-17 기준 로컬 결과는 **325 passed, 45 skipped (약 2분)**다. skip은 실보드 전용 시험 10개,
 Qt 앱 빌드가 필요한 시험, `vcan0`가 필요한 시험이며 CI는 이 중 Qt와 vcan 시험이 skip되지 않도록 감시한다.
 `--hardware-config`를 준 실보드 결과는 2026-11-11에 **10 passed**였다 (아래 "보안 시나리오" 절 참고).
 이 값은 게이트웨이 사고 대응(2-1) 이전의 실보드 결과이며 2-1은 실보드에서 실행하지 않았다. 로컬 실행은 고정 클러스터 C++/Qt 빌드와 IVI
@@ -290,7 +290,7 @@ Pi2가 바꿔친 복구 슬롯을 거부해 `recovery_failed`가 되면 Pi1이 �
 ```
 
 V3 실패 판정은 강제이고, 모든 구성요소가 한 노트북의 프로세스라 Pi1 경유는 네트워크가 아니라 설정으로 지켜진다.
-흐름, 방어 범위, 한계, 실보드 체크리스트(미실행)는 [GATEWAY_INCIDENT_RESPONSE.md](docs/GATEWAY_INCIDENT_RESPONSE.md)에 있다.
+흐름, 방어 범위, 한계, 실보드 체크리스트(미실행)는 [GATEWAY_INCIDENT_RESPONSE.md](docs/GATEWAY_INCIDENT_RESPONSE.md)에 있다. 시행착오는 [FAILURE_LOG_2026-11-17.md](docs/FAILURE_LOG_2026-11-17.md)에 기록했다.
 
 ### 3) 검증 결과(pass/fail) 전달 경로를 와이파이에서 CAN 버스로 (Pi2 ↔ Pi3)
 
