@@ -7,6 +7,10 @@
 현재 대표 시나리오는 **IVI CPU 경합으로 인한 자원·타이밍 호환성 문제**다.
 이전 CAN 재전송·표시 오류 시나리오는 제거했다. 복구 슬롯 바꿔치기 공격 시험은 유지하며 IVI 패키지로 검증한다.
 
+업데이트 경로 자체의 보안도 함께 다룬다. 정비 포트로 복구 슬롯을 낡은 이미지로 바꿔치기하는 공격은
+Pi2가 막고, 차단 뒤에는 Pi1 게이트웨이가 사고를 보고하고 **관제 서버에서 사람이 승인하면** 커밋된 버전으로
+복원한다 ([보안 시나리오](#보안-시나리오-세-가지), [상세](docs/GATEWAY_INCIDENT_RESPONSE.md)).
+
 ## 목차
 
 1. [왜 검증하는가](#왜-검증하는가)
@@ -47,6 +51,8 @@ Pi1 Central ── 검증·중계 ──▶ Pi2 Cockpit
 ```
 
 - 실제 장치: Raspberry Pi 세 대, MCP2515 HAT(12MHz 발진기), `can0` 500kbit/s.
+- Pi1은 릴리스 중계 외에 **진단 게이트웨이**도 맡는다. 정비 포트로 가는 요청은 Pi1을 거치며 기록되고,
+  사고 후에는 Pi1이 게이트를 닫는다 (보안 시나리오 2-1).
 - OTA 파일은 LAN으로, 차량 입력과 처리 응답은 CAN으로 전달한다.
 - **업데이트·롤백 대상은 IVI다.** Central과 클러스터는 이 시나리오에서 교체하지 않는다.
 - 클러스터는 **버전·색상·수신 정책 분기가 없는 단일 구현**이다. V1·V2·V3는 IVI 릴리스 구분이다.
@@ -155,17 +161,23 @@ Linux, Python 3.10+를 사용한다. 실제 Qt 통합 시험에는 C++17·Qt5 �
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/python -m pip install -e '.[dev,cockpit]'
 
 # CPU 경합 감시·IVI·시험 운영 감독기 관련 시험
 .venv/bin/python -m pytest -q tests/test_monitor_*.py tests/test_probation.py tests/test_ivi.py tests/test_tap.py
+
+# 게이트웨이 경유 공격과 서버 승인 복원 (실보드 불필요)
+.venv/bin/python -m pytest -q tests/test_device_repair.py tests/test_gateway.py tests/test_incident_*.py
+.venv/bin/python -m demo.incident_drill run --output .demo/incident-drill   # 출력된 주소에서 승인 버튼 클릭
 
 # 전체 시험: 실보드는 명시적으로 설정한 경우에만 실행
 .venv/bin/python -m pytest -q
 ```
 
-2026-11-11 기준 로컬 결과는 **274 passed (약 95초)**, `--hardware-config`를 준 실보드 결과는
-**10 passed**다 (아래 "보안 시나리오" 절 참고). 로컬 실행은 고정 클러스터 C++/Qt 빌드와 IVI
+2026-11-17 기준 로컬 결과는 **313 passed, 45 skipped (약 2분)**다. skip은 실보드 전용 시험 10개,
+Qt 앱 빌드가 필요한 시험, `vcan0`가 필요한 시험이며 CI는 이 중 Qt와 vcan 시험이 skip되지 않도록 감시한다.
+`--hardware-config`를 준 실보드 결과는 2026-11-11에 **10 passed**였다 (아래 "보안 시나리오" 절 참고).
+이 값은 게이트웨이 사고 대응(2-1) 이전의 실보드 결과이며 2-1은 실보드에서 실행하지 않았다. 로컬 실행은 고정 클러스터 C++/Qt 빌드와 IVI
 공격 시험을 포함하며, `--hardware-config` 없는 실행은 실보드 전용 시험을 제외한다.
 컴파일된 Qt 앱이 없으면 Qt 관련 시험도 skip되므로 Python 시험 통과만으로 Qt 검증을 주장하면 안 된다.
 Qt 빌드와 기존 보드 설정은 [QT_CLUSTER.md](docs/QT_CLUSTER.md),
