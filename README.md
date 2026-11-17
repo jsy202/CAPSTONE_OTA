@@ -143,6 +143,8 @@ A/B 슬롯, Pi3 판정, 지연과 이벤트 로그를 보여준다.
 | [relay.py](capstone_ota/relay.py) / [bundle.py](capstone_ota/bundle.py) | Central 중계·서명·해시 검사 |
 | [can_verdict.py](capstone_ota/can_verdict.py) | Pi2↔Pi3 검증 판정을 CAN으로 인증 전달 |
 | [debug_port.py](capstone_ota/debug_port.py) | 리콜 정비 포트 시나리오용 무인증 슬롯 쓰기 서비스 |
+| [gateway.py](capstone_ota/gateway.py) / [incident_responder.py](capstone_ota/incident_responder.py) | Pi1 진단 게이트웨이, 사고 보고·승인 후 복원 |
+| [incident_server.py](capstone_ota/incident_server.py) / [order.py](capstone_ota/order.py) | 관제 서버(승인 페이지)와 서명된 복원 지시서 |
 | [bench/load_phases.py](bench/load_phases.py) | 워커 개수·우선순위별 부하 측정 |
 | [bench/drive_cycle.py](bench/drive_cycle.py) | 합성 주행 사이클 |
 | [bench/cockpit_feeder.py](bench/cockpit_feeder.py) | 화면용 관측 데이터 수집 |
@@ -263,6 +265,21 @@ tree hash mismatch) 취약 모드에서는 바꿔친 이미지가 실제로 활�
 > 기록까지 변조하는 공격은 범위 밖"이라는 아래 원칙과 같은 경계를, 복구 직전 재검증이라는 구체적인
 > 메커니즘으로 보여 준다.)
 
+### 2-1) 정비 포트 공격을 Pi1 게이트웨이 경유로, 차단 뒤에는 서버 승인으로 복원
+
+위 2번에서는 공격자가 Pi2 포트에 직접 붙었다. 실차에서 진단 요청은 중앙 게이트웨이를 거쳐 도메인 ECU로 가므로,
+공격 경로를 **공격자 → Pi1 진단 게이트웨이 → Pi2**로 바꿨다(`capstone_ota/gateway.py`, Pi2 정비 서비스는 `127.0.0.1`만 받음).
+Pi2가 바꿔친 복구 슬롯을 거부해 `recovery_failed`가 되면 Pi1이 게이트를 닫고 서버에 사고를 보고한다.
+**사람이 서버 화면에서 승인**하면 서명된 복원 지시서가 발급되고, Pi1이 서버에서 V2 원본을 받아 Pi2의 `repair()`로
+설치한다. `repair()`는 커밋 기록과 정확히 같은 릴리스·tree hash만 받으며, 지시서는 차량·nonce·만료에 묶여 1회만 쓰인다.
+
+```bash
+.venv/bin/python -m demo.incident_drill run --output .demo/incident-drill   # 출력된 주소를 열어 승인 버튼 클릭
+```
+
+V3 실패 판정은 강제이고, 모든 구성요소가 한 노트북의 프로세스라 Pi1 경유는 네트워크가 아니라 설정으로 지켜진다.
+흐름, 방어 범위, 한계, 실보드 체크리스트(미실행)는 [GATEWAY_INCIDENT_RESPONSE.md](docs/GATEWAY_INCIDENT_RESPONSE.md)에 있다.
+
 ### 3) 검증 결과(pass/fail) 전달 경로를 와이파이에서 CAN 버스로 (Pi2 ↔ Pi3)
 
 위 디버그 포트 방어와는 별도의 질문: "3보드 검증 구조에서 Pi2가 Pi3한테 '통과했어?'를
@@ -312,6 +329,8 @@ PASS를 만들 수 없다.** 비밀키는 두 보드 바깥(배포 시점)에만
 - Pi2-Pi3 검증 결과를 CAN 버스로 인증해 전달하는 기능은 소프트웨어 시험(`vcan0`)으로만
   확인했다. 실보드 배포·실측은 아직 안 했다(사전 공유 비밀키를 두 보드에 안전하게 배치하는
   절차부터 필요).
+- 게이트웨이 경유 사고 대응(2-1)은 로컬 프로세스 시험이다. V3 실패는 강제이고, Pi1 경유는 네트워크로 강제되지
+  않으며, 실보드에서는 실행하지 않았다. 다운그레이드 방어 자체(부팅 전 검사, 기준값의 외부 보관)는 강화하지 않았다.
 
 HTTP 전송은 실험망 용도이며 암호화·접속 인증을 제공하지 않는다.
 개인키·SSH 키·Wi-Fi 비밀번호를 Git이나 릴리스 제공 폴더에 넣지 않는다.
