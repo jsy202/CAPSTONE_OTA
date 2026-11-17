@@ -66,6 +66,9 @@ class _Handler(socketserver.StreamRequestHandler):
                     chunk = self.rfile.read(min(65536, remaining))
                     if not chunk:
                         raise ValueError("connection closed early")
+                    if not self.server.is_open:
+                        # Closed mid-upload: stop before the last bytes. Pi2 only installs complete uploads.
+                        raise ValueError("gateway closed")
                     upstream.sendall(chunk)
                     remaining -= len(chunk)
                 upstream.shutdown(socket.SHUT_WR)

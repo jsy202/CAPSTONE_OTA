@@ -2,6 +2,7 @@
 import base64
 import http.client
 import json
+import socketserver
 from pathlib import Path
 import sys
 import threading
@@ -62,13 +63,16 @@ def world(tmp_path, tampered, served, keys, order_keys):
                     "forwarded": True, "response": "OK"})
     servers = []
 
-    def build(order_key=None, labels=None, decision_timeout=15.0):
-        server = start_server(tmp_path, served, order_key or order_keys[0], labels or {"2.0.0": "v2"})
-        servers.append(server)
+    def build(order_key=None, labels=None, decision_timeout=15.0, server_url=None):
+        server = None
+        if server_url is None:
+            server = start_server(tmp_path, served, order_key or order_keys[0], labels or {"2.0.0": "v2"})
+            servers.append(server)
+            server_url = f"http://127.0.0.1:{server.server_address[1]}"
         target = {"host": "local-pi2", "checkout": str(ROOT), "python": sys.executable,
                   "root": str(device.root), "public_key": str(keys[1]), "check_command": PASS_CHECK,
                   "application": "ivi"}
-        responder = IncidentResponder(f"http://127.0.0.1:{server.server_address[1]}", "PI2-001", order_keys[1],
+        responder = IncidentResponder(server_url, "PI2-001", order_keys[1],
                                       keys[1], gateway, target, decision_timeout=decision_timeout,
                                       poll_interval=0.1)
         return server, responder
@@ -159,3 +163,45 @@ def test_non_failure_result_does_nothing(world):
     server, responder = build()
     assert responder.handle({"result": "rolled_back"}) == {"action": "none"}
     assert gateway.is_open is True and server.incidents == []
+
+
+class _Canned(socketserver.StreamRequestHandler):
+    def handle(self):
+        self.rfile.readline()
+        self.wfile.write(self.server.reply)
+
+
+@pytest.fixture
+def canned_server():
+    servers = []
+
+    def start(reply: bytes):
+        server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), _Canned)
+        server.reply, server.daemon_threads = reply, True
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        servers.append(server)
+        return f"http://127.0.0.1:{server.server_address[1]}"
+    yield start
+    for server in servers:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.parametrize("reply", [
+    b"this is not http\r\n\r\n",
+    b"HTTP/1.0 201 Created\r\nContent-Length: 2\r\n\r\n[]",
+    b"HTTP/1.0 201 Created\r\nContent-Length: 9\r\n\r\n{\"id\": 5}",
+])
+def test_garbage_from_the_control_centre_ends_in_maintenance_required(world, canned_server, reply):
+    device, gateway, build = world
+    _server, responder = build(server_url=canned_server(reply), decision_timeout=1.0)
+    outcome = responder.handle(device.status())
+    assert outcome["action"] == "maintenance_required" and gateway.is_open is False
+
+
+def test_garbage_while_polling_for_the_decision_is_ignored(world, canned_server):
+    device, _gateway, build = world
+    # Reports are accepted, but every order poll gets a truncated body (IncompleteRead).
+    _server, responder = build(server_url=canned_server(b"HTTP/1.0 201 Created\r\nContent-Length: 20\r\n\r\n{\"id\": \"INC-0001\"}"),
+                               decision_timeout=1.0)
+    assert responder.handle(device.status())["action"] == "maintenance_required"

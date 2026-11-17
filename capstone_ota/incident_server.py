@@ -140,8 +140,25 @@ class IncidentServer(ThreadingHTTPServer):
         self.release_labels = dict(release_labels)  # committed version -> release directory label
         self.order_lifetime = order_lifetime
         self._lock = threading.Lock()
-        self._incidents: list[dict] = []
+        self._incidents: list[dict] = self._load()  # Before binding: a corrupt store must not open a port.
         super().__init__(address, _Handler)
+
+    def _load(self) -> list[dict]:
+        try:
+            raw = self.store.read_text()
+        except FileNotFoundError:
+            return []
+        keys = {"id", "status", "report", "order", "outcome"}
+        try:
+            incidents = json.loads(raw)
+            valid = (isinstance(incidents, list)
+                     and all(isinstance(item, dict) and keys <= item.keys() and isinstance(item["report"], dict)
+                             and re.fullmatch(r"INC-[0-9]{4,}", str(item["id"])) for item in incidents))
+        except ValueError:
+            valid = False
+        if not valid:
+            raise ValueError("incident store is corrupt; refusing to overwrite it")
+        return incidents
 
     @property
     def incidents(self) -> list[dict]:
@@ -159,7 +176,8 @@ class IncidentServer(ThreadingHTTPServer):
             for item in self._incidents:
                 if item["report"]["nonce"] == report["nonce"] and item["report"]["vehicle"] == report["vehicle"]:
                     return False, item["id"]
-            incident = f"INC-{len(self._incidents) + 1:04d}"
+            number = max((int(item["id"][4:]) for item in self._incidents), default=0) + 1
+            incident = f"INC-{number:04d}"
             self._incidents.append({"id": incident, "status": "reported", "reported_at": time.time(),
                                     "report": report, "order": None, "outcome": None})
             self._save()

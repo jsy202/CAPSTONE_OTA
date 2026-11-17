@@ -1,6 +1,8 @@
 """Pi1 diagnostic gateway: the only route from the maintenance port's outside to Pi2's service."""
 import os
+import socket
 import threading
+import time
 
 import pytest
 
@@ -60,3 +62,21 @@ def test_gateway_relays_upstream_error(chain, tmp_path, payload, keys):
 
 def test_debug_port_default_bind_is_loopback():
     assert debug_port.build_parser().get_default("bind") == "127.0.0.1"
+
+
+def test_gate_closed_mid_upload_does_not_finish_the_upload(chain, tmp_path, payload, keys):
+    """An upload that started while the gate was open must not complete after it closes."""
+    root, gateway = chain
+    data = _archive(tmp_path, payload, keys).read_bytes()
+    half = len(data) // 2
+    with socket.create_connection(("127.0.0.1", gateway.server_address[1]), timeout=5) as client:
+        client.sendall(b"A\n" + str(len(data)).encode() + b"\n" + data[:half])
+        time.sleep(0.4)  # the gateway has now passed its open check and is streaming
+        gateway.close("incident")
+        client.sendall(data[half:])
+        client.shutdown(socket.SHUT_WR)
+        response = b""
+        while chunk := client.recv(4096):
+            response += chunk
+    assert response.decode().startswith("ERROR gateway closed")
+    assert not (root / "slots/A").exists()

@@ -7,8 +7,10 @@ module only decides *whether to ask*, and refuses to ask without a verified appr
 from __future__ import annotations
 
 import base64
+from http.client import HTTPException
 import json
 from pathlib import Path
+import re
 import secrets
 import shlex
 import tempfile
@@ -49,10 +51,13 @@ class IncidentResponder:
         if report is None:
             return self._stop(None, "the device result names no committed version")
         try:
-            status, data = self._call("POST", "/incidents", report)
-            incident = json.loads(data)["id"]
-        except (OSError, ValueError, KeyError) as exc:
-            return self._stop(None, f"control centre unreachable: {exc}")
+            _status, data = self._call("POST", "/incidents", report)
+            answer = json.loads(data)
+            incident = answer.get("id") if isinstance(answer, dict) else None
+            if not isinstance(incident, str) or not re.fullmatch(r"INC-[0-9]{4,}", incident):
+                raise ValueError("the control centre did not return an incident id")
+        except (OSError, ValueError, HTTPException) as exc:
+            return self._stop(None, f"control centre unreachable or invalid: {exc}")
         order = self._await_order(incident, nonce)
         if order is None:
             return self._stop(incident, "no valid decision arrived before the timeout")
@@ -93,7 +98,7 @@ class IncidentResponder:
     def _outcome(self, incident: str, result: str) -> None:
         try:
             self._call("POST", f"/incidents/{incident}/outcome", {"result": result})
-        except OSError:
+        except (OSError, HTTPException):
             pass  # The report is best effort; the device state is the record.
 
     def _pi2_file(self, name: str):
@@ -126,7 +131,7 @@ class IncidentResponder:
                 status, data = self._call("GET", f"/incidents/{incident}/order")
                 if status == 200:
                     return self.accept_order(incident, nonce, json.loads(data))
-            except (OSError, ValueError):
+            except (OSError, ValueError, HTTPException):
                 pass  # An invalid or unreachable answer is ignored; a later genuine one may still arrive.
             time.sleep(self.poll_interval)
         return None
@@ -162,7 +167,7 @@ class IncidentResponder:
             repair = rows[0] if len(rows) == 1 and isinstance(rows[0], dict) else None
             if repair is None or repair.get("result") != "rolled_back":
                 raise ValueError("the device did not report a completed restore")
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, HTTPException) as exc:
             self._outcome(incident, "repair_failed")
             return self._stop(incident, f"restore failed: {exc}")
         self._outcome(incident, "rolled_back")

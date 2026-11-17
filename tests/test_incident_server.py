@@ -120,3 +120,27 @@ def test_releases_are_served_and_traversal_is_blocked(server):
     assert call(server, "GET", "/releases/v2/release.json")[0] == 200
     assert call(server, "GET", "/releases/../store-secret.txt")[0] == 404
     assert call(server, "GET", "/releases/")[0] == 404
+
+
+def test_incidents_survive_a_server_restart(server, order_keys, tmp_path):
+    _status, incident = report(server)
+    call(server, "POST", f"/incidents/{incident}/approve")
+    restarted = IncidentServer(("127.0.0.1", 0), tmp_path / "releases", tmp_path / "incidents.json",
+                               order_keys[0], release_labels={"2.0.0": "v2"})
+    try:
+        assert [item["id"] for item in restarted.incidents] == [incident]
+        assert restarted.incidents[0]["status"] == "approved"
+        assert restarted.order_for(incident)[0] == 200
+        created, second = restarted.add_report(dict(REPORT, nonce="cd" * 16))
+        assert created and second != incident  # numbering continues, no ID is reused
+        assert restarted.add_report(REPORT) == (False, incident)  # the old report is still recognised
+    finally:
+        restarted.server_close()
+
+
+def test_corrupt_store_is_not_overwritten(tmp_path, order_keys):
+    store = tmp_path / "incidents.json"
+    store.write_text("{not json")
+    with pytest.raises(ValueError, match="incident store"):
+        IncidentServer(("127.0.0.1", 0), tmp_path, store, order_keys[0], release_labels={})
+    assert store.read_text() == "{not json"
