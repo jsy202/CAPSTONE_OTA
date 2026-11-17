@@ -99,12 +99,17 @@ def push(host: str, port: int, slot: str, archive_path: Path, timeout: float = 1
     return response.decode().strip()
 
 
-def main(argv=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--device-root", required=True, type=Path)
-    parser.add_argument("--bind", default="0.0.0.0")
+    # Loopback by default: the service is reachable only through Pi1's diagnostic gateway.
+    parser.add_argument("--bind", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
     with DebugPortServer((args.bind, args.port), args.device_root) as server:
         print(f"debug port listening on {args.bind}:{args.port} -> {args.device_root}", file=sys.stderr)
         server.serve_forever()
