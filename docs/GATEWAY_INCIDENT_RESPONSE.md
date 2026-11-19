@@ -75,7 +75,7 @@ Pi1: 복원이 끝난 뒤(또는 거부·시간 초과·실패로 끝난 뒤) �
 - [x] Pi2가 변조를 거부하고 **자기 응답에** 기대/관측 해시를 실어 보냄 (`5f54018b…` ≠ `be9430b5…`), Pi1은 Pi2 파일을 읽지 않음
 - [x] 노트북 서버에 Pi1→HTTP 보고, 지시서 검증이 실제 LAN에서 동작 (이 항목의 첫 실행은 자동 승인(`--decision approve`)이었다. 사람이 누른 실행은 아래 별도 항목)
 - [x] 승인 후 `ivi-repair`가 진짜 SSH(제한된 키)로 Pi2에서 성공, `rolled_back` / V2 / 슬롯 A로 종료
-- [x] 게이트가 닫힌 뒤 재공격이 `ERROR gateway closed`로 거부 (2026-11-20에 닫는 시점을 '복원 뒤'로 바꿨고, 이 순서로는 실보드 재확인을 아직 하지 않았다)
+- [x] 게이트가 닫힌 뒤 재공격이 `ERROR gateway closed`로 거부 (2026-11-20부터 닫는 시점은 '복원 뒤'이고, 이 순서로 실보드 1회 확인: 게이트 기록에 요청들 다음 `gateway_closed`, 이어서 재공격 거부) (2026-11-20에 닫는 시점을 '복원 뒤'로 바꿨고, 이 순서로는 실보드 재확인을 아직 하지 않았다)
 - [x] 실제 Pi3 감시기가 V3 지연을 판정할 때 같은 흐름이 이어지는지(`--verdict real`, 2026-11-19 1회, `forced_verdict: false`, Pi3 freeze-frame suspect→confirmed 확인; 반복 측정 아님)
 - [x] 사람이 브라우저에서 승인 버튼을 누르는 실보드 실행 (2026-11-19, `--verdict real --decision human --screen`, 1회. Pi1이 INC-0001 보고 → 관제 화면 `waiting_for_human` → 사람이 승인 클릭(보고 약 9초 뒤) → `rolled_back`, 재공격 `ERROR gateway closed`, Pi2 V2/슬롯 A/stable. 증적 디렉터리(Git 제외): `.demo/field-real-screen`, `.demo/field-real-ui` (두 실행 모두 사람이 승인 클릭; `.demo/field-real-human`은 승인 전에 내가 중단한 실행이라 증적에 넣지 않는다). 승인한 사람은 프로젝트 작성자)
 - [x] 2026-11-19~20 밤 재검증(IVI 재설계 후, 기준선 V2 2.1.0이 슬롯 B): 클릭·승인은 모두 사람이 아니라 보조 도구(XTEST 클릭, `--decision approve`)가 했다. 결과는 [FAILURE_LOG_2026-11-19.md](FAILURE_LOG_2026-11-19.md)의 "야간 검증" 절
