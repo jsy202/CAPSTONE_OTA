@@ -23,8 +23,10 @@ def test_payload_layout_and_versions(tmp_path):
         assert (slot / 'bin/app').is_file() and os.access(slot / 'bin/app', os.X_OK)
         assert json.loads((slot / 'ivi.json').read_text()) == CONFIGS[version]
     # V2 is the head unit WITHOUT a map; V3 adds the map and its tile-prefetch workers.
-    assert CONFIGS['V2'] == {'version': 'V2', 'map_enabled': False, 'map_workers': 0, 'map_priority': 'normal'}
-    assert CONFIGS['V3'] == {'version': 'V3', 'map_enabled': True, 'map_workers': 'cores', 'map_priority': 'rr10'}
+    assert CONFIGS['V2'] == {'version': 'V2', 'map_enabled': False, 'map_workers': 0, 'map_priority': 'normal',
+                          'vehicle_data': True}
+    assert CONFIGS['V3'] == {'version': 'V3', 'map_enabled': True, 'map_workers': 'cores', 'map_priority': 'rr10',
+                          'vehicle_data': True}
     assert not (tmp_path / 'V2/map.json').exists() and (tmp_path / 'V3/map.json').exists()
 
 
@@ -169,3 +171,76 @@ def test_ivi_initialization_preserves_the_signed_payload_tree(tmp_path):
     before = tree_hash(slot)
     assert run(slot, '--check').returncode == 0
     assert tree_hash(slot) == before
+
+
+class _Stop(Exception):
+    pass
+
+
+def _run_in_process(monkeypatch, tmp_path, config, frames, bus_available=True, ticks=10):
+    """Run ivi.main in-process with a fake CAN socket and a fake clock; returns (nav, status, opened)."""
+    import socket
+    import struct
+    import types
+
+    from dashboard.ivi import ivi
+    (tmp_path / 'ivi.json').write_text(json.dumps(config))
+    runtime = tmp_path / 'run'
+    runtime.mkdir()
+    monkeypatch.setattr(ivi, 'ROOT', tmp_path)
+    monkeypatch.setenv('CAPSTONE_IVI_RUN', str(runtime))
+    monkeypatch.setattr(ivi.signal, 'signal', lambda *_: None)
+    reader, writer = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
+    reader.setblocking(False)
+    for speed in frames:
+        writer.send(struct.pack('=IB3x8s', 0x200, 8, int(speed * 10).to_bytes(2, 'big') + bytes(6)))
+    opened = []
+    monkeypatch.setattr(ivi, 'open_can', lambda ch: opened.append(ch) or (reader if bus_available else None))
+    clock = {'t': 100.0, 'n': 0}
+
+    def sleep(dt):
+        clock['t'] += dt
+        clock['n'] += 1
+        if clock['n'] >= ticks:
+            raise _Stop
+    monkeypatch.setattr(ivi, 'time', types.SimpleNamespace(monotonic=lambda: clock['t'], time=lambda: 1.0, sleep=sleep))
+    with pytest.raises(_Stop):
+        ivi.main(['ivi.py'])
+    read = lambda name: json.loads((runtime / name).read_text()) if (runtime / name).exists() else None  # noqa: E731
+    return read('nav.json'), read('status.json'), opened
+
+
+def test_v2_reads_can_and_writes_trip_info(monkeypatch, tmp_path):
+    nav, status, opened = _run_in_process(monkeypatch, tmp_path, CONFIGS['V2'], [36.0])   # 36 km/h = 10 m/s
+    assert opened and status['can'] is True and status['workers'] == 0 and status['route'] is False
+    assert nav['speed'] == 36.0 and set(nav) == {'speed', 'distance', 'drive_s', 'updated'}
+    assert nav['distance'] == pytest.approx(18.0, abs=0.1) and nav['drive_s'] == pytest.approx(1.8, abs=0.05)   # 9 intervals of 0.2 s
+
+
+def test_v2_standing_still_does_not_count_driving_time(monkeypatch, tmp_path):
+    nav, _, _ = _run_in_process(monkeypatch, tmp_path, CONFIGS['V2'], [0.3])
+    assert nav['distance'] > 0 and nav['drive_s'] == 0
+
+
+def test_vehicle_data_flag_controls_whether_v2_opens_can(monkeypatch, tmp_path):
+    off = {**CONFIGS['V2'], 'vehicle_data': False}
+    (tmp_path / 'off').mkdir()
+    nav, status, opened = _run_in_process(monkeypatch, tmp_path / 'off', off, [36.0])
+    assert opened == [] and nav is None and status['can'] is False
+    legacy = {k: v for k, v in CONFIGS['V2'].items() if k != 'vehicle_data'}      # old ivi.json: behaves as before
+    (tmp_path / 'old').mkdir()
+    nav, status, opened = _run_in_process(monkeypatch, tmp_path / 'old', legacy, [36.0])
+    assert opened == [] and nav is None and status['can'] is False
+
+
+def test_can_unavailable_reports_false_and_does_not_crash(monkeypatch, tmp_path):
+    nav, status, opened = _run_in_process(monkeypatch, tmp_path, CONFIGS['V2'], [], bus_available=False)
+    assert opened and status['can'] is False and nav is None
+
+
+def test_v3_nav_keeps_position_fields_and_gains_drive_time(monkeypatch, tmp_path):
+    (tmp_path / 'map.json').write_text(json.dumps({'route': {'p': [0, 0, 1000, 0]}}))
+    config = {**CONFIGS['V3'], 'map_workers': 0}
+    nav, status, _ = _run_in_process(monkeypatch, tmp_path, config, [36.0])
+    assert {'x', 'y', 'heading', 'speed', 'distance', 'drive_s', 'updated'} == set(nav) and nav['drive_s'] > 0
+    assert status['can'] is True and status['route'] is True
