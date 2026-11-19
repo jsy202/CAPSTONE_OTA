@@ -405,6 +405,11 @@ def attack_version(baseline):
     return ATTACK_VERSION
 
 
+def attack_payload(staging):
+    """The planted image is the real V1 build (radio screen), i.e. what would run if the rollback defence failed."""
+    return payload(staging, "V1")
+
+
 def require_baseline(status, config):
     wanted = baseline_version(config)
     if status["version"] != wanted or status["phase"] != "stable":
@@ -433,8 +438,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
     # Attack image: an older, validly signed IVI tree (the attacker already owns it).
     key = releases / "keys/ivi-private.pem"
     staging = output / "attack-payload"
-    payload(staging, "V2")
-    (staging / "old-release.txt").write_text("IVI 1.0.0 (downgrade image planted through the maintenance port)\n")
+    attack_payload(staging)
     pack(staging, output / "attack/v1", attack_as, 1, key)
     archive = output / "attack/v1/app.tar.gz"
 

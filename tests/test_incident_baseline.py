@@ -29,3 +29,12 @@ def test_the_baseline_check_uses_the_configured_version():
     with pytest.raises(SystemExit, match="baseline"):
         field.require_baseline({"version": "2.1.0", "phase": "rolled_back"}, {"baseline_version": "2.1.0"})
     field.require_baseline({"version": "2.0.0", "phase": "stable"}, {})  # default unchanged
+
+
+def test_the_attack_image_is_the_real_v1_release(tmp_path):
+    import json
+    staging = field.attack_payload(tmp_path / "attack")
+    assert json.loads((staging / "ivi.json").read_text())["version"] == "V1"
+    assert not (staging / "old-release.txt").exists()       # no staged marker: V1 differs from V2 by itself
+    assert not (staging / "map.json").exists()
+    assert "RadioPanel" in (staging / "ui/Ivi.qml").read_text() or (staging / "ui/RadioPanel.qml").exists()

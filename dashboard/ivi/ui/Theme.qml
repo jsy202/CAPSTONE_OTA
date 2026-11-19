@@ -11,6 +11,8 @@ QtObject {
     readonly property color accent: "#1fa6f9"      // the one signature blue
     readonly property color accentDim: "#2a5f8a"   // travelled part of the route
     readonly property color media: "#8a5cf6"       // media tile hue, used by the player panel
+    readonly property color radio: "#ff66ae"       // radio tile hue (V1 radio panel): dock tile gradient top
+    readonly property color radioDeep: "#df2a82"   // dock tile gradient bottom
     readonly property color ink: "#ffffff"
     readonly property color inkMuted: "#a9b0bd"
     readonly property color inkOnAccent: "#04121f"
@@ -38,6 +40,7 @@ QtObject {
     readonly property int tMd: 36
     readonly property int tLg: 44
     readonly property int tXl: 56
+    readonly property int tDisplay: 120   // radio frequency readout
 
     // icons: one 48 grid, one 4-unit stroke (see icons.js), two display sizes
     readonly property int iconGrid: 48

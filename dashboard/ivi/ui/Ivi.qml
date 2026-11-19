@@ -6,7 +6,7 @@ import "geo.js" as Geo
 // Bottom strip of the Pi2 monitoring screen (loaded by dashboard/cockpit/Cockpit.qml at 1920x600, scaled x1.125 to 2160x675).
 // The digital cluster above already shows speed, rpm and gear, so none of them is repeated here.
 // Layout: status bar / vehicle column (25%) + stage / dock. The stage is the map (builds with a map, see RoadMap.qml)
-// or a media player panel (builds without a map). Roads/route (c) OpenStreetMap contributors (ODbL), drawn locally.
+// or a media player panel (V2), or the FM radio panel (V1, see RadioPanel.qml). Roads/route (c) OpenStreetMap contributors (ODbL), drawn locally.
 // Real data: clock, status.json (version, CAN link, map feature, map workers), route figures computed from map.json
 // and nav.json. Everything else is visual. All sizes and colours come from Theme.qml.
 // CPU rule: static items paint once; only the clock, the player progress and the map overlay (<= 5 fps) change.
@@ -38,6 +38,7 @@ Item {
     readonly property bool canLive: vstatus.can === true
     readonly property int workers: vstatus.workers > 0 ? vstatus.workers : 0
     readonly property string version: vstatus.version ? vstatus.version : "…"
+    readonly property bool radioBuild: version === "V1"     // V1 (oldest release) has a radio where later builds have the player
     readonly property var current: tracks[track]
     readonly property var info: roadMap.info
 
@@ -90,7 +91,7 @@ Item {
             readJson(root.runDir + "status.json", function (d) { if (!H.sameSample(d, root.vstatus)) root.vstatus = d })
             clockLabel.text = H.clockText(new Date())
         } }
-    Timer { interval: 1000; running: root.playing && root.page === "home"; repeat: true
+    Timer { interval: 1000; running: root.playing && root.page === "home" && !root.radioBuild; repeat: true
         onTriggered: {
             var t = H.playerTick(root.elapsed, root.current.length, true)
             if (t.ended) root.stepTrack(1); else root.elapsed = t.elapsed
@@ -172,7 +173,7 @@ Item {
 
         // ---- media player (visual only, no audio backend) ----
         Rectangle {
-            anchors.fill: parent; radius: Theme.rPanel; color: Theme.surface; visible: root.page === "home"
+            anchors.fill: parent; radius: Theme.rPanel; color: Theme.surface; visible: root.page === "home" && !root.radioBuild
             readonly property int pad: Theme.s4
             Rectangle {   // generated cover art
                 x: parent.pad; y: parent.pad; width: parent.height - 2 * parent.pad; height: width; radius: Theme.rPanel; clip: true
@@ -235,6 +236,9 @@ Item {
                 }
             }
         }
+
+        // ---- radio (V1 build, visual only) ----
+        RadioPanel { anchors.fill: parent; visible: root.page === "home" && root.radioBuild }
 
         // ---- map page of a build without a map ----
         Rectangle {
@@ -332,10 +336,11 @@ Item {
             DockSlot { w: 1; DockTile { anchors.centerIn: parent; kind: "navi"; c1: "#3aa4ff"; c2: "#1f63e0"
                 active: root.page === "map"; onClicked: root.openMap() } }
             DockSlot { w: 1; DockTile { anchors.centerIn: parent; kind: "apps"; c1: "#00000000"; c2: "#00000000"
-                active: root.page === "home"; onClicked: root.goHome() } }
+                active: root.page === "home" && !root.radioBuild; onClicked: root.goHome() } }
             DockSlot { w: 0.25; Rectangle { anchors.centerIn: parent; width: 2; height: 56; color: Theme.overlayLine } }
             DockSlot { w: 1; DockTile { anchors.centerIn: parent; kind: "manual"; c1: "#aeb5c0"; c2: "#6e7580" } }
-            DockSlot { w: 1; DockTile { anchors.centerIn: parent; kind: "radio"; c1: "#ff66ae"; c2: "#df2a82" } }
+            DockSlot { w: 1; DockTile { anchors.centerIn: parent; kind: "radio"; c1: Theme.radio; c2: Theme.radioDeep
+                active: root.page === "home" && root.radioBuild; onClicked: root.goHome() } }
             DockSlot { w: 0.25; Rectangle { anchors.centerIn: parent; width: 2; height: 56; color: Theme.overlayLine } }
             DockSlot { w: 1.1
                 Column { anchors.centerIn: parent; spacing: 0

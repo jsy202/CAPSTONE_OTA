@@ -44,3 +44,30 @@ function progressFraction(elapsed, duration) {
     if (!(duration > 0)) return 0
     return Math.min(1, Math.max(0, elapsed / duration))
 }
+
+// ---- radio panel (V1 build; visual only: there is no tuner hardware) ----
+var RADIO_MIN = 87.5
+var RADIO_MAX = 108.0
+var RADIO_STATIONS = [
+    { name: "Radio 1", freq: 93.1,  signal: 4 },
+    { name: "Radio 2", freq: 96.5,  signal: 3 },
+    { name: "Radio 3", freq: 99.9,  signal: 4 },
+    { name: "Radio 4", freq: 103.3, signal: 2 },
+    { name: "Radio 5", freq: 106.7, signal: 3 }
+]
+
+// Previous/next station with wrap-around; a stale index is clamped into range first.
+function stepStation(index, dir) {
+    var n = RADIO_STATIONS.length
+    var i = index >= 0 && index < n ? index : 0
+    return (i + dir + n) % n
+}
+
+function radioFreqText(freq) {
+    return Number(freq).toFixed(1)
+}
+
+// Needle position along the dial scale: 0 at the low end, 1 at the high end.
+function dialFraction(freq) {
+    return Math.min(1, Math.max(0, (freq - RADIO_MIN) / (RADIO_MAX - RADIO_MIN)))
+}

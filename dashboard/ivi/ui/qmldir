@@ -6,3 +6,4 @@ Readout 1.0 Readout.qml
 Card 1.0 Card.qml
 RoadMap 1.0 RoadMap.qml
 DockSlot 1.0 DockSlot.qml
+RadioPanel 1.0 RadioPanel.qml

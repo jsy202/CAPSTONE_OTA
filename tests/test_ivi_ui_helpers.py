@@ -92,3 +92,30 @@ def test_strip_does_not_repeat_what_the_cluster_above_shows():
     for word in ('km/h', 'rpm', 'speedtext', 'nav.speed'):
         assert word not in text, word
     assert 'speedText' not in HELPER.read_text()
+
+
+def test_radio_station_table_and_stepping():
+    out = run_node(r"""
+assert.strictEqual(RADIO_STATIONS.length, 5);
+RADIO_STATIONS.forEach(function (s, i) {
+  assert.strictEqual(s.name, 'Radio ' + (i + 1));          // no real station names
+  assert.ok(s.freq >= RADIO_MIN && s.freq <= RADIO_MAX);
+  assert.ok(s.signal >= 1 && s.signal <= 4);
+  if (i) assert.ok(s.freq > RADIO_STATIONS[i - 1].freq);   // the dial order is the frequency order
+});
+assert.strictEqual(stepStation(0, 1), 1);
+assert.strictEqual(stepStation(4, 1), 0);                  // wraps around
+assert.strictEqual(stepStation(0, -1), 4);
+assert.strictEqual(stepStation(7, 1), 1);                  // out-of-range index is treated as station 0, not trusted
+assert.strictEqual(radioFreqText(93.1), '93.1');
+assert.strictEqual(radioFreqText(100), '100.0');
+assert.strictEqual(dialFraction(RADIO_MIN), 0);
+assert.strictEqual(dialFraction(RADIO_MAX), 1);
+assert.strictEqual(dialFraction(RADIO_MIN - 5), 0);
+assert.strictEqual(dialFraction(RADIO_MAX + 5), 1);
+assert.ok(Math.abs(dialFraction((RADIO_MIN + RADIO_MAX) / 2) - 0.5) < 1e-9);
+var seen = RADIO_STATIONS.map(function (s) { return dialFraction(s.freq); });
+assert.strictEqual(new Set(seen).size, 5);                 // each station puts the needle somewhere else
+console.log('[1]');
+""")
+    assert out == [1]

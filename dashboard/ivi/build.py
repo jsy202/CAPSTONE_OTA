@@ -4,7 +4,8 @@ import shutil
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-CONFIGS = {   # V2: head unit without a map. V3: adds the map and its background tile-prefetch workers.
+CONFIGS = {   # V1: oldest release, a radio instead of a map. V2: media player, no map. V3: adds the map and its background tile-prefetch workers.
+    'V1': {'version': 'V1', 'map_enabled': False, 'map_workers': 0, 'map_priority': 'normal', 'vehicle_data': True},
     'V2': {'version': 'V2', 'map_enabled': False, 'map_workers': 0, 'map_priority': 'normal', 'vehicle_data': True},
     'V3': {'version': 'V3', 'map_enabled': True, 'map_workers': 'cores', 'map_priority': 'rr10', 'vehicle_data': True},
 }

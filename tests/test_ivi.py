@@ -18,7 +18,7 @@ def run(slot, *args, env=None, timeout=10):
 def test_payload_layout_and_versions(tmp_path):
     mapfile = tmp_path / 'map.json'
     mapfile.write_text('{"route": {"p": [0, 0, 1, 1]}}')
-    for version in ('V2', 'V3'):
+    for version in ('V1', 'V2', 'V3'):
         slot = payload(tmp_path / version, version, map_file=mapfile)
         assert (slot / 'bin/app').is_file() and os.access(slot / 'bin/app', os.X_OK)
         assert json.loads((slot / 'ivi.json').read_text()) == CONFIGS[version]
@@ -28,6 +28,11 @@ def test_payload_layout_and_versions(tmp_path):
     assert CONFIGS['V3'] == {'version': 'V3', 'map_enabled': True, 'map_workers': 'cores', 'map_priority': 'rr10',
                           'vehicle_data': True}
     assert not (tmp_path / 'V2/map.json').exists() and (tmp_path / 'V3/map.json').exists()
+    # V1 is the oldest release (a radio instead of a map): no map payload, and it is what a rollback attack would run.
+    assert CONFIGS['V1'] == {'version': 'V1', 'map_enabled': False, 'map_workers': 0, 'map_priority': 'normal',
+                          'vehicle_data': True}
+    assert not (tmp_path / 'V1/map.json').exists()
+    assert json.loads(run(tmp_path / 'V1', '--check').stdout) == {'ok': True, 'version': 'V1'}
 
 
 def test_check_passes_for_valid_config_and_fails_for_invalid(tmp_path):
