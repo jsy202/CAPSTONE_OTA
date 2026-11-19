@@ -269,3 +269,13 @@ def test_target_may_name_a_repair_recheck_but_it_must_be_a_command():
     for bad in ("not a list", [], [""], [1]):
         with pytest.raises(ValueError):
             target_command(dict(base, repair_check_command=bad))
+
+
+def test_report_names_the_slot_the_device_says_failed_its_check(world):
+    device, _gateway, build = world
+    server, responder = build(decision_timeout=0.5)
+    other = "B" if device.status()["active_slot"] == "A" else "A"      # the failed trial runs in one slot, the tamper is in the other
+    result = dict(device.status(), expected_tree_sha256="aa" * 32, observed_tree_sha256="bb" * 32, checked_slot=other,
+                  error="recovery application tree hash mismatch")
+    responder.handle(result)
+    assert server.incidents[0]["report"]["slot"] == other

@@ -165,3 +165,10 @@ def test_failed_recovery_stops_the_failed_trial_service(tmp_path, served, keys, 
     assert actions[-1] == "stop", actions
     events = [json.loads(line)["event"] for line in (root / "events.jsonl").read_text().splitlines()]
     assert "service_stopped_after_recovery_failure" in events
+
+
+def test_recovery_evidence_names_the_slot_that_failed_the_check_not_the_failed_trial_slot(tampered):
+    device, _url = tampered
+    state = json.loads((device.root / "state.json").read_bytes())
+    evidence = device.recovery_evidence()
+    assert evidence["checked_slot"] == state["committed"]["slot"]     # the slot a rollback returns to, the one that was tampered with

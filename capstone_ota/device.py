@@ -236,7 +236,8 @@ class Device:
 
         Pi2 reports this in its own answer so a remote gateway never has to read Pi2's files."""
         return {"expected_tree_sha256": self._progress_data.get("expected_tree_sha256"),
-                "observed_tree_sha256": self._progress_data.get("observed_tree_sha256")}
+                "observed_tree_sha256": self._progress_data.get("observed_tree_sha256"),
+                "checked_slot": self._progress_data.get("checked_slot")}
 
     def _select(self, slot: str | None) -> None:
         self._selected()  # Never replace an unexpected regular file or selector.
@@ -299,7 +300,8 @@ class Device:
         except OSError:
             observed = None
         # Display/incident telemetry only; the comparison below is the security decision.
-        self._progress_data.update(expected_tree_sha256=record["tree_sha256"], observed_tree_sha256=observed)
+        self._progress_data.update(expected_tree_sha256=record["tree_sha256"], observed_tree_sha256=observed,
+                                   checked_slot=record["slot"])
         if observed != record["tree_sha256"]:
             raise ValueError("recovery application tree hash mismatch")
 

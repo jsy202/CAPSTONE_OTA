@@ -115,7 +115,7 @@ class IncidentResponder:
         source = next((entry.get("source") for entry in reversed(self.gateway.log_tail(100))
                        if entry.get("event") == "request" and entry.get("forwarded")), None)
         return {"vehicle": self.vehicle, "nonce": nonce, "time": time.time(), "type": "recovery_slot_tamper",
-                "slot": result.get("active_slot"), "committed_version": version,
+                "slot": result.get("checked_slot") or result.get("active_slot"), "committed_version": version,
                 "committed_svn": result.get("min_svn"),
                 "expected_tree_sha256": result.get("expected_tree_sha256"),
                 "observed_tree_sha256": result.get("observed_tree_sha256"),
