@@ -33,6 +33,15 @@ MONITOR_TEXT = {'lost': '신호 끊김', 'observing': '정상 관측', 'suspect'
 LOG_LIMIT = 14
 
 
+def resolve_ivi_ui(current_slot, preview_ui=None):
+    """The IVI screen the cockpit shows: the installed slot's own UI, or (preview only) a directory given on the command line."""
+    if preview_ui is not None:
+        qml = Path(preview_ui) / 'Ivi.qml'
+        return 'file://' + str(qml) if qml.exists() else None
+    slot = Path(os.path.realpath(current_slot))
+    return ('file://' + str(slot / 'ui/Ivi.qml')) if (slot / 'ui/Ivi.qml').exists() else None
+
+
 def describe_event(name: str) -> str:
     return EVENT_TEXT.get(name, '장치: ' + name)
 
@@ -123,6 +132,7 @@ def main(argv=None) -> int:
     parser.add_argument('--ivi-run', type=Path, default=Path('/run/capstone-ivi'))
     parser.add_argument('--pi3-ssh', required=True, help='JSON argv list for ssh to the Verifier board')
     parser.add_argument('--verdict-path', required=True)
+    parser.add_argument('--ivi-ui', type=Path, help='PREVIEW ONLY: show this ui directory instead of the installed slot')
     parser.add_argument('--interval', type=float, default=0.5, help='seconds between data.json writes (and cluster captures)')
     parser.add_argument('--channel', default='can0', help='CAN channel for the fast local delay tap')
     args = parser.parse_args(argv)
@@ -161,8 +171,7 @@ def main(argv=None) -> int:
         return [json.loads(line) for line in (args.device_root / 'events.jsonl').read_text().splitlines() if line]
 
     def ivi_ui():
-        slot = Path(os.path.realpath(args.device_root / 'current'))
-        return ('file://' + str(slot / 'ui/Ivi.qml')) if (slot / 'ui/Ivi.qml').exists() else None
+        return resolve_ivi_ui(args.device_root / 'current', args.ivi_ui)
 
     def shot():                              # touching /run/cockpit/shot.request asks the display to save a screenshot
         request = args.out_dir / 'shot.request'

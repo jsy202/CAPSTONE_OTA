@@ -163,3 +163,16 @@ def test_the_monitor_log_line_names_the_failure_class_in_korean(tmp_path):
     pi3 = {'seq': 1, 'state': 'confirmed', 'cls': 'freeze', 'fired': [], 'monitored_s': 5, 'bus_stopped_s': 0, 'bus_speed': 0}
     log = make(tmp_path, pi3=lambda: pi3).collect()['log']
     assert any('한계 초과 확정' in line['text'] and '응답 멈춤' in line['text'] and 'freeze' not in line['text'] for line in log)
+
+
+def test_a_preview_path_overrides_the_installed_slot_for_the_ivi_screen(tmp_path):
+    from bench.cockpit_feeder import resolve_ivi_ui
+    slot = tmp_path / "current"
+    (slot / "ui").mkdir(parents=True)
+    (slot / "ui" / "Ivi.qml").write_text("Item {}")
+    preview = tmp_path / "preview" / "ui"
+    preview.mkdir(parents=True)
+    (preview / "Ivi.qml").write_text("Item {}")
+    assert resolve_ivi_ui(slot, None) == "file://" + str(slot.resolve() / "ui/Ivi.qml")   # normal: the installed slot's own UI
+    assert resolve_ivi_ui(slot, preview) == "file://" + str(preview / "Ivi.qml")            # preview: only when asked for
+    assert resolve_ivi_ui(tmp_path / "none", None) is None                                  # nothing installed: no screen
