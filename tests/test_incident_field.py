@@ -108,3 +108,8 @@ def test_the_cockpit_capture_interval_can_be_chosen_for_the_interference_measure
 
 def test_final_gateway_port_line_says_closed_not_just_ended():
     assert field.gateway_final_line() == f"진단 포트 {field.GATEWAY_PORT} 닫힘 · 게이트웨이 종료"
+
+
+def test_the_screen_run_captures_the_cluster_ten_times_a_second_by_default():
+    import inspect
+    assert inspect.signature(field.start_screen).parameters["interval"].default == 0.1  # measured: no extra Pi3 delay (2026-11-19)

@@ -202,7 +202,7 @@ def cockpit_ui_command():
             f"> {SCREEN}/ui.log 2>&1 < /dev/null & echo started")
 
 
-def start_screen(boards, pi3_ip, log, interval=0.5):
+def start_screen(boards, pi3_ip, log, interval=0.1):
     pi2 = boards["pi2"]
     for name in ("__init__.py", "cockpit_feeder.py"):
         pi2.put(f"{SCREEN}/bench/{name}", (ROOT / "bench" / name).read_bytes())

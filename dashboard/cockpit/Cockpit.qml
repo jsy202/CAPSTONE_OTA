@@ -84,7 +84,7 @@ Window {
         x.onreadystatechange = function () { if (x.readyState === 4) { try { win.d = JSON.parse(x.responseText) } catch (e) { } } }
         x.open("GET", dataUrl + "?t=" + Date.now()); x.send()
     }
-    Timer { interval: 400; running: true; repeat: true; triggeredOnStart: true; onTriggered: win.readData() }
+    Timer { interval: 100; running: true; repeat: true; triggeredOnStart: true; onTriggered: win.readData() }
 
     function lerp(a, b, t) { return a + (b - a) * Math.max(0, Math.min(1, t)) }
     function rampColor(ratio) {
