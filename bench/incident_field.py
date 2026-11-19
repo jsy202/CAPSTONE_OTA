@@ -297,7 +297,7 @@ def start_screen(boards, pi3_ip, log, interval=0.1, ivi_ui=None, virtual=False, 
 def port_line(entry):
     """One short cockpit line for a gateway log entry, or None for noise (a bare port probe has no payload)."""
     if entry.get("event") == "gateway_closed":
-        return "진단 포트 닫힘 · 이후 요청 거부"
+        return "진단 포트 닫힘"
     if entry.get("event") != "request" or not entry.get("slot"):
         return None
     source = str(entry.get("source", "?")).rsplit(":", 1)[0]

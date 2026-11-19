@@ -3,7 +3,7 @@ import QtQuick.Window 2.15
 import "Transitions.js" as Transitions
 
 // Single-monitor cockpit: real Qt cluster (live capture), OTA/field monitor, the IVI of the
-// CURRENT slot (loaded from the release itself), and an event log. Designed at 2160x1440, scaled to fit.
+// CURRENT slot (loaded from the release itself), and a top strip for dynamic alerts (no event log). Designed at 2160x1440, scaled to fit.
 //
 // Visual language: flat instrument panel, not a SaaS dashboard — hairline dividers instead of
 // card borders, near-zero corner radius, monospace technical tags. One signature accent (an
@@ -41,7 +41,18 @@ Window {
     property var lastShot: null
     property bool _haveSnapshot: false
     property var _transitionState: ({run: null, seen: 0, kinds: {}})
+    property int logSeen: -1
+    function logAlerts(rows) {
+        if (logSeen < 0 || rows.length < logSeen) { logSeen = rows.length; return }   // never replay history
+        for (; logSeen < rows.length; logSeen++) {
+            var t = String(rows[logSeen].text || "")
+            if (t.indexOf("진단 포트 · 슬롯") === 0) band.enqueue({kind: "port_in", text: t})
+            else if (t.indexOf("진단 포트 닫힘") === 0) band.enqueue({kind: "port_closed", text: t})
+            else if (t.indexOf("모니터: 한계 초과") === 0) band.enqueue({kind: "limit", text: t})
+        }
+    }
     onDChanged: {
+        if (d.log) logAlerts(d.log)
         if (d.shot && d.shot !== lastShot) {
             lastShot = d.shot
             stage_.grabToImage(function (r) { r.saveToFile("/tmp/cockpit-shot.png") })
@@ -72,7 +83,7 @@ Window {
     onOtaChanged: {
         if (win.ota) {
             win.queueStages(win.ota)
-            var events = Transitions.consume(win._transitionState, win.ota)
+            var events = Transitions.consume(win._transitionState, win.ota, win.d.version_labels)
             // Opening the monitor must not replay a previous completed update.
             if (win._haveSnapshot)
                 for (var i = 0; i < events.length; i++) band.enqueue(events[i])
@@ -102,7 +113,7 @@ Window {
         scale: Math.min(win.width / 2160, win.height / 1440)
 
         // ---------------- cluster (real application, live capture — untouched) ----------------
-        Rectangle { x: 0; y: 0; width: 1440; height: 540; color: "#000000"
+        Rectangle { x: 0; y: 225; width: 1440; height: 540; color: "#000000"
             Image { id: clusterImg; anchors.fill: parent; cache: false; fillMode: Image.Stretch
                 source: win.d.cluster ? "file:///run/cockpit/cluster.bmp?rev=" + win.d.cluster.rev : "" }
             Text { visible: !win.d.cluster || clusterImg.status !== Image.Ready; anchors.centerIn: parent; color: win.inkMuted
@@ -110,7 +121,7 @@ Window {
         }
 
         // ---------------- OTA / field monitor — flat instrument-panel grid ----------------
-        Rectangle { id: panel; x: 1440; y: 0; width: 720; height: 540; color: "#070a0f"
+        Rectangle { id: panel; x: 1440; y: 225; width: 720; height: 540; color: "#070a0f"
             Rectangle { width: 1; height: parent.height; color: win.hairline }   // left hairline seam vs. cluster
             readonly property var can: win.d.tap ? win.d.tap.can : null
             readonly property var shown: win.d.tap ? win.d.tap.cluster : null
@@ -127,8 +138,6 @@ Window {
             // download/verify/install in well under a second and would otherwise never be seen.
             Item {
                 id: gauge
-                opacity: band.shown ? 0 : 1
-                Behavior on opacity { NumberAnimation { duration: 180 } }
                 x: 32; y: 16; width: panel.width - 64; height: 160
                 readonly property var live: {
                     var o = win.shownOta ? win.shownOta : win.ota
@@ -213,11 +222,12 @@ Window {
         }
 
         // ---------------- section dividers: cluster | monitor over IVI (all three read as separate zones) ----------------
-        Rectangle { z: 60; x: 1438; y: 0; width: 4; height: 540; color: "#3a4a68" }
-        Rectangle { z: 60; x: 0; y: 538; width: 2160; height: 4; color: "#3a4a68" }
+        Rectangle { z: 60; x: 1438; y: 225; width: 4; height: 540; color: "#3a4a68" }
+        Rectangle { z: 60; x: 0; y: 223; width: 2160; height: 4; color: "#3a4a68" }
+        Rectangle { z: 60; x: 0; y: 763; width: 2160; height: 4; color: "#3a4a68" }
 
         // ---------------- IVI of the current slot (real app, live — untouched) ----------------
-        Rectangle { x: 0; y: 540; width: 2160; height: 675; color: "#0a0e15"; clip: true
+        Rectangle { x: 0; y: 765; width: 2160; height: 675; color: "#0a0e15"; clip: true
             Loader { id: iviLoader; width: 1920; height: 600; transformOrigin: Item.TopLeft; scale: 1.125
                 source: win.d.ivi_ui ? win.d.ivi_ui : ""
                 onLoaded: if (item && item.hasOwnProperty("runDir")) item.runDir = "file:///run/capstone-ivi/" }
@@ -225,36 +235,16 @@ Window {
                 text: win.d.ivi_ui ? "IVI 불러오는 중" : "IVI 설치 안 됨" }
         }
 
-        // ---------------- event log: left = vehicle/monitor lines, right = port lines (never pushed out) ----------------
-        Rectangle { x: 0; y: 1215; width: 2160; height: 225; color: "#070a10"
-            id: logArea
-            readonly property var rows: win.d.log ? win.d.log : []
-            function isPort(text) { return text.indexOf("진단 포트") === 0 || text.indexOf("정비 포트") === 0 }
-            function lineColor(text) {
-                if (isPort(text)) return text.indexOf("닫힘") >= 0 || text.indexOf("거부") >= 0 ? win.success : win.warn
-                if (text.indexOf("롤백") === 0 || text.indexOf("한계 초과") >= 0) return "#ff8a8a"
-                if (text.indexOf("확정") === 0) return win.accent
-                return "#aeb9cc"
-            }
-            Rectangle { width: parent.width; height: 1; color: win.hairline }
-            Column { x: 28; y: 12; spacing: 0; width: 1040
-                Repeater { model: logArea.rows.filter(function (r) { return !logArea.isPort(r.text) }).slice(-4)
-                    Text { width: parent.width; elide: Text.ElideRight; color: logArea.lineColor(modelData.text)
-                        font.family: fSansMed.name; font.pixelSize: 28; text: modelData.t + "   " + modelData.text } } }
-            Column { x: 1100; y: 12; spacing: 0; width: 1032
-                Repeater { model: logArea.rows.filter(function (r) { return logArea.isPort(r.text) }).slice(-4)
-                    Text { width: parent.width; elide: Text.ElideRight; color: logArea.lineColor(modelData.text)
-                        font.family: fSansMed.name; font.pixelSize: 28; text: modelData.t + "   " + modelData.text } } }
-        }
-
-        // ---------------- alert band: replaces the progress gauge in its own slot ----------------
-        // Both used to show at once (and the band spanned the cluster too), which was cluttered. The band now
-        // sits exactly over the monitor panel's gauge slot, the gauge fades out while it shows, and every event
-        // (update, rollback, blocked attack) uses that one slot, told apart by tone, tag and copy.
+        // ---------------- alert strip: the top 225 px are reserved for dynamic alerts ----------------
+        // There is no event log any more. Update, rollback, blocked-attack and diagnostic-port events appear
+        // here one after another, told apart by tone, tag and copy; the strip is empty when nothing happens,
+        // so it never competes with the progress gauge below it.
+        Rectangle { x: 0; y: 0; width: 2160; height: 225; color: "#070a0f"
+            Rectangle { y: parent.height - 1; width: parent.width; height: 1; color: win.hairline } }
         Item {
             id: band
             objectName: "otaEventBand"
-            x: 1440; y: 0; width: 720; height: 190; clip: true
+            x: 0; y: 0; width: 2160; height: 225; clip: true
             z: 100
             readonly property bool shown: seq.running
             property string kind: "rollback"
@@ -275,6 +265,9 @@ Window {
                 else if (kind === "recovery_error") { tone = win.critical; headline = "복구 실패 · 수동 점검 필요"; tag = "[ SYS ]" }
                 else if (kind === "preparing") { tone = win.accent; headline = "업데이트 준비 · " + event.transition; tag = "[ OTA ]" }
                 else if (kind === "installed") { tone = win.success; headline = "설치 완료 · " + event.transition + " · 시험 운전"; tag = "[ OTA ]" }
+                else if (kind === "port_in") { tone = win.warn; headline = event.text; tag = "[ NET ]" }
+                else if (kind === "port_closed") { tone = win.success; headline = event.text; tag = "[ NET ]" }
+                else if (kind === "limit") { tone = win.critical; headline = event.text; tag = "[ MON ]" }
                 else if (kind === "restored") { tone = win.success; headline = "이전 버전 복귀 완료"; tag = "[ SYS ]" }
                 else { tone = win.success; headline = "업데이트 최종 승인"; tag = "[ OTA ]" }
                 seq.start()
@@ -284,23 +277,23 @@ Window {
                 id: topBand
                 anchors { left: parent.left; right: parent.right; top: parent.top }
                 height: 0; color: band.tone; clip: true
-                Row { x: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 16
-                    Rectangle { width: 84; height: 38; color: "transparent"; border.width: 2; border.color: "#05070a"
-                        Text { anchors.centerIn: parent; text: band.tag; color: "#05070a"; font.family: fMono.name; font.pixelSize: 14; font.letterSpacing: 1 } }
-                    Text { text: band.headline; color: "#05070a"; font.family: fGroteskBold.name; font.pixelSize: 36; width: 570
-                        fontSizeMode: Text.Fit; minimumPixelSize: 22; elide: Text.ElideRight; anchors.verticalCenter: parent.verticalCenter }
+                Row { x: 48; anchors.verticalCenter: parent.verticalCenter; spacing: 28
+                    Rectangle { width: 108; height: 44; color: "transparent"; border.width: 2; border.color: "#05070a"
+                        Text { anchors.centerIn: parent; text: band.tag; color: "#05070a"; font.family: fMono.name; font.pixelSize: 17; font.letterSpacing: 1 } }
+                    Text { text: band.headline; color: "#05070a"; font.family: fGroteskBold.name; font.pixelSize: 64; width: 1850
+                        fontSizeMode: Text.Fit; minimumPixelSize: 32; elide: Text.ElideRight; anchors.verticalCenter: parent.verticalCenter }
                 }
-                Rectangle { id: topScan; y: parent.height - 4; width: 160; height: 4; color: "#05070a"; opacity: 0.55 }
+                Rectangle { id: topScan; y: parent.height - 4; width: 220; height: 4; color: "#05070a"; opacity: 0.55 }
             }
             SequentialAnimation {
                 id: seq
                 onFinished: band.next()
                 PropertyAction { target: topBand; property: "height"; value: 0 }
-                                PropertyAction { target: topScan; property: "x"; value: -160 }
-                NumberAnimation { target: topBand; property: "height"; to: 190
+                                PropertyAction { target: topScan; property: "x"; value: -220 }
+                NumberAnimation { target: topBand; property: "height"; to: 225
                     duration: 360; easing.type: Easing.OutCubic }
                 ParallelAnimation {
-                    NumberAnimation { target: topScan; property: "x"; from: -160; to: 720
+                    NumberAnimation { target: topScan; property: "x"; from: -220; to: 2160
                         duration: 1100; easing.type: Easing.InOutQuad }
                     PauseAnimation { duration: 1100 }
                 }

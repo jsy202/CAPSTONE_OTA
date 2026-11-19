@@ -115,7 +115,7 @@ def test_ui_map_trigger_waits_for_the_tap_and_times_out_clearly():
 def test_gateway_log_entries_become_short_port_lines_for_the_cockpit():
     sent = {"event": "request", "source": "172.20.10.14:34178", "slot": "A", "size": 210660, "forwarded": True, "response": "OK"}
     assert field.port_line(sent) == "진단 포트 · 슬롯 A 이미지 수신 (172.20.10.14)"
-    assert field.port_line({"event": "gateway_closed", "reason": "device reported recovery_failed"}) == "진단 포트 닫힘 · 이후 요청 거부"
+    assert field.port_line({"event": "gateway_closed", "reason": "device reported recovery_failed"}) == "진단 포트 닫힘"
     refused = dict(sent, forwarded=False, response="ERROR gateway closed")
     assert field.port_line(refused) == "진단 포트 · 닫힌 포트 접속 거부 (172.20.10.14)"
     assert field.port_line({"event": "request", "source": "x:1", "slot": "", "size": 0, "response": "ERROR bad"}) is None  # port probe, no payload

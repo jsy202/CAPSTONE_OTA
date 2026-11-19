@@ -15,7 +15,7 @@ function versionText(ota, labels) {
     return version + " → " + candidate;
 }
 
-function consume(state, ota) {
+function consume(state, ota, labels) {
     if (!ota || !ota.timeline_id || !ota.timeline) return [];
     if (state.run !== ota.timeline_id) {
         state.run = ota.timeline_id;
@@ -28,7 +28,7 @@ function consume(state, ota) {
     function add(kind, row) {
         if (state.kinds[kind] || state.terminal) return;
         state.kinds[kind] = true;
-        var oldV = row.version || "—", newV = row.candidate || ota.candidate || "";
+        var oldV = versionLabel(row.version || "—", labels), newV = versionLabel(row.candidate || ota.candidate || "", labels);
         events.push({kind: kind, transition: newV && newV !== oldV ? oldV + " → " + newV : oldV});
     }
     for (; state.seen < ota.timeline.length; state.seen++) {
