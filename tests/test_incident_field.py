@@ -230,7 +230,7 @@ def test_the_run_can_use_the_virtual_screen_and_the_cli_flag_implies_the_screen(
     import inspect
     assert inspect.signature(field.run).parameters["virtual_screen"].default is False
     source = (field.ROOT / "bench" / "incident_field.py").read_text()
-    assert "--virtual-screen" in source and "start_screen(boards, pi3_ip, log, virtual=virtual_screen)" in source
+    assert "--virtual-screen" in source and "start_screen(boards, pi3_ip, log, virtual=virtual_screen, labels=version_labels(config))" in source
 
 
 def test_the_attack_targets_the_slot_that_holds_the_committed_release_not_a_fixed_letter():
@@ -252,3 +252,14 @@ def test_the_vulnerable_demo_device_skips_only_the_recovery_check(tmp_path):
                            "print(IviDevice(%r).recovery_verification)" % str(tmp_path)],
                           capture_output=True, text=True, cwd=str(field.ROOT))
     assert done.stdout.strip() == "False", done.stderr
+
+
+def test_cockpit_shows_product_names_not_release_numbers(tmp_path):
+    import json
+    releases = tmp_path / "releases"
+    for name, version in (("v2", "3.3.0"), ("v3", "3.4.0")):
+        (releases / name).mkdir(parents=True)
+        (releases / name / "release.json").write_text(json.dumps({"version": version}))
+    labels = field.version_labels({"release_dir": str(tmp_path)})
+    assert labels == {field.ATTACK_VERSION: "V1", "3.3.0": "V2", "3.4.0": "V3"}
+    assert "--version-labels" in field.feeder_command("10.0.0.1", labels=labels)

@@ -1,7 +1,12 @@
 // Ordered display events, independent of animation speed and telemetry polling frequency.
-function versionText(ota) {
+// `labels` maps a release version to its product name (3.3.0 -> "V2"); display only, unknown versions show as they are.
+function versionLabel(version, labels) {
+    return labels && labels[version] ? labels[version] : version;
+}
+
+function versionText(ota, labels) {
     if (!ota) return "—";
-    var version = ota.version || "—", candidate = ota.candidate;
+    var version = versionLabel(ota.version || "—", labels), candidate = ota.candidate ? versionLabel(ota.candidate, labels) : ota.candidate;
     if (ota.stage === "recovery_failed") return version;
     if (ota.stage === "committed" || ota.stage === "rolled_back") return version;
     if (!candidate || candidate === version) return version;
@@ -51,7 +56,7 @@ function consume(state, ota) {
 var PHASES = {
     download_and_verify: ["업데이트 준비", 0.04, "update"], metadata: ["업데이트 정보 확인", 0.08, "update"], signature: ["서명 확인 중", 0.16, "update"],
     signature_verified: ["서명 확인 완료", 0.22, "update"], archive_verify: ["받은 파일 검사", 0.46, "update"],
-    install: ["설치 중", 0.58, "update"], trial: ["시운전 중", 0.72, "update"], verify: ["성능 검증 중", 0.85, "update"],
+    install: ["설치 중", 0.58, "update"], trial: ["시운전 중", 0.72, "update"], verify: ["지연 측정 중", 0.85, "update"],
     verification_failed: ["검증 실패", 0.85, "rollback"], recover: ["롤백 중 · 이전 버전으로", 0.3, "rollback"],
     recovery_verified: ["이전 버전 검사 통과", 0.65, "rollback"], recheck: ["롤백 후 재검증", 0.85, "rollback"],
     rolled_back: ["롤백 완료", 1, "done"], committed: ["업데이트 완료", 1, "done"],

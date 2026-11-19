@@ -176,3 +176,9 @@ def test_a_preview_path_overrides_the_installed_slot_for_the_ivi_screen(tmp_path
     assert resolve_ivi_ui(slot, None) == "file://" + str(slot.resolve() / "ui/Ivi.qml")   # normal: the installed slot's own UI
     assert resolve_ivi_ui(slot, preview) == "file://" + str(preview / "Ivi.qml")            # preview: only when asked for
     assert resolve_ivi_ui(tmp_path / "none", None) is None                                  # nothing installed: no screen
+
+
+def test_version_labels_travel_to_the_screen(tmp_path):
+    data = make(tmp_path, labels={'3.3.0': 'V2', '3.4.0': 'V3'}).collect()
+    assert data['version_labels'] == {'3.3.0': 'V2', '3.4.0': 'V3'}
+    assert make(tmp_path).collect()['version_labels'] == {}

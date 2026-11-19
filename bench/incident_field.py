@@ -212,13 +212,23 @@ COCKPIT_FILES = ("Cockpit.qml", "Transitions.js", "fonts/SpaceGrotesk-Bold.ttf",
                  "fonts/DMSans-Regular.ttf", "fonts/DMSans-Medium.ttf", "fonts/DMMono-Medium.ttf")
 
 
-def feeder_command(pi3_address, interval=0.5, ivi_ui=None):
+def version_labels(config):
+    """Release version -> product name for the cockpit (read from the signed releases, plus the attack image)."""
+    labels = {ATTACK_VERSION: "V1"}
+    for name, label in (("v2", "V2"), ("v3", "V3")):
+        meta = Path(config["release_dir"]) / "releases" / name / "release.json"
+        labels[json.loads(meta.read_text())["version"]] = label
+    return labels
+
+
+def feeder_command(pi3_address, interval=0.5, ivi_ui=None, labels=None):
     """Collects what the cockpit shows (cluster capture, Pi3 verdict, update progress). Display only: it never decides."""
     ssh = [*PI2_ROOT_TO_PI3, f"otauser@{pi3_address}"]
     return ["taskset", "-c", "1-3", "/usr/bin/python3", "-m", "bench.cockpit_feeder",
             "--cluster-socket", "/run/capstone-cluster/model.sock", "--pi3-ssh", json.dumps(ssh),
             "--verdict-path", MONITOR_DIR + "/verdict.json",
-            *(["--ivi-ui", str(ivi_ui)] if ivi_ui else []), "--interval", str(interval)]
+            *(["--ivi-ui", str(ivi_ui)] if ivi_ui else []),
+            *(["--version-labels", json.dumps(labels)] if labels else []), "--interval", str(interval)]
 
 
 def map_flag_active(content):
@@ -257,7 +267,7 @@ def cockpit_ui_command(display=None):
             f"> {SCREEN}/ui.log 2>&1 < /dev/null & echo started")
 
 
-def start_screen(boards, pi3_ip, log, interval=0.1, ivi_ui=None, virtual=False):
+def start_screen(boards, pi3_ip, log, interval=0.1, ivi_ui=None, virtual=False, labels=None):
     pi2 = boards["pi2"]
     for name in ("__init__.py", "cockpit_feeder.py"):
         pi2.put(f"{SCREEN}/bench/{name}", (ROOT / "bench" / name).read_bytes())
@@ -267,7 +277,7 @@ def start_screen(boards, pi3_ip, log, interval=0.1, ivi_ui=None, virtual=False):
     pi2.run("sudo systemctl stop field-cockpit-feeder.service 2>/dev/null; sudo rm -f /run/cockpit/extra.jsonl; true", check=False)
     pi2.run("sudo systemd-run --quiet --collect --unit field-cockpit-feeder "
             f"-p WorkingDirectory={SCREEN} -p Environment=PYTHONPATH={SCREEN}:{site} "
-            "-p Environment=XAUTHORITY=/var/lib/capstone-app/Xauthority " + shlex.join(feeder_command(pi3_ip, interval, ivi_ui)))
+            "-p Environment=XAUTHORITY=/var/lib/capstone-app/Xauthority " + shlex.join(feeder_command(pi3_ip, interval, ivi_ui, labels)))
     pi2.run("pkill -f '[q]mlscene.*Cockpit.qml'; true", check=False)
     if virtual:
         pi2.put(f"{SCREEN}/cockpit/Cockpit.qml",
@@ -407,6 +417,28 @@ def check_committed_slot(pi2):
                          "tampered). Restore it before running: " + (done.stderr or done.stdout)[-300:].strip())
 
 
+def restore_committed_slot(config, pi2, log=print):
+    """Put the committed release's exact files back into the active slot (after a --vulnerable demo left the attacker's image).
+
+    Uses the device's own extractor (a plain `tar -x` gives other file modes and so another tree hash), into a fresh
+    folder, then runs the device's own recovery check to prove the tree matches its record again."""
+    status = pi2_status(pi2)
+    label = "v2"  # the baseline every drill starts from; a committed V3 is not restorable by this helper
+    meta = json.loads((Path(config["release_dir"]) / "releases" / label / "release.json").read_text())
+    if status["version"] != meta["version"]:
+        raise SystemExit(f"Pi2 is at {status['version']}, this helper restores {meta['version']} only")
+    archive = Path(config["release_dir"]) / "releases" / label / "app.tar.gz"
+    remote_archive = f"{RUNTIME}/restore-{label}.tar.gz"
+    pi2.put(remote_archive, archive.read_bytes())
+    slot = f"{IVI_ROOT}/slots/{status['active_slot']}"
+    code = ("import shutil, sys\nfrom pathlib import Path\nfrom capstone_ota.bundle import extract\n"
+            f"slot = Path({slot!r})\nshutil.rmtree(slot)\nextract(Path({remote_archive!r}), slot)\nprint('restored', slot)\n")
+    done = pi2.run(f"sudo -n {PY} -", data=code)
+    log("[restore] " + done.stdout.strip())
+    check_committed_slot(pi2)
+    log("[restore] slot matches its recorded tree hash")
+
+
 def pi2_status(pi2):
     # `status` exits 2 for a rolled_back device (a valid, stable state), so read the answer, not the exit code.
     done = pi2.run(f"cd {RUNTIME} && ./root-python -m capstone_ota --root {IVI_ROOT} status", check=False)
@@ -511,7 +543,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
             start_real_services(boards, log, hz=int(config.get("profile_hz", DEFAULT_PROFILE_HZ)))
             pi3_ip = pi3_address(boards["pi3"])
             if screen:
-                start_screen(boards, pi3_ip, log, virtual=virtual_screen)
+                start_screen(boards, pi3_ip, log, virtual=virtual_screen, labels=version_labels(config))
                 show_port(pi2, f"정비 포트 {MAINTENANCE_PORT} 열림 · 이더넷 전용")
             trial = probation_command(pi3_ip)
             recheck = probation_command(pi3_ip, probation=20, max_total=120, trace="recheck-trace.jsonl")

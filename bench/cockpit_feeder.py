@@ -47,9 +47,10 @@ def describe_event(name: str) -> str:
 
 
 class Feeder:
-    def __init__(self, out_dir, cluster, pi3, ota, events, ivi, ivi_ui, clock=time.time, shot=None, tap=None, extra=None):
+    def __init__(self, out_dir, cluster, pi3, ota, events, ivi, ivi_ui, clock=time.time, shot=None, tap=None, extra=None, labels=None):
         self.out, self.clock = Path(out_dir), clock
         self.cluster, self.pi3, self.ota, self.events, self.ivi, self.ivi_ui = cluster, pi3, ota, events, ivi, ivi_ui
+        self.labels = dict(labels or {})   # release version -> product name (display only)
         self.shot, self.tap, self.extra, self._extra_seen = shot, tap, extra, 0
         self.log, self._seen, self._pi3_state, self._ivi_version = [], 0, None, None
 
@@ -95,7 +96,8 @@ class Feeder:
             self._ivi_version = version
         return {'now': now, 'cluster': cluster, 'pi3': pi3, 'ota': ota, 'ivi': ivi, 'ivi_ui': self._call(self.ivi_ui),
                 'shot': self._call(self.shot) if self.shot else None,
-                'tap': self._call(self.tap) if self.tap else None, 'log': list(self.log)}
+                'tap': self._call(self.tap) if self.tap else None, 'log': list(self.log),
+                'version_labels': self.labels}
 
     def write(self) -> None:
         self.out.mkdir(parents=True, exist_ok=True)
@@ -133,6 +135,7 @@ def main(argv=None) -> int:
     parser.add_argument('--pi3-ssh', required=True, help='JSON argv list for ssh to the Verifier board')
     parser.add_argument('--verdict-path', required=True)
     parser.add_argument('--ivi-ui', type=Path, help='PREVIEW ONLY: show this ui directory instead of the installed slot')
+    parser.add_argument('--version-labels', default='{}', help='JSON {release version: name} shown instead of version numbers')
     parser.add_argument('--interval', type=float, default=0.5, help='seconds between data.json writes (and cluster captures)')
     parser.add_argument('--channel', default='can0', help='CAN channel for the fast local delay tap')
     args = parser.parse_args(argv)
@@ -185,7 +188,7 @@ def main(argv=None) -> int:
         path = args.out_dir / 'extra.jsonl'
         return [json.loads(line) for line in path.read_text().splitlines() if line] if path.exists() else []
 
-    feeder = Feeder(args.out_dir, cluster, pi3, ota, events, lambda: read_json(args.ivi_run / 'status.json'), ivi_ui,
+    feeder = Feeder(args.out_dir, cluster, pi3, ota, events, lambda: read_json(args.ivi_run / 'status.json'), ivi_ui, labels=json.loads(args.version_labels),
                     shot=shot, tap=lambda: tap.snapshot(time.time()), extra=extra)
     while running['now']:
         started = time.monotonic()

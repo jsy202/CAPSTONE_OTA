@@ -19,6 +19,10 @@ assert.strictEqual(versionText({stage: 'rolled_back', version: '2.0.0', candidat
 assert.strictEqual(versionText({stage: 'verify', version: '2.0.0', candidate: '3.0.0'}), '2.0.0 → 3.0.0');
 assert.strictEqual(versionText({stage: 'recover', version: '2.0.0', candidate: '3.0.0'}), '3.0.0 → 2.0.0');
 assert.strictEqual(versionText({stage: 'recovery_failed', version: '2.0.0', candidate: '3.0.0'}), '2.0.0');
+const names = {'2.0.0': 'V2', '3.0.0': 'V3'};
+assert.strictEqual(versionText({stage: 'verify', version: '2.0.0', candidate: '3.0.0'}, names), 'V2 → V3');
+assert.strictEqual(versionText({stage: 'recover', version: '2.0.0', candidate: '3.0.0'}, names), 'V3 → V2');
+assert.strictEqual(phase({stage: 'verify'}).label, '지연 측정 중');
 const state = {run: null, seen: 0, kinds: {}};
 assert.deepStrictEqual(consume(state, {stage: 'committed', version: '2.0.0'}), []);
 const stages = ['metadata', 'signature_verified', 'download', 'install', 'trial',

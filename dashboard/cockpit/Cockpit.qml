@@ -127,6 +127,8 @@ Window {
             // download/verify/install in well under a second and would otherwise never be seen.
             Item {
                 id: gauge
+                opacity: band.shown ? 0 : 1
+                Behavior on opacity { NumberAnimation { duration: 180 } }
                 x: 32; y: 16; width: panel.width - 64; height: 160
                 readonly property var live: {
                     var o = win.shownOta ? win.shownOta : win.ota
@@ -154,7 +156,7 @@ Window {
                 Row { y: 112; spacing: 0
                     Text { id: verText; anchors.verticalCenter: parent.verticalCenter; color: win.ink
                         font.family: fGroteskMed.name; font.pixelSize: 48; transformOrigin: Item.Left
-                        text: Transitions.versionText(win.ota)
+                        text: Transitions.versionText(win.ota, win.d.version_labels)
                         SequentialAnimation { id: completePulse
                             // wait for the alert band (y0..190, ~2.3 s) to leave before popping the version
                             PauseAnimation { duration: 2400 }
@@ -181,18 +183,18 @@ Window {
                     Behavior on color { ColorAnimation { duration: 450 } } }
                 Rectangle { x: parent.width * 0.62 - 1; width: 3; height: parent.height; color: win.ink; opacity: 0.6 } }
             // limit label beside the marker, right-aligned so it never touches the delay number
-            Text { x: panel.width - 32 - width; y: 342 - 34 - 2; lineHeightMode: Text.FixedHeight; lineHeight: 34; text: "한계 " + Math.round(panel.limitMs) + " ms"
+            Text { x: panel.width - 32 - width; y: 342 - 34 - 2; lineHeightMode: Text.FixedHeight; lineHeight: 34; text: Math.round(panel.limitMs) + " ms"
                 color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28 }
 
             // status: a flat left-edge stripe, not a filled rounded pill
-            Row { x: 32; y: 366; width: panel.width - 64; height: 48; spacing: 16
+            Row { x: 32; y: 366; width: panel.width - 64; height: 48; spacing: 16; visible: win.pstate !== "observing"   // normal needs no caption
                 Rectangle { width: 5; height: parent.height; color: win.stateColor
                     Behavior on color { ColorAnimation { duration: 400 } } }
                 Text { anchors.verticalCenter: parent.verticalCenter; color: win.stateColor; font.family: fGroteskMed.name; font.pixelSize: 34
                     Behavior on color { ColorAnimation { duration: 400 } }
                     text: win.pstate === "confirmed" ? "한계 초과 · 롤백 판단"
                         : win.pstate === "suspect" ? "징후 포착 · 관찰 중"
-                        : win.pstate === "observing" ? "정상 관측 중" : "모니터 신호 없음" } }
+                        : "모니터 신호 없음" } }
 
             // CAN truth vs. what the cluster shows
             Row { x: 32; y: 432; width: panel.width - 64; height: 106
@@ -245,16 +247,16 @@ Window {
                         font.family: fSansMed.name; font.pixelSize: 28; text: modelData.t + "   " + modelData.text } } }
         }
 
-        // ---------------- alert band: a flat panel that extends like a physical shutter ----------------
-        // Docks from the TOP for a rollback or a successful commit, from the BOTTOM only for a blocked
-        // attack -- the bottom edge is reserved exclusively for "something adversarial happened" so it
-        // always carries that one meaning; rollback and success share the top edge since they never
-        // fire at the same moment, and are told apart by tone/tag/copy, not a second docking direction.
+        // ---------------- alert band: replaces the progress gauge in its own slot ----------------
+        // Both used to show at once (and the band spanned the cluster too), which was cluttered. The band now
+        // sits exactly over the monitor panel's gauge slot, the gauge fades out while it shows, and every event
+        // (update, rollback, blocked attack) uses that one slot, told apart by tone, tag and copy.
         Item {
             id: band
             objectName: "otaEventBand"
-            anchors.fill: parent
+            x: 1440; y: 0; width: 720; height: 190; clip: true
             z: 100
+            readonly property bool shown: seq.running
             property string kind: "rollback"
             property string headline: ""
             property string tag: ""
@@ -282,42 +284,28 @@ Window {
                 id: topBand
                 anchors { left: parent.left; right: parent.right; top: parent.top }
                 height: 0; color: band.tone; clip: true
-                Row { x: 48; anchors.verticalCenter: parent.verticalCenter; spacing: 28
-                    Rectangle { width: 108; height: 44; color: "transparent"; border.width: 2; border.color: "#05070a"
-                        Text { anchors.centerIn: parent; text: band.tag; color: "#05070a"; font.family: fMono.name; font.pixelSize: 17; font.letterSpacing: 1 } }
-                    Text { text: band.headline; color: "#05070a"; font.family: fGroteskBold.name; font.pixelSize: 56; font.letterSpacing: 1
-                        anchors.verticalCenter: parent.verticalCenter }
+                Row { x: 24; anchors.verticalCenter: parent.verticalCenter; spacing: 16
+                    Rectangle { width: 84; height: 38; color: "transparent"; border.width: 2; border.color: "#05070a"
+                        Text { anchors.centerIn: parent; text: band.tag; color: "#05070a"; font.family: fMono.name; font.pixelSize: 14; font.letterSpacing: 1 } }
+                    Text { text: band.headline; color: "#05070a"; font.family: fGroteskBold.name; font.pixelSize: 36; width: 570
+                        fontSizeMode: Text.Fit; minimumPixelSize: 22; elide: Text.ElideRight; anchors.verticalCenter: parent.verticalCenter }
                 }
-                Rectangle { id: topScan; y: parent.height - 4; width: 220; height: 4; color: "#05070a"; opacity: 0.55 }
+                Rectangle { id: topScan; y: parent.height - 4; width: 160; height: 4; color: "#05070a"; opacity: 0.55 }
             }
-            Rectangle {
-                id: bottomBand
-                anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-                height: 0; color: band.tone; clip: true
-                Row { x: 48; anchors.verticalCenter: parent.verticalCenter; spacing: 28
-                    Rectangle { width: 108; height: 44; color: "transparent"; border.width: 2; border.color: "#05070a"
-                        Text { anchors.centerIn: parent; text: band.tag; color: "#05070a"; font.family: fMono.name; font.pixelSize: 17; font.letterSpacing: 1 } }
-                    Text { text: band.headline; color: "#05070a"; font.family: fGroteskBold.name; font.pixelSize: 56; font.letterSpacing: 1
-                        anchors.verticalCenter: parent.verticalCenter }
-                }
-                Rectangle { id: bottomScan; y: 0; width: 220; height: 4; color: "#05070a"; opacity: 0.55 }
-            }
-
             SequentialAnimation {
                 id: seq
                 onFinished: band.next()
                 PropertyAction { target: topBand; property: "height"; value: 0 }
-                PropertyAction { target: bottomBand; property: "height"; value: 0 }
-                PropertyAction { target: (band.kind === "rejected" ? bottomScan : topScan); property: "x"; value: -220 }
-                NumberAnimation { target: band.kind === "rejected" ? bottomBand : topBand; property: "height"; to: 190
+                                PropertyAction { target: topScan; property: "x"; value: -160 }
+                NumberAnimation { target: topBand; property: "height"; to: 190
                     duration: 360; easing.type: Easing.OutCubic }
                 ParallelAnimation {
-                    NumberAnimation { target: band.kind === "rejected" ? bottomScan : topScan; property: "x"; from: -220; to: 2160
+                    NumberAnimation { target: topScan; property: "x"; from: -160; to: 720
                         duration: 1100; easing.type: Easing.InOutQuad }
                     PauseAnimation { duration: 1100 }
                 }
                 PauseAnimation { duration: 500 }
-                NumberAnimation { target: band.kind === "rejected" ? bottomBand : topBand; property: "height"; to: 0
+                NumberAnimation { target: topBand; property: "height"; to: 0
                     duration: 300; easing.type: Easing.InCubic }
             }
         }
