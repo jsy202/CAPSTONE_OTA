@@ -80,6 +80,45 @@ def test_workers_follow_the_map_flag_and_stop_on_sigterm(tmp_path):
             app.kill()
 
 
+def test_flag_content_decides_whether_the_map_is_active(tmp_path):
+    from dashboard.ivi.ivi import flag_active
+    flag = tmp_path / 'map_active'
+    assert not flag_active(flag)                         # missing
+    for content, expected in (('', True), ('1', True), ('1\n', True), ('0', False), ('0\n', False), (' 0 \n', False)):
+        flag.write_text(content)
+        assert flag_active(flag) is expected, repr(content)
+
+
+def test_workers_stop_when_the_flag_content_changes_to_zero(tmp_path):
+    slot = payload(tmp_path / 's', 'V3')
+    (slot / 'ivi.json').write_text(json.dumps({'version': 'V3', 'map_enabled': True, 'map_workers': 2, 'map_priority': 'normal'}))
+    runtime = tmp_path / 'run'
+    runtime.mkdir()
+    (runtime / 'map_active').write_text('1')
+    app = subprocess.Popen([str(slot / 'bin/app')], env={**os.environ, 'CAPSTONE_IVI_RUN': str(runtime), 'CAPSTONE_IVI_CAN': ''})
+
+    def status(predicate, seconds=6):
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            try:
+                data = json.loads((runtime / 'status.json').read_text())
+                if predicate(data):
+                    return data
+            except (OSError, ValueError):
+                pass
+            time.sleep(0.1)
+        raise AssertionError('status condition not reached')
+    try:
+        status(lambda s: s['workers'] == 2 and s['map_active'])
+        (runtime / 'map_active').write_text('0')         # the file stays, the content says "map closed"
+        status(lambda s: s['workers'] == 0 and not s['map_active'])
+        (runtime / 'map_active').write_text('1')
+        status(lambda s: s['workers'] == 2 and s['map_active'])
+    finally:
+        app.kill()
+        app.wait()
+
+
 def test_realtime_request_falls_back_visibly_without_privilege(tmp_path):
     if os.geteuid() == 0:
         pytest.skip('running as root; fallback not observable')

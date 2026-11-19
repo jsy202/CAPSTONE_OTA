@@ -41,8 +41,37 @@ Item {
     readonly property var current: tracks[track]
     readonly property var info: roadMap.info
 
-    onMapEnabledChanged: page = mapEnabled ? "map" : "home"
-    onMapActiveChanged: if (mapEnabled) page = mapActive ? "map" : page
+    // The page is driven only by taps: V3 starts on the player like V2, the navigation tile opens the map.
+    // The map flag file (runDir + "map_active") is how the tap reaches ivi.py: "1" = map open, "0" = closed.
+    property bool flagWriteOk: false      // true after the last flag write succeeded (read by tests)
+    function setMapFlag(on) {     // needs QML_XHR_ALLOW_FILE_WRITE=1 in the qmlscene environment; failures are swallowed
+        var text = on ? "1" : "0"
+        flagWriteOk = false
+        try {
+            var x = new XMLHttpRequest()
+            // A local-file PUT reports status 0 even when it failed, so read the file back to know it really took.
+            x.onreadystatechange = function () {
+                if (x.readyState !== 4) return
+                readText(runDir + "map_active", function (t) { flagWriteOk = t === text })
+            }
+            x.open("PUT", runDir + "map_active")
+            x.send(text)
+        } catch (e) { flagWriteOk = false }
+    }
+    function readText(url, done) {
+        var r = new XMLHttpRequest()
+        r.onreadystatechange = function () { if (r.readyState === 4) { try { done(r.responseText) } catch (e) { } } }
+        r.open("GET", url); r.send()
+    }
+    function openMap() {
+        if (!mapEnabled) { page = "map"; return }     // V2: shows the 'no map in this version' notice, writes nothing
+        page = "map"; setMapFlag(true)
+    }
+    function goHome() {
+        var wasMap = page === "map"
+        page = "home"
+        if (mapEnabled && wasMap) setMapFlag(false)
+    }
 
     // ---- data plumbing (a sample identical to the last one is dropped, so idle data costs no bindings/repaints) ----
     function readJson(url, done) {
@@ -301,9 +330,9 @@ Item {
             DockSlot { w: 1; DockTile { anchors.centerIn: parent; kind: "music"; c1: "#9a6bff"; c2: "#5a2fd8" } }
             DockSlot { w: 1; DockTile { anchors.centerIn: parent; kind: "phone"; c1: "#3ed7a6"; c2: "#1f9d7c" } }
             DockSlot { w: 1; DockTile { anchors.centerIn: parent; kind: "navi"; c1: "#3aa4ff"; c2: "#1f63e0"
-                active: root.page === "map"; onClicked: root.page = "map" } }
+                active: root.page === "map"; onClicked: root.openMap() } }
             DockSlot { w: 1; DockTile { anchors.centerIn: parent; kind: "apps"; c1: "#00000000"; c2: "#00000000"
-                active: root.page === "home"; onClicked: root.page = "home" } }
+                active: root.page === "home"; onClicked: root.goHome() } }
             DockSlot { w: 0.25; Rectangle { anchors.centerIn: parent; width: 2; height: 56; color: Theme.overlayLine } }
             DockSlot { w: 1; DockTile { anchors.centerIn: parent; kind: "manual"; c1: "#aeb5c0"; c2: "#6e7580" } }
             DockSlot { w: 1; DockTile { anchors.centerIn: parent; kind: "radio"; c1: "#ff66ae"; c2: "#df2a82" } }
