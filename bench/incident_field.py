@@ -357,6 +357,14 @@ def wait_for(predicate, timeout, interval=0.5):
     return None
 
 
+def recovery_slot(baseline):
+    """The slot a rollback returns to is the one holding the committed release (the slots swap with every update, so a fixed letter misses)."""
+    slot = baseline.get("active_slot")
+    if slot not in ("A", "B"):
+        raise SystemExit("cannot tell which slot holds the committed release: " + json.dumps(baseline))
+    return slot
+
+
 def integrity_command():
     """The device's own start-up recovery check (no URL, so nothing is installed). `status` alone never checks the slot tree."""
     return ["cd", RUNTIME, "&&", "./root-python", "-m", "capstone_ota", "--root", IVI_ROOT, "ivi-update",
@@ -433,7 +441,8 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
     require_baseline(baseline, config)
     attack_as = attack_version(baseline_version(config))
     check_committed_slot(pi2)
-    note("baseline", status=baseline)
+    attack_slot = recovery_slot(baseline)
+    note("baseline", status=baseline, attack_slot=attack_slot)
 
     # Attack image: an older, validly signed IVI tree (the attacker already owns it).
     key = releases / "keys/ivi-private.pem"
@@ -520,7 +529,8 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
                 time.sleep(2.0)
         threading.Thread(target=watch, daemon=True).start()
         if attack:
-            result["attack_response"] = push(pi1_wifi, GATEWAY_PORT, "A", archive)
+            result["attack_slot"] = attack_slot
+            result["attack_response"] = push(pi1_wifi, GATEWAY_PORT, attack_slot, archive)
             note("attack_through_gateway", response=result["attack_response"])
         if verdict == "real":
             if map_trigger == "script":
@@ -556,7 +566,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
         watching["on"] = False
         result["verdict_timeline"] = timeline
         if attack:
-            result["reattack_response"] = push(pi1_wifi, GATEWAY_PORT, "A", archive)
+            result["reattack_response"] = push(pi1_wifi, GATEWAY_PORT, attack_slot, archive)
             note("reattack_through_closed_gate", response=result["reattack_response"])
         result["gateway_log"] = [json.loads(line) for line in pi1.run(f"cat {RUNTIME}/gateway.jsonl").stdout.splitlines()]
         result["pi2_final"] = pi2_status(pi2)

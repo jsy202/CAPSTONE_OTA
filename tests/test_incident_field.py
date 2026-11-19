@@ -231,3 +231,13 @@ def test_the_run_can_use_the_virtual_screen_and_the_cli_flag_implies_the_screen(
     assert inspect.signature(field.run).parameters["virtual_screen"].default is False
     source = (field.ROOT / "bench" / "incident_field.py").read_text()
     assert "--virtual-screen" in source and "start_screen(boards, pi3_ip, log, virtual=virtual_screen)" in source
+
+
+def test_the_attack_targets_the_slot_that_holds_the_committed_release_not_a_fixed_letter():
+    import pytest
+    assert field.recovery_slot({"active_slot": "A", "phase": "stable"}) == "A"   # the slot a rollback would return to
+    assert field.recovery_slot({"active_slot": "B", "phase": "stable"}) == "B"
+    with pytest.raises(SystemExit):
+        field.recovery_slot({"active_slot": None, "phase": "stable"})
+    source = (field.ROOT / "bench" / "incident_field.py").read_text()
+    assert 'GATEWAY_PORT, "A"' not in source and 'GATEWAY_PORT, "B"' not in source   # both the attack and the re-attack use the chosen slot
