@@ -28,11 +28,11 @@ Item {
     property real elapsed: 0
     property real volume: 0.6
     readonly property var tracks: [
-        { title: "새벽 드라이브", artist: "밤하늘 합주단", length: 214, c1: "#9a6bff", c2: "#4a28b8" },
-        { title: "푸른 골목", artist: "소리숲", length: 187, c1: "#4aa8ff", c2: "#2a3fb0" },
-        { title: "느린 파도", artist: "하루와 달", length: 241, c1: "#c26bff", c2: "#5b2aa8" },
-        { title: "도시의 끝에서", artist: "낮은 구름", length: 198, c1: "#7a7bff", c2: "#2f2a9a" },
-        { title: "기차는 여섯 시에", artist: "작은 정거장", length: 226, c1: "#b07cff", c2: "#3d2a9f" } ]
+        { title: "Music 1", artist: "Artist 1", length: 214, c1: "#9a6bff", c2: "#4a28b8" },
+        { title: "Music 2", artist: "Artist 2", length: 187, c1: "#4aa8ff", c2: "#2a3fb0" },
+        { title: "Music 3", artist: "Artist 3", length: 241, c1: "#c26bff", c2: "#5b2aa8" },
+        { title: "Music 4", artist: "Artist 4", length: 198, c1: "#7a7bff", c2: "#2f2a9a" },
+        { title: "Music 5", artist: "Artist 5", length: 226, c1: "#b07cff", c2: "#3d2a9f" } ]
 
     readonly property bool mapEnabled: vstatus.map_enabled === true
     readonly property bool canLive: vstatus.can === true
@@ -96,17 +96,11 @@ Item {
             Icon { kind: "bell"; size: Theme.iconLg }
         }
 
-        Row {   // installed version and CAN link (real, status.json); a build without a bus is neutral, a lost bus is an alarm
+        Row {   // installed version (real, status.json)
             x: 760; anchors.verticalCenter: parent.verticalCenter; anchors.verticalCenterOffset: 2; spacing: Theme.s3
-            Rectangle { height: 44; width: badgeText.width + 40; radius: 22; color: Theme.accent; anchors.verticalCenter: parent.verticalCenter
-                Text { id: badgeText; anchors.centerIn: parent; text: "버전 " + root.version; color: Theme.inkOnAccent
+            Rectangle { height: 44; width: badgeText.width + 40; radius: 22; color: Theme.badge; anchors.verticalCenter: parent.verticalCenter
+                Text { id: badgeText; anchors.centerIn: parent; text: "버전 " + root.version; color: Theme.inkOnBadge
                     font.pixelSize: Theme.tXs; font.family: Theme.fBodyMed } }
-            Row { spacing: 12; anchors.verticalCenter: parent.verticalCenter
-                Rectangle { width: 16; height: 16; radius: 8; anchors.verticalCenter: parent.verticalCenter
-                    color: root.canLive ? Theme.accent : (root.mapEnabled ? Theme.danger : Theme.inkMuted) }
-                Text { anchors.verticalCenter: parent.verticalCenter; font.pixelSize: Theme.tXs; font.family: Theme.fBodyMed
-                    color: root.canLive ? Theme.ink : (root.mapEnabled ? Theme.danger : Theme.inkMuted)
-                    text: root.canLive ? "CAN 연결됨" : (root.mapEnabled ? "CAN 신호 끊김" : "CAN 신호 없음") } }
         }
 
         Row {   // network, volume, bluetooth, profile (visual) and the real clock
@@ -267,12 +261,6 @@ Item {
                             font.pixelSize: Theme.tXl; font.family: Theme.fHead }
                     }
                 }
-            }
-            Card {   // OSM attribution (ODbL), under the marker where the reference shows the road name
-                anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: Theme.s2 }
-                height: 56; width: attribution.width + 2 * Theme.s3; radius: height / 2
-                Text { id: attribution; anchors.centerIn: parent; font.pixelSize: Theme.tXs; font.family: Theme.fBody; color: Theme.ink
-                    text: "© OpenStreetMap contributors" }
             }
             Column {   // right-edge map buttons, top pair
                 anchors { right: parent.right; rightMargin: Theme.s2; top: parent.top; topMargin: Theme.s2 } spacing: Theme.s2

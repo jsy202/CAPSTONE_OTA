@@ -14,6 +14,8 @@ QtObject {
     readonly property color ink: "#ffffff"
     readonly property color inkMuted: "#a9b0bd"
     readonly property color inkOnAccent: "#04121f"
+    readonly property color badge: "#ff7a1a"       // installed-version badge: the monitoring screen's signature orange, not the map blue
+    readonly property color inkOnBadge: "#1a0d00"
     readonly property color good: "#2ecc71"
     readonly property color warn: "#ffb020"
     readonly property color danger: "#ff5a5f"
