@@ -1,7 +1,8 @@
-// Vector icon set on one 48x48 grid with one 4-unit round stroke. draw(ctx, kind, ink, knock):
+// Vector icon set on one 48x48 grid with one round stroke (4 units by default). draw(ctx, kind, ink, knock, lw):
 // ink = icon colour, knock = colour of cut-outs (the surface the icon sits on).
 
-function _stroke(c, ink) { c.strokeStyle = ink; c.fillStyle = ink; c.lineWidth = 4; c.lineCap = "round"; c.lineJoin = "round" }
+var _lw = 4   // stroke width in grid units; draw() sets it per call so the rendered weight is the same at every size
+function _stroke(c, ink) { c.strokeStyle = ink; c.fillStyle = ink; c.lineWidth = _lw; c.lineCap = "round"; c.lineJoin = "round" }
 function _poly(c, pts, close) {
     c.beginPath(); c.moveTo(pts[0], pts[1])
     for (var i = 2; i < pts.length; i += 2) c.lineTo(pts[i], pts[i + 1])
@@ -35,7 +36,8 @@ function _zig(c, x, top, bottom) {   // wavy rising arrow used by the defrost / 
     c.lineTo(x - 3, mid); c.lineTo(x, top); c.stroke()
 }
 
-function draw(c, kind, ink, knock) {
+function draw(c, kind, ink, knock, lw) {
+    _lw = lw > 0 ? lw : 4
     _stroke(c, ink)
     var i
     switch (kind) {
@@ -95,7 +97,7 @@ function draw(c, kind, ink, knock) {
     case "phone":
         c.lineWidth = 9
         c.beginPath(); c.moveTo(13, 11); c.bezierCurveTo(6, 17, 15, 36, 36, 40); c.stroke()
-        c.lineWidth = 4; _rrect(c, 7, 7, 11, 11, 4); c.fill(); _rrect(c, 31, 33, 11, 11, 4); c.fill(); break
+        c.lineWidth = _lw; _rrect(c, 7, 7, 11, 11, 4); c.fill(); _rrect(c, 31, 33, 11, 11, 4); c.fill(); break
     case "navi":
         _poly(c, [6, 25, 42, 7, 31, 42, 24, 28], true); c.fill(); break
     case "apps":

@@ -3,11 +3,12 @@ import "."
 import "ivi.js" as H
 import "geo.js" as Geo
 
-// IVI head unit, 1920x600 design size. Roads/route (c) OpenStreetMap contributors (ODbL), drawn locally.
-// Frame (top bar, speed column, dock) follows the reference head unit; the centre stage is the map (builds with
-// a map; see RoadMap.qml) or a media player panel (builds without a map). Live data: speed (nav.json, CAN 0x200),
-// clock, status.json (version, CAN link, map feature, map workers), route figures computed from map.json.
-// Everything else in the frame is visual. All sizes and colours come from Theme.qml.
+// Bottom strip of the Pi2 monitoring screen (loaded by dashboard/cockpit/Cockpit.qml at 1920x600, scaled x1.125 to 2160x675).
+// The digital cluster above already shows speed, rpm and gear, so none of them is repeated here.
+// Layout: status bar / vehicle column (25%) + stage / dock. The stage is the map (builds with a map, see RoadMap.qml)
+// or a media player panel (builds without a map). Roads/route (c) OpenStreetMap contributors (ODbL), drawn locally.
+// Real data: clock, status.json (version, CAN link, map feature, map workers), route figures computed from map.json
+// and nav.json. Everything else is visual. All sizes and colours come from Theme.qml.
 // CPU rule: static items paint once; only the clock, the player progress and the map overlay (<= 5 fps) change.
 Item {
     id: root
@@ -72,125 +73,136 @@ Item {
 
     Rectangle { anchors.fill: parent; color: Theme.bg }
 
-    // =============== top bar ===============
+    // =============== status bar ===============
     Item {
         id: topBar; width: parent.width; height: Theme.topH
-        Row {   // segmented strip along the top of the left column
-            spacing: 6; y: 0
-            Repeater { model: 7; Rectangle { width: (Theme.leftW - 6 * 6) / 7; height: 4; color: Theme.segment } }
-        }
-        Text { id: rpmNum; x: 16; y: 8; text: "0"; color: Theme.ink; font.pixelSize: Theme.tMd; font.family: Theme.fHead }
-        Text { x: rpmNum.x + rpmNum.width + 2; anchors.baseline: rpmNum.baseline; text: "rpm"; color: Theme.ink
-            font.pixelSize: Theme.tXs; font.family: Theme.fBodyMed }
-        Text { x: 316 - width / 2; y: 4; text: "P"; color: Theme.ink; font.pixelSize: Theme.tXl; font.family: Theme.fHead }
-        Text { x: 437; y: 14; text: "514km"; color: Theme.ink; font.pixelSize: Theme.tSm; font.family: Theme.fBodyMed }
-        Icon { x: 534; y: 14; kind: "fuel"; size: Theme.iconSm }
-        Rectangle { x: 578; y: 18; width: 52; height: 28; radius: 6; color: Theme.segment
-            Rectangle { width: 40; height: parent.height; radius: 6; color: Theme.ink } }
+        readonly property int mid: height / 2
 
-        Icon { x: 668 - width / 2; y: 14; kind: "search"; size: Theme.iconLg }
-        Icon { x: 742 - width / 2; y: 14; kind: "bell"; size: Theme.iconLg }
-
-        Rectangle {   // installed version (real, status.json)
-            id: badge; x: 800; y: 10; height: 44; width: badgeText.width + 40; radius: 22; color: Theme.accent
-            Text { id: badgeText; anchors.centerIn: parent; text: "버전 " + root.version; color: Theme.inkOnAccent
-                font.pixelSize: Theme.tXs; font.family: Theme.fBodyMed }
+        Row {   // segmented strip along the top of the vehicle column
+            x: Theme.s2; y: 0; spacing: 6
+            Repeater { model: 7; Rectangle { width: (Theme.leftW - 2 * Theme.s2 - 6 * 6) / 7; height: 4; color: Theme.segment } }
         }
-        Row {   // CAN link (real, status.json): a build without a bus is neutral, a lost bus is an alarm
-            x: badge.x + badge.width + Theme.s3; y: 14; spacing: 12
-            Rectangle { width: 16; height: 16; radius: 8; anchors.verticalCenter: parent.verticalCenter
-                color: root.canLive ? Theme.accent : (root.mapEnabled ? Theme.danger : Theme.inkMuted) }
-            Text { font.pixelSize: Theme.tXs; font.family: Theme.fBodyMed
-                color: root.canLive ? Theme.ink : (root.mapEnabled ? Theme.danger : Theme.inkMuted)
-                text: root.canLive ? "CAN 연결됨" : (root.mapEnabled ? "CAN 신호 끊김" : "CAN 신호 없음") }
+        Row {   // range (visual)
+            x: Theme.s2; anchors.verticalCenter: parent.verticalCenter; anchors.verticalCenterOffset: 4; spacing: Theme.s1
+            Text { anchors.verticalCenter: parent.verticalCenter; text: "514km"; color: Theme.ink; font.pixelSize: Theme.tSm; font.family: Theme.fBodyMed }
+            Icon { anchors.verticalCenter: parent.verticalCenter; kind: "fuel"; size: Theme.iconSm }
+            Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 52; height: 28; radius: 6; color: Theme.segment
+                Rectangle { width: 40; height: parent.height; radius: 6; color: Theme.ink } }
         }
 
-        Icon { x: 1392 - width / 2; y: 14; kind: "lte"; size: Theme.iconLg }
-        Icon { x: 1462 - width / 2; y: 14; kind: "volume"; size: Theme.iconLg }
-        Icon { x: 1526 - width / 2; y: 14; kind: "bluetooth"; size: Theme.iconLg }
-        Icon { x: 1596 - width / 2; y: 8; kind: "person"; size: 48 }
-        Text { id: clockLabel; anchors { right: parent.right; rightMargin: Theme.s2 } y: 10
-            color: Theme.ink; font.pixelSize: Theme.tMd; font.family: Theme.fHead }
+        Row {   // search and notifications (visual), aligned with the stage edge below
+            x: Theme.stageX + Theme.s1; anchors.verticalCenter: parent.verticalCenter; anchors.verticalCenterOffset: 2; spacing: Theme.s4
+            Icon { kind: "search"; size: Theme.iconLg }
+            Icon { kind: "bell"; size: Theme.iconLg }
+        }
+
+        Row {   // installed version and CAN link (real, status.json); a build without a bus is neutral, a lost bus is an alarm
+            x: 760; anchors.verticalCenter: parent.verticalCenter; anchors.verticalCenterOffset: 2; spacing: Theme.s3
+            Rectangle { height: 44; width: badgeText.width + 40; radius: 22; color: Theme.accent; anchors.verticalCenter: parent.verticalCenter
+                Text { id: badgeText; anchors.centerIn: parent; text: "버전 " + root.version; color: Theme.inkOnAccent
+                    font.pixelSize: Theme.tXs; font.family: Theme.fBodyMed } }
+            Row { spacing: 12; anchors.verticalCenter: parent.verticalCenter
+                Rectangle { width: 16; height: 16; radius: 8; anchors.verticalCenter: parent.verticalCenter
+                    color: root.canLive ? Theme.accent : (root.mapEnabled ? Theme.danger : Theme.inkMuted) }
+                Text { anchors.verticalCenter: parent.verticalCenter; font.pixelSize: Theme.tXs; font.family: Theme.fBodyMed
+                    color: root.canLive ? Theme.ink : (root.mapEnabled ? Theme.danger : Theme.inkMuted)
+                    text: root.canLive ? "CAN 연결됨" : (root.mapEnabled ? "CAN 신호 끊김" : "CAN 신호 없음") } }
+        }
+
+        Row {   // network, volume, bluetooth, profile (visual) and the real clock
+            anchors { right: parent.right; rightMargin: Theme.s2; verticalCenter: parent.verticalCenter; verticalCenterOffset: 2 }
+            spacing: Theme.s3
+            Icon { anchors.verticalCenter: parent.verticalCenter; kind: "lte"; size: Theme.iconLg }
+            Icon { anchors.verticalCenter: parent.verticalCenter; kind: "volume"; size: Theme.iconLg }
+            Icon { anchors.verticalCenter: parent.verticalCenter; kind: "bluetooth"; size: Theme.iconLg }
+            Icon { anchors.verticalCenter: parent.verticalCenter; kind: "person"; size: 48 }
+            Text { id: clockLabel; anchors.verticalCenter: parent.verticalCenter; anchors.verticalCenterOffset: -2; color: Theme.ink
+                font.pixelSize: Theme.tMd; font.family: Theme.fHead }
+        }
     }
 
-    // =============== left column: rpm line is in the top bar; speed + km/h, chips, car, bottom row ===============
+    // =============== vehicle column (visual): chips, car, trip row ===============
     Item {
-        id: leftCol; y: Theme.topH; width: Theme.leftW; height: root.height - Theme.topH - Theme.dockH
-        Text { x: 14; y: -22; text: H.speedText(root.nav, root.canLive); color: root.canLive ? Theme.ink : Theme.overlayLine
-            font.pixelSize: Theme.tNum; font.family: Theme.fHead }
-        Text { x: 22; y: 116; text: "km/h"; color: Theme.inkMuted; font.pixelSize: Theme.tMd; font.family: Theme.fBody }
-
-        Rectangle { x: 236; y: 120; width: 56; height: 56; radius: 28; color: Theme.accent
-            Icon { anchors.centerIn: parent; kind: "lane"; size: Theme.iconSm; color: Theme.inkOnAccent } }
-        Rectangle { x: 316; y: 120; width: 56; height: 56; radius: 28; color: Theme.overlayLine
-            Icon { anchors.centerIn: parent; kind: "lock"; size: Theme.iconSm; knock: Theme.overlayLine } }
-        Image { x: 87; y: 176; width: 450; height: Math.round(450 * 323 / 685); source: "assets/car.png"; smooth: true }
-
-        Text { x: 16; y: 396; text: "1576km"; color: Theme.ink; font.pixelSize: Theme.tSm; font.family: Theme.fBodyMed }
-        Icon { x: 312 - width / 2; y: 396; kind: "chevUp"; size: Theme.iconSm; color: Theme.inkMuted }
-        Text { anchors.right: parent.right; anchors.rightMargin: Theme.s2; y: 396; text: "25°C"; color: Theme.ink
-            font.pixelSize: Theme.tSm; font.family: Theme.fBodyMed }
+        id: leftCol; y: Theme.topH; x: Theme.s2; width: Theme.leftW - 2 * Theme.s2; height: Theme.stageH
+        Row {
+            anchors.horizontalCenter: parent.horizontalCenter; y: 36; spacing: Theme.s3
+            Rectangle { width: 64; height: 64; radius: 32; color: Theme.accent
+                Icon { anchors.centerIn: parent; kind: "lane"; size: Theme.iconLg; color: Theme.inkOnAccent } }
+            Rectangle { width: 64; height: 64; radius: 32; color: Theme.overlay
+                Icon { anchors.centerIn: parent; kind: "lock"; size: Theme.iconLg; knock: Theme.overlay } }
+        }
+        Image { anchors.horizontalCenter: parent.horizontalCenter; y: 142; width: 448; height: Math.round(448 * 323 / 685)
+            source: "assets/car.png"; smooth: true }
+        Item {   // trip row: odometer, expander, outside temperature on one baseline
+            anchors { left: parent.left; right: parent.right; bottom: parent.bottom; bottomMargin: Theme.s2 } height: 40
+            Text { anchors { left: parent.left; verticalCenter: parent.verticalCenter } text: "1576km"; color: Theme.ink
+                font.pixelSize: Theme.tSm; font.family: Theme.fBodyMed }
+            Icon { anchors.centerIn: parent; kind: "chevUp"; size: Theme.iconSm; color: Theme.inkMuted }
+            Text { anchors { right: parent.right; verticalCenter: parent.verticalCenter } text: "25°C"; color: Theme.ink
+                font.pixelSize: Theme.tSm; font.family: Theme.fBodyMed }
+        }
     }
 
-    // =============== centre stage ===============
+    // =============== stage: map (V3) or media player (V2) ===============
     Item {
-        id: stage; x: 648; y: Theme.topH; width: root.width - 648 - 8; height: root.height - Theme.topH - Theme.dockH
+        id: stage; x: Theme.stageX; y: Theme.topH; width: Theme.stageW; height: Theme.stageH
 
         // ---- media player (visual only, no audio backend) ----
         Rectangle {
             anchors.fill: parent; radius: Theme.rPanel; color: Theme.surface; visible: root.page === "home"
+            readonly property int pad: Theme.s4
             Rectangle {   // generated cover art
-                x: Theme.s4; y: 36; width: 360; height: 360; radius: Theme.rPanel; clip: true
+                x: parent.pad; y: parent.pad; width: parent.height - 2 * parent.pad; height: width; radius: Theme.rPanel; clip: true
                 gradient: Gradient {
                     GradientStop { position: 0.0; color: root.current.c1 }
                     GradientStop { position: 1.0; color: root.current.c2 } }
-                Rectangle { width: 300; height: 300; radius: 150; x: 90; y: 100; color: root.current.c2; opacity: 0.55 }
-                Rectangle { width: 190; height: 190; radius: 95; x: 40; y: 40; color: "transparent"; border.width: 4; border.color: Theme.ink; opacity: 0.85 }
-                Rectangle { width: 64; height: 64; radius: 32; x: 103; y: 103; color: Theme.ink; opacity: 0.9 }
+                Rectangle { width: parent.width * 0.8; height: width; radius: width / 2; x: parent.width * 0.25; y: parent.height * 0.28; color: root.current.c2; opacity: 0.55 }
+                Rectangle { width: parent.width * 0.5; height: width; radius: width / 2; x: parent.width * 0.11; y: parent.width * 0.11; color: "transparent"; border.width: 4; border.color: Theme.ink; opacity: 0.85 }
+                Rectangle { width: parent.width * 0.17; height: width; radius: width / 2; x: parent.width * 0.275; y: parent.width * 0.275; color: Theme.ink; opacity: 0.9 }
             }
-            Item {
-                x: 428; y: 36; width: 460; height: 360
+            Item {   // title, progress, transport, volume
+                x: 440; y: parent.pad; width: 520; height: parent.height - 2 * parent.pad
                 Text { width: parent.width; elide: Text.ElideRight; text: root.current.title; color: Theme.ink
                     font.pixelSize: Theme.tXl; font.family: Theme.fHead }
-                Text { y: 72; width: parent.width; elide: Text.ElideRight; text: root.current.artist; color: Theme.inkMuted
+                Text { y: 66; width: parent.width; elide: Text.ElideRight; text: root.current.artist; color: Theme.inkMuted
                     font.pixelSize: Theme.tSm; font.family: Theme.fBody }
                 Rectangle {   // progress
-                    id: bar; y: 168; width: parent.width; height: 8; radius: 4; color: Theme.overlayLine
+                    id: bar; y: 150; width: parent.width; height: 8; radius: 4; color: Theme.overlayLine
                     Rectangle { width: parent.width * H.progressFraction(root.elapsed, root.current.length); height: parent.height; radius: 4; color: Theme.media }
                     MouseArea { anchors { fill: parent; topMargin: -16; bottomMargin: -16 }
                         onClicked: root.elapsed = Math.round(mouse.x / bar.width * root.current.length) }
                 }
-                Text { y: 188; text: H.formatTrackTime(root.elapsed); color: Theme.inkMuted; font.pixelSize: Theme.tXs; font.family: Theme.fBody }
-                Text { y: 188; anchors.right: parent.right; text: H.formatTrackTime(root.current.length); color: Theme.inkMuted
+                Text { y: 170; text: H.formatTrackTime(root.elapsed); color: Theme.inkMuted; font.pixelSize: Theme.tXs; font.family: Theme.fBody }
+                Text { y: 170; anchors.right: parent.right; text: H.formatTrackTime(root.current.length); color: Theme.inkMuted
                     font.pixelSize: Theme.tXs; font.family: Theme.fBody }
-                Item {   // transport
-                    y: 228; width: parent.width; height: 96
-                    Icon { x: 90 - width / 2; anchors.verticalCenter: parent.verticalCenter; kind: "prev"; size: Theme.iconLg
+                Item {   // transport: prev, play/pause, next on one centre line
+                    y: 216; width: parent.width; height: 96
+                    Icon { x: 80 - width / 2; anchors.verticalCenter: parent.verticalCenter; kind: "prev"; size: Theme.iconLg
                         MouseArea { anchors { fill: parent; margins: -16 } onClicked: root.stepTrack(-1) } }
-                    Rectangle { x: 230 - 48; width: 96; height: 96; radius: 48
+                    Rectangle { x: parent.width / 2 - 48; width: 96; height: 96; radius: 48
                         gradient: Gradient { GradientStop { position: 0.0; color: "#9a6bff" } GradientStop { position: 1.0; color: "#5a2fd8" } }
                         Icon { anchors.centerIn: parent; kind: root.playing ? "pause" : "play"; size: Theme.iconLg; knock: "#5a2fd8" }
                         MouseArea { anchors.fill: parent; onClicked: root.playing = !root.playing } }
-                    Icon { x: 370 - width / 2; anchors.verticalCenter: parent.verticalCenter; kind: "next"; size: Theme.iconLg
+                    Icon { x: parent.width - 80 - width / 2; anchors.verticalCenter: parent.verticalCenter; kind: "next"; size: Theme.iconLg
                         MouseArea { anchors { fill: parent; margins: -16 } onClicked: root.stepTrack(1) } }
                 }
                 Row {   // volume
-                    y: 326; spacing: Theme.s2; height: 36
-                    Icon { kind: "volume"; size: Theme.iconSm; color: Theme.inkMuted }
-                    Rectangle { id: vol; y: 14; width: 400; height: 8; radius: 4; color: Theme.overlayLine
+                    y: parent.height - height; spacing: Theme.s2; height: 36
+                    Icon { anchors.verticalCenter: parent.verticalCenter; kind: "volume"; size: Theme.iconSm; color: Theme.inkMuted }
+                    Rectangle { id: vol; anchors.verticalCenter: parent.verticalCenter; width: parent.parent.width - 36 - Theme.s2; height: 8; radius: 4; color: Theme.overlayLine
                         Rectangle { width: parent.width * root.volume; height: parent.height; radius: 4; color: Theme.inkMuted }
                         MouseArea { anchors { fill: parent; topMargin: -14; bottomMargin: -14 }
                             onPressed: root.volume = Math.max(0, Math.min(1, mouse.x / vol.width))
                             onPositionChanged: if (pressed) root.volume = Math.max(0, Math.min(1, mouse.x / vol.width)) } }
                 }
             }
-            Rectangle { x: 920; y: 36; width: 1; height: 360; color: Theme.overlayLine }
+            Rectangle { x: 992; y: parent.pad; width: 2; height: parent.height - 2 * parent.pad; color: Theme.overlayLine }
             Item {   // next up
-                x: 952; y: 28; width: 280; height: 380
+                x: 1026; y: parent.pad; width: parent.width - 1026 - parent.pad; height: parent.height - 2 * parent.pad
                 Text { text: "다음 곡"; color: Theme.inkMuted; font.pixelSize: Theme.tXs; font.family: Theme.fBodyMed }
                 Repeater {
-                    model: 4
-                    Column { y: 48 + index * 84; width: parent.width
+                    model: 3
+                    Column { y: 56 + index * 104; width: parent.width
                         readonly property var t: root.tracks[(root.track + 1 + index) % root.tracks.length]
                         Text { width: parent.width; elide: Text.ElideRight; text: parent.t.title; color: Theme.ink
                             font.pixelSize: Theme.tSm; font.family: Theme.fBodyMed }
@@ -212,25 +224,10 @@ Item {
         Item {
             anchors.fill: parent; visible: root.page === "map" && root.mapEnabled
             RoadMap { id: roadMap; anchors.fill: parent; nav: root.nav; headingUp: root.headingUp }
-            Card {   // search card with shortcuts (visual)
-                x: Theme.s3 - 4; anchors.bottom: parent.bottom; anchors.bottomMargin: Theme.s3 - 4; width: 436; height: 132
-                Icon { x: Theme.s3; y: 15; kind: "search"; size: Theme.iconSm; color: Theme.inkMuted; knock: Theme.overlay }
-                Text { x: 80; y: 14; text: "검색"; color: Theme.inkMuted; font.pixelSize: Theme.tSm; font.family: Theme.fBody }
-                Rectangle { y: 66; width: parent.width; height: 2; color: Theme.surface }
-                Repeater {
-                    model: ["home", "building", "star", "fuel", "P"]
-                    Item { x: 75 + index * 71 - 22; y: 76; width: 44; height: 44
-                        Icon { visible: modelData !== "P"; anchors.centerIn: parent; kind: modelData; size: Theme.iconLg
-                            color: modelData === "building" ? Theme.inkMuted : Theme.ink; knock: Theme.overlay }
-                        Text { visible: modelData === "P"; anchors.centerIn: parent; text: "P"; color: Theme.ink
-                            font.pixelSize: Theme.tXl; font.family: Theme.fHead }
-                    }
-                }
-            }
             Card {   // next turn and remaining distance, computed from the route polyline (geo.js)
-                visible: root.info !== null; x: Theme.s3 - 4; y: Theme.s3 - 4; width: 470; height: 116
+                visible: root.info !== null; x: Theme.s2; y: Theme.s2; width: 470; height: 116
                 Canvas {
-                    x: Theme.s3; y: 18; width: 64; height: 64
+                    x: Theme.s3; y: 26; width: 64; height: 64
                     property real angle: root.info && root.info.turn ? Math.max(-150, Math.min(150, root.info.turn.angle)) : 0
                     onAngleChanged: requestPaint()
                     onPaint: {
@@ -241,28 +238,44 @@ Item {
                         c.closePath(); c.fill()
                     }
                 }
-                Text { x: 108; y: 6; font.pixelSize: Theme.tLg; font.family: Theme.fHead; color: Theme.ink
-                    text: root.info && root.info.turn ? Geo.formatDistance(root.info.turn.distance) : "직진" }
-                Row { x: 108; y: 66; spacing: Theme.s1
-                    Text { font.pixelSize: Theme.tXs; font.family: Theme.fBodyMed; color: Theme.accent
-                        text: root.info && root.info.turn ? (root.info.turn.angle > 0 ? "우회전" : "좌회전") : "전환 없음" }
-                    Text { font.pixelSize: Theme.tXs; font.family: Theme.fBody; color: Theme.inkMuted
-                        text: root.info ? "· 남은 " + Geo.formatDistance(root.info.remaining) : "" } }
+                Column { x: 112; anchors.verticalCenter: parent.verticalCenter; spacing: 0
+                    Text { font.pixelSize: Theme.tLg; font.family: Theme.fHead; color: Theme.ink
+                        text: root.info && root.info.turn ? Geo.formatDistance(root.info.turn.distance) : "직진" }
+                    Row { spacing: Theme.s1
+                        Text { font.pixelSize: Theme.tXs; font.family: Theme.fBodyMed; color: Theme.accent
+                            text: root.info && root.info.turn ? (root.info.turn.angle > 0 ? "우회전" : "좌회전") : "전환 없음" }
+                        Text { font.pixelSize: Theme.tXs; font.family: Theme.fBody; color: Theme.inkMuted
+                            text: root.info ? "· 남은 " + Geo.formatDistance(root.info.remaining) : "" } } }
             }
             Card {   // background map workers (real, status.json)
-                anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: Theme.s3 - 4 }
+                anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: Theme.s2 }
                 height: 56; width: workersText.width + 2 * Theme.s3; radius: height / 2
                 Text { id: workersText; anchors.centerIn: parent; font.pixelSize: Theme.tXs; font.family: Theme.fBodyMed
                     color: root.workers > 0 ? Theme.warn : Theme.inkMuted; text: "지도 작업자 " + root.workers + "개" }
             }
+            Card {   // search card with five shortcuts (visual)
+                x: Theme.s2; anchors.bottom: parent.bottom; anchors.bottomMargin: Theme.s2; width: 460; height: 132
+                Icon { x: Theme.s3; y: 15; kind: "search"; size: Theme.iconSm; color: Theme.inkMuted; knock: Theme.overlay }
+                Text { x: 80; y: 14; text: "검색"; color: Theme.inkMuted; font.pixelSize: Theme.tSm; font.family: Theme.fBody }
+                Rectangle { y: 66; width: parent.width; height: 2; color: Theme.surface }
+                Repeater {
+                    model: ["home", "building", "star", "fuel", "P"]
+                    Item { x: index * parent.width / 5; y: 68; width: parent.width / 5; height: 64
+                        Icon { visible: modelData !== "P"; anchors.centerIn: parent; kind: modelData; size: Theme.iconLg
+                            color: modelData === "building" ? Theme.inkMuted : Theme.ink; knock: Theme.overlay }
+                        Text { visible: modelData === "P"; anchors.centerIn: parent; text: "P"; color: Theme.ink
+                            font.pixelSize: Theme.tXl; font.family: Theme.fHead }
+                    }
+                }
+            }
             Card {   // OSM attribution (ODbL), under the marker where the reference shows the road name
-                x: 484; anchors.bottom: parent.bottom; anchors.bottomMargin: Theme.s2
-                height: 48; width: attribution.width + 2 * Theme.s3; radius: height / 2
+                anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: Theme.s2 }
+                height: 56; width: attribution.width + 2 * Theme.s3; radius: height / 2
                 Text { id: attribution; anchors.centerIn: parent; font.pixelSize: Theme.tXs; font.family: Theme.fBody; color: Theme.ink
                     text: "© OpenStreetMap contributors" }
             }
-            Column {   // right-edge map buttons
-                anchors { right: parent.right; rightMargin: Theme.s3 - 4; top: parent.top; topMargin: Theme.s3 - 4 } spacing: Theme.s2
+            Column {   // right-edge map buttons, top pair
+                anchors { right: parent.right; rightMargin: Theme.s2; top: parent.top; topMargin: Theme.s2 } spacing: Theme.s2
                 MapButton {
                     Column { anchors.centerIn: parent; spacing: 0
                         Text { anchors.horizontalCenter: parent.horizontalCenter; text: "2D"; color: Theme.ink; font.pixelSize: Theme.tXs; font.family: Theme.fBodyMed }
@@ -276,45 +289,50 @@ Item {
                         Icon { anchors.horizontalCenter: parent.horizontalCenter; kind: "mapfold"; size: Theme.iconXs; knock: Theme.overlay } }
                 }
             }
-            Column {
-                anchors { right: parent.right; rightMargin: Theme.s3 - 4; bottom: parent.bottom; bottomMargin: Theme.s3 - 4 } spacing: Theme.s2
+            Column {   // bottom pair
+                anchors { right: parent.right; rightMargin: Theme.s2; bottom: parent.bottom; bottomMargin: Theme.s2 } spacing: Theme.s2
                 MapButton { Icon { anchors.centerIn: parent; kind: "traffic"; size: Theme.iconLg; knock: Theme.overlay } }
                 MapButton { Icon { anchors.centerIn: parent; kind: "gear"; size: Theme.iconLg; knock: Theme.overlay } }
             }
         }
     }
 
-    // =============== dock ===============
+    // =============== dock: equal 64px tiles on one 88px pitch, content centred in each slot ===============
     Item {
         id: dock; y: root.height - Theme.dockH; width: root.width; height: Theme.dockH
-        readonly property int mid: Theme.dockH / 2
-        Icon { x: 68 - width / 2; y: dock.mid - height / 2; kind: "car"; size: Theme.iconLg + 8 }
-        Icon { x: 139 - width / 2; y: dock.mid - height / 2; kind: "chevL"; size: Theme.iconSm; color: "#2d7cff" }
-        Readout { x: 214 - width / 2; y: 2; whole: "23"; fraction: ".5°"; label: "A/C"; labelColor: Theme.good }
-        Icon { x: 287 - width / 2; y: dock.mid - height / 2; kind: "chevR"; size: Theme.iconSm; color: "#e5484d" }
-        Icon { x: 355 - width / 2; y: dock.mid - height / 2; kind: "defrostF"; size: Theme.iconLg + 8 }
-        Icon { x: 451 - width / 2; y: dock.mid - height / 2; kind: "defrostR"; size: Theme.iconLg + 8 }
-        Icon { x: 562 - width / 2; y: dock.mid - height / 2; kind: "seatFan"; size: Theme.iconLg + 8 }
-        DockTile { x: 661 - width / 2; y: dock.mid - height / 2; kind: "fan"; c1: "#7e7e7e"; c2: "#3c3c3c" }
-        DockTile { x: 757 - width / 2; y: dock.mid - height / 2; kind: "music"; c1: "#9a6bff"; c2: "#5a2fd8" }
-        DockTile { x: 853 - width / 2; y: dock.mid - height / 2; kind: "phone"; c1: "#3ed7a6"; c2: "#1f9d7c" }
-        DockTile { x: 949 - width / 2; y: dock.mid - height / 2; kind: "navi"; c1: "#3aa4ff"; c2: "#1f63e0"
-            active: root.page === "map"; onClicked: root.page = "map" }
-        DockTile { x: 1045 - width / 2; y: dock.mid - height / 2; kind: "apps"; c1: "#00000000"; c2: "#00000000"
-            active: root.page === "home"; onClicked: root.page = "home" }
-        Rectangle { x: 1093; y: 14; width: 2; height: 60; color: Theme.overlayLine }
-        DockTile { x: 1148 - width / 2; y: dock.mid - height / 2; kind: "manual"; c1: "#aeb5c0"; c2: "#6e7580" }
-        DockTile { x: 1244 - width / 2; y: dock.mid - height / 2; kind: "radio"; c1: "#ff66ae"; c2: "#df2a82" }
-        Rectangle { x: 1300; y: 14; width: 2; height: 60; color: Theme.overlayLine }
-        Item { x: 1354 - width / 2; width: 90; height: parent.height
-            Icon { x: 4; y: 10; kind: "fan"; size: Theme.iconSm; knock: Theme.bg }
-            Text { x: 44; y: 4; text: "3"; color: Theme.ink; font.pixelSize: Theme.tLg; font.family: Theme.fHead }
-            Text { anchors.horizontalCenter: parent.horizontalCenter; y: 54; text: "AUTO"; color: Theme.inkMuted; font.pixelSize: Theme.tXs; font.family: Theme.fBodyMed } }
-        Icon { x: 1449 - width / 2; y: dock.mid - height / 2; kind: "seatVent"; size: Theme.iconLg + 8 }
-        Icon { x: 1540 - width / 2; y: dock.mid - height / 2; kind: "airflow"; size: Theme.iconLg + 8 }
-        Icon { x: 1642 - width / 2; y: dock.mid - height / 2; kind: "recirc"; size: Theme.iconLg + 8 }
-        Icon { x: 1727 - width / 2; y: dock.mid - height / 2; kind: "chevL"; size: Theme.iconSm; color: "#2d7cff" }
-        Readout { x: 1800 - width / 2; y: 2; whole: "23"; fraction: ".5°"; label: "SYNC"; labelColor: Theme.good }
-        Icon { x: 1878 - width / 2; y: dock.mid - height / 2; kind: "chevR"; size: Theme.iconSm; color: "#e5484d" }
+        Row {
+            anchors.horizontalCenter: parent.horizontalCenter; height: parent.height
+            DockSlot { w: 1; Icon { anchors.centerIn: parent; kind: "car"; size: Theme.iconXl } }
+            DockSlot { w: 0.7; Icon { anchors.centerIn: parent; kind: "chevL"; size: Theme.iconSm; color: "#2d7cff" } }
+            DockSlot { w: 1.3; Readout { anchors.centerIn: parent; whole: "23"; fraction: ".5°"; label: "A/C"; labelColor: Theme.good } }
+            DockSlot { w: 0.7; Icon { anchors.centerIn: parent; kind: "chevR"; size: Theme.iconSm; color: "#e5484d" } }
+            DockSlot { w: 1; Icon { anchors.centerIn: parent; kind: "defrostF"; size: Theme.iconXl } }
+            DockSlot { w: 1; Icon { anchors.centerIn: parent; kind: "defrostR"; size: Theme.iconXl } }
+            DockSlot { w: 1; Icon { anchors.centerIn: parent; kind: "seatFan"; size: Theme.iconXl } }
+            DockSlot { w: 1; DockTile { anchors.centerIn: parent; kind: "fan"; c1: "#7e7e7e"; c2: "#3c3c3c" } }
+            DockSlot { w: 1; DockTile { anchors.centerIn: parent; kind: "music"; c1: "#9a6bff"; c2: "#5a2fd8" } }
+            DockSlot { w: 1; DockTile { anchors.centerIn: parent; kind: "phone"; c1: "#3ed7a6"; c2: "#1f9d7c" } }
+            DockSlot { w: 1; DockTile { anchors.centerIn: parent; kind: "navi"; c1: "#3aa4ff"; c2: "#1f63e0"
+                active: root.page === "map"; onClicked: root.page = "map" } }
+            DockSlot { w: 1; DockTile { anchors.centerIn: parent; kind: "apps"; c1: "#00000000"; c2: "#00000000"
+                active: root.page === "home"; onClicked: root.page = "home" } }
+            DockSlot { w: 0.25; Rectangle { anchors.centerIn: parent; width: 2; height: 56; color: Theme.overlayLine } }
+            DockSlot { w: 1; DockTile { anchors.centerIn: parent; kind: "manual"; c1: "#aeb5c0"; c2: "#6e7580" } }
+            DockSlot { w: 1; DockTile { anchors.centerIn: parent; kind: "radio"; c1: "#ff66ae"; c2: "#df2a82" } }
+            DockSlot { w: 0.25; Rectangle { anchors.centerIn: parent; width: 2; height: 56; color: Theme.overlayLine } }
+            DockSlot { w: 1.1
+                Column { anchors.centerIn: parent; spacing: 0
+                    Row { anchors.horizontalCenter: parent.horizontalCenter; spacing: 6
+                        Icon { anchors.verticalCenter: parent.verticalCenter; kind: "fan"; size: Theme.iconSm; knock: Theme.bg }
+                        Text { anchors.verticalCenter: parent.verticalCenter; text: "3"; color: Theme.ink; font.pixelSize: Theme.tLg; font.family: Theme.fHead } }
+                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: "AUTO"; color: Theme.inkMuted; font.pixelSize: Theme.tXs; font.family: Theme.fBodyMed } }
+            }
+            DockSlot { w: 1; Icon { anchors.centerIn: parent; kind: "seatVent"; size: Theme.iconXl } }
+            DockSlot { w: 1; Icon { anchors.centerIn: parent; kind: "airflow"; size: Theme.iconXl } }
+            DockSlot { w: 1; Icon { anchors.centerIn: parent; kind: "recirc"; size: Theme.iconXl } }
+            DockSlot { w: 0.7; Icon { anchors.centerIn: parent; kind: "chevL"; size: Theme.iconSm; color: "#2d7cff" } }
+            DockSlot { w: 1.3; Readout { anchors.centerIn: parent; whole: "23"; fraction: ".5°"; label: "SYNC"; labelColor: Theme.good } }
+            DockSlot { w: 0.7; Icon { anchors.centerIn: parent; kind: "chevR"; size: Theme.iconSm; color: "#e5484d" } }
+        }
     }
 }

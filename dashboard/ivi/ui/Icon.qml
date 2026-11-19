@@ -14,7 +14,7 @@ Canvas {
         var c = getContext("2d")
         c.reset()
         c.scale(width / Theme.iconGrid, height / Theme.iconGrid)
-        Icons.draw(c, kind, color.toString(), knock.toString())
+        Icons.draw(c, kind, color.toString(), knock.toString(), Math.min(6, Theme.iconStroke * Theme.iconGrid / width))
     }
     onKindChanged: requestPaint()
     onColorChanged: requestPaint()
