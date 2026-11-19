@@ -60,3 +60,42 @@ def test_health_needs_a_fresh_verdict_that_measured_the_cluster_answer():
     assert not field.healthy(dict(fresh, state="suspect"))        # already degrading before the update starts
     assert not field.healthy(dict(fresh, state="confirmed"))
     assert not field.healthy(None)
+
+
+def test_the_cockpit_feeder_reads_the_same_monitor_files_as_the_probation_and_stays_off_core_0():
+    command = field.feeder_command("172.20.10.4")
+    assert command[:3] == ["taskset", "-c", "1-3"]  # the cluster owns core 0; the display must not starve it
+    assert command[command.index("--verdict-path") + 1].endswith("/monitor/verdict.json")
+    assert "otauser@172.20.10.4" in command[command.index("--pi3-ssh") + 1]
+    assert command[command.index("--cluster-socket") + 1] == "/run/capstone-cluster/model.sock"
+
+
+def test_the_cockpit_window_is_shown_on_the_desktop_session_of_the_connected_monitor():
+    command = field.cockpit_ui_command()
+    assert "QT_QPA_PLATFORM=wayland" in command and "WAYLAND_DISPLAY=wayland-0" in command
+    assert "taskset -c 1-3" in command and command.rstrip().endswith("& echo started")
+    assert "< /dev/null" in command  # no `cd ... &` and no inherited stdin: either one hangs the ssh channel
+
+
+def test_gateway_log_entries_become_short_port_lines_for_the_cockpit():
+    sent = {"event": "request", "source": "172.20.10.14:34178", "slot": "A", "size": 210660, "forwarded": True, "response": "OK"}
+    assert field.port_line(sent) == "진단 포트 · 슬롯 A 이미지 수신 (172.20.10.14)"
+    assert field.port_line({"event": "gateway_closed", "reason": "device reported recovery_failed"}) == "진단 포트 닫힘 · 이후 요청 거부"
+    refused = dict(sent, forwarded=False, response="ERROR gateway closed")
+    assert field.port_line(refused) == "진단 포트 · 닫힌 포트 접속 거부 (172.20.10.14)"
+    assert field.port_line({"event": "request", "source": "x:1", "slot": "", "size": 0, "response": "ERROR bad"}) is None  # port probe, no payload
+    assert field.port_line({"event": "something_else"}) is None
+
+
+def test_a_slow_pi3_read_is_a_missing_sample_not_a_crash():
+    import subprocess
+
+    class Slow:
+        def run(self, *args, **kwargs):
+            raise subprocess.TimeoutExpired("ssh", 20)
+    assert field.pi3_verdict(Slow()) is None
+
+
+def test_the_run_has_no_two_things_called_watching():
+    source = (field.ROOT / "bench" / "incident_field.py").read_text()
+    assert source.count("watching = ") == 1 and "watching.set()" not in source  # the old `watching` is a dict, not an Event

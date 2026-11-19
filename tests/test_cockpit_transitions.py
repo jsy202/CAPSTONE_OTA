@@ -96,3 +96,49 @@ Item {
     assert done.returncode == 0, done.stderr
     assert 'BAND_ORDER:["preparing","installed","rollback","rejected"]' in done.stderr, done.stderr
     assert 'Error:' not in done.stderr, done.stderr
+
+
+def test_gauge_phase_names_each_step_and_uses_real_download_bytes():
+    node = shutil.which('node')
+    if not node:
+        pytest.skip('Node is needed to exercise the QML JavaScript helper')
+    helper = Path(__file__).parents[1] / 'dashboard/cockpit/Transitions.js'
+    script = r'''
+const fs = require('fs'), vm = require('vm'), assert = require('assert');
+vm.runInThisContext(fs.readFileSync(process.argv[1], 'utf8'));
+assert.deepStrictEqual(phase(null), {label: '대기', fraction: 0, kind: 'idle', percent: ''});
+const half = phase({stage: 'download', received: 100, total: 200});
+assert.strictEqual(half.label, '파일 받는 중'); assert.strictEqual(half.percent, '50%'); assert.strictEqual(half.kind, 'update');
+const none = phase({stage: 'download'});            // size unknown: no invented percentage
+assert.strictEqual(none.percent, '');
+const early = phase({stage: 'download', received: 0, total: 200}).fraction;
+const late = phase({stage: 'download', received: 200, total: 200}).fraction;
+assert(early < late && late < phase({stage: 'install'}).fraction);   // the gauge only moves forward through an update
+assert.strictEqual(phase({stage: 'trial'}).label, '시험 운전 중');
+const back = phase({stage: 'recover'});
+assert.strictEqual(back.kind, 'rollback'); assert.strictEqual(back.label, '이전 버전으로 되돌리는 중');
+assert.strictEqual(phase({stage: 'recovery_verified'}).kind, 'rollback');
+assert.strictEqual(phase({stage: 'rolled_back'}).kind, 'done');
+assert.strictEqual(phase({stage: 'recovery_failed'}).kind, 'failed');
+assert.strictEqual(phase({stage: 'committed'}).fraction, 1);
+assert.strictEqual(phase({stage: 'something_new'}).kind, 'update');   // unknown stage is shown, not hidden
+'''
+    subprocess.run([node, '-e', script, str(helper)], check=True)
+
+
+def test_gauge_says_what_a_refused_recovery_is_instead_of_a_bare_error():
+    node = shutil.which('node')
+    if not node:
+        pytest.skip('Node is needed to exercise the QML JavaScript helper')
+    helper = Path(__file__).parents[1] / 'dashboard/cockpit/Transitions.js'
+    script = r'''
+const fs = require('fs'), vm = require('vm'), assert = require('assert');
+vm.runInThisContext(fs.readFileSync(process.argv[1], 'utf8'));
+const refused = phase({stage: 'error', detail: 'recovery failed; no successful recovery is claimed'});
+assert.strictEqual(refused.label, '복구 실패 · 점검 필요'); assert.strictEqual(refused.kind, 'failed');
+assert.strictEqual(phase({stage: 'service_stopped_after_recovery_failure'}).kind, 'failed');
+assert.strictEqual(phase({stage: 'error', detail: 'disk full'}).label, '오류');   // a different error stays a plain error
+assert.strictEqual(phase({stage: 'download_and_verify'}).kind, 'update');
+assert(!/[a-z]_[a-z]/.test(phase({stage: 'download_and_verify'}).label));         // never a raw stage name on screen
+'''
+    subprocess.run([node, '-e', script, str(helper)], check=True)

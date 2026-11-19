@@ -182,11 +182,89 @@ def stop_real_services(boards):
             + "; sudo systemctl daemon-reload; sudo systemctl restart capstone-cluster-display.service; true", check=False)
 
 
+SCREEN = RUNTIME + "/screen"
+COCKPIT_FILES = ("Cockpit.qml", "Transitions.js", "fonts/SpaceGrotesk-Bold.ttf", "fonts/SpaceGrotesk-Medium.ttf",
+                 "fonts/DMSans-Regular.ttf", "fonts/DMSans-Medium.ttf", "fonts/DMMono-Medium.ttf")
+
+
+def feeder_command(pi3_address):
+    """Collects what the cockpit shows (cluster capture, Pi3 verdict, update progress). Display only: it never decides."""
+    ssh = [*PI2_ROOT_TO_PI3, f"otauser@{pi3_address}"]
+    return ["taskset", "-c", "1-3", "/usr/bin/python3", "-m", "bench.cockpit_feeder",
+            "--cluster-socket", "/run/capstone-cluster/model.sock", "--pi3-ssh", json.dumps(ssh),
+            "--verdict-path", MONITOR_DIR + "/verdict.json"]
+
+
+def cockpit_ui_command():
+    """The whole monitoring screen, fullscreen on the HDMI monitor's own desktop session (not the private Xvfb)."""
+    return (f"cd {SCREEN}/cockpit 2>/dev/null; env QT_QPA_PLATFORM=wayland XDG_RUNTIME_DIR=/run/user/1000 "
+            f"WAYLAND_DISPLAY=wayland-0 nohup setsid taskset -c 1-3 qmlscene {SCREEN}/cockpit/Cockpit.qml "
+            f"> {SCREEN}/ui.log 2>&1 < /dev/null & echo started")
+
+
+def start_screen(boards, pi3_ip, log):
+    pi2 = boards["pi2"]
+    for name in ("__init__.py", "cockpit_feeder.py"):
+        pi2.put(f"{SCREEN}/bench/{name}", (ROOT / "bench" / name).read_bytes())
+    for name in COCKPIT_FILES:
+        pi2.put(f"{SCREEN}/cockpit/{name}", (ROOT / "dashboard/cockpit" / name).read_bytes())
+    site = f"{RUNTIME}/venv/lib/python3.11/site-packages"
+    pi2.run("sudo systemctl stop field-cockpit-feeder.service 2>/dev/null; sudo rm -f /run/cockpit/extra.jsonl; true", check=False)
+    pi2.run("sudo systemd-run --quiet --collect --unit field-cockpit-feeder "
+            f"-p WorkingDirectory={SCREEN} -p Environment=PYTHONPATH={SCREEN}:{site} "
+            "-p Environment=XAUTHORITY=/var/lib/capstone-app/Xauthority " + shlex.join(feeder_command(pi3_ip)))
+    pi2.run("pkill -f '[q]mlscene.*Cockpit.qml'; true", check=False)
+    pi2.run(cockpit_ui_command())
+    log("[screen] cockpit feeder + fullscreen monitoring screen started on Pi2's HDMI monitor")
+
+
+def port_line(entry):
+    """One short cockpit line for a gateway log entry, or None for noise (a bare port probe has no payload)."""
+    if entry.get("event") == "gateway_closed":
+        return "진단 포트 닫힘 · 이후 요청 거부"
+    if entry.get("event") != "request" or not entry.get("slot"):
+        return None
+    source = str(entry.get("source", "?")).rsplit(":", 1)[0]
+    if "gateway closed" in str(entry.get("response")):
+        return f"진단 포트 · 닫힌 포트 접속 거부 ({source})"
+    if entry.get("response") == "OK":
+        return f"진단 포트 · 슬롯 {entry['slot']} 이미지 수신 ({source})"
+    return f"진단 포트 · 요청 거부 ({source})"
+
+
+def show_port(pi2, text):
+    """Append one line to the cockpit's log (the feeder reads it; display only)."""
+    row = json.dumps({"text": text}, ensure_ascii=False)  # the feeder stamps Pi2's own clock, not the laptop's
+    pi2.run("sudo mkdir -p /run/cockpit && sudo tee -a /run/cockpit/extra.jsonl >/dev/null", data=row + "\n", check=False, timeout=20)
+
+
+def watch_gateway(pi1, pi2, stop):
+    """Relay what Pi1's real gateway log says to the Pi2 cockpit, once per entry."""
+    seen = 0
+    while not stop.is_set():
+        try:
+            lines = pi1.run(f"cat {RUNTIME}/gateway.jsonl 2>/dev/null", check=False, timeout=15).stdout.splitlines()
+            for line in lines[seen:]:
+                text = port_line(json.loads(line))
+                if text:
+                    show_port(pi2, text)
+            seen = len(lines)
+        except (ValueError, OSError, subprocess.SubprocessError):
+            pass
+        stop.wait(1.0)
+
+
+def stop_screen(boards):
+    pi2 = boards["pi2"]
+    pi2.run("sudo systemctl stop field-cockpit-feeder.service 2>/dev/null; true", check=False)
+    pi2.run("pkill -f '[q]mlscene.*Cockpit.qml'; true", check=False)
+
+
 def pi3_verdict(pi3):
-    done = pi3.run(f"cat {MONITOR_DIR}/verdict.json", check=False, timeout=20)
     try:
+        done = pi3.run(f"cat {MONITOR_DIR}/verdict.json", check=False, timeout=20)
         return json.loads(done.stdout)
-    except ValueError:
+    except (ValueError, subprocess.SubprocessError):  # a slow ssh is one missing sample, not the end of the run
         return None
 
 
@@ -203,6 +281,7 @@ def teardown(config, boards):
                       "mv ~/.ssh/authorized_keys.new ~/.ssh/authorized_keys; true", check=False)
     boards["pi1"].run("pkill -f '[c]apstone_ota.central_incident'; true", check=False)
     stop_real_services(boards)
+    stop_screen(boards)  # the screen stays up after a run so the result can be read; teardown ends it
     return {"authorized_key_removed": True, "real_services_stopped": True}
 
 
@@ -234,7 +313,7 @@ def pi2_status(pi2):
         raise RuntimeError(f"cannot read Pi2 status: {done.stderr[-300:]}") from exc
 
 
-def run(config, boards, output, verdict="forced", decision="human", attack=True, log=print):
+def run(config, boards, output, verdict="forced", decision="human", attack=True, log=print, screen=False):
     output = Path(output).absolute()
     output.mkdir(parents=True, exist_ok=False)
     pi1, pi2 = boards["pi1"], boards["pi2"]
@@ -275,6 +354,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
     server_url = f"http://{laptop}:{SERVER_PORT}"
     note("control_centre", url=server_url)
 
+    gateway_stop = threading.Event()
     result = {"verdict_mode": verdict, "forced_verdict": verdict == "forced", "steps": steps}
     try:
         # Pi2: maintenance service on the Pi1 link only; gate pinned for exactly this run.
@@ -286,6 +366,9 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
         else:
             start_real_services(boards, log)
             pi3_ip = pi3_address(boards["pi3"])
+            if screen:
+                start_screen(boards, pi3_ip, log)
+                show_port(pi2, f"정비 포트 {MAINTENANCE_PORT} 열림 · 이더넷 전용")
             trial = probation_command(pi3_ip)
             recheck = probation_command(pi3_ip, probation=20, max_total=120, trace="recheck-trace.jsonl")
             seen = wait_for(lambda: healthy(pi3_verdict(boards["pi3"])), 90, 3.0)
@@ -314,6 +397,10 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
         note("exposure", gateway_reachable_from_laptop=reachable(pi1_wifi, GATEWAY_PORT),
              pi2_maintenance_reachable_from_laptop=reachable(pi2_wifi, MAINTENANCE_PORT),
              pi2_maintenance_listening_on=pi2.run(f"ss -ltn | grep ':{MAINTENANCE_PORT} ' || true").stdout.split()[3:4])
+
+        if screen:
+            show_port(pi2, f"진단 포트 {GATEWAY_PORT} 열림 · Wi-Fi에서 접속 가능")
+            threading.Thread(target=watch_gateway, args=(pi1, pi2, gateway_stop), daemon=True).start()
 
         # V3's trial is running on Pi2 (relayed by Pi1); wait for it, then attack through the gateway.
         in_trial = wait_for(lambda: '"stage": "verify"' in pi2.run(f"sudo cat {IVI_ROOT}/progress.json", check=False).stdout, 120)
@@ -368,7 +455,13 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
         server.shutdown()
         server.server_close()
         pi2.run("sudo systemctl stop field-maintenance.service 2>/dev/null; true", check=False)
+        if screen:
+            time.sleep(2.5)  # let the watcher pass on the last gateway entries (the refused re-attack) first
         pi1.run("pkill -f '[c]apstone_ota.central_incident'; true", check=False)
+        gateway_stop.set()
+        if screen and verdict == "real":
+            show_port(pi2, f"진단 포트 {GATEWAY_PORT} 종료")
+            show_port(pi2, f"정비 포트 {MAINTENANCE_PORT} 닫힘")
         if verdict == "real":
             subprocess.run([*boards["pi3"].ssh, f"[ -d {MONITOR_DIR} ] && tar -C {MONITOR_DIR} -cf - evidence verdict.json monitor.log"],
                            stdout=(output / "pi3-evidence.tar").open("wb"), stderr=subprocess.DEVNULL, check=False, timeout=60)
@@ -385,7 +478,10 @@ def main(argv=None) -> int:
     parser.add_argument("--verdict", choices=["forced", "real"], default="forced")
     parser.add_argument("--decision", choices=["human", "approve", "reject"], default="human")
     parser.add_argument("--no-attack", action="store_true", help="only watch the real detection and the normal rollback")
+    parser.add_argument("--screen", action="store_true", help="show the whole cockpit on Pi2's HDMI monitor (needs --verdict real)")
     args = parser.parse_args(argv)
+    if args.screen and args.verdict != "real":
+        parser.error("--screen needs --verdict real")
     config, boards = load(args.config)
     if args.command == "setup":
         print(json.dumps(setup(config, boards)))
@@ -394,7 +490,7 @@ def main(argv=None) -> int:
     else:
         if args.output is None:
             parser.error("run needs --output")
-        outcome = run(config, boards, args.output, args.verdict, args.decision, attack=not args.no_attack)
+        outcome = run(config, boards, args.output, args.verdict, args.decision, attack=not args.no_attack, screen=args.screen)
         print(json.dumps({"final": outcome.get("pi2_final"), "forced_verdict": outcome["forced_verdict"]}))
     return 0
 

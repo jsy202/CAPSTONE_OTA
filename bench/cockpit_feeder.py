@@ -32,10 +32,10 @@ def describe_event(name: str) -> str:
 
 
 class Feeder:
-    def __init__(self, out_dir, cluster, pi3, ota, events, ivi, ivi_ui, clock=time.time, shot=None, tap=None):
+    def __init__(self, out_dir, cluster, pi3, ota, events, ivi, ivi_ui, clock=time.time, shot=None, tap=None, extra=None):
         self.out, self.clock = Path(out_dir), clock
         self.cluster, self.pi3, self.ota, self.events, self.ivi, self.ivi_ui = cluster, pi3, ota, events, ivi, ivi_ui
-        self.shot, self.tap = shot, tap
+        self.shot, self.tap, self.extra, self._extra_seen = shot, tap, extra, 0
         self.log, self._seen, self._pi3_state, self._ivi_version = [], 0, None, None
 
     @staticmethod
@@ -58,6 +58,16 @@ class Feeder:
         for event in events[self._seen:]:
             self._add(now, describe_event(event.get('event', '?')))
         self._seen = len(events)
+        # Lines another component of the vehicle reported (e.g. the diagnostic port opening/closing). Shown
+        # with their own time; display only.
+        rows = (self._call(self.extra) if self.extra else None) or []
+        if len(rows) < self._extra_seen:
+            self._extra_seen = 0
+        for row in rows[self._extra_seen:]:
+            if isinstance(row, dict) and row.get('text'):
+                self.log.append({'t': str(row.get('t') or time.strftime('%H:%M:%S', time.localtime(now))), 'text': str(row['text'])})
+                del self.log[:-LOG_LIMIT]
+        self._extra_seen = len(rows)
         state = pi3.get('state') if pi3 else 'lost'
         if state != self._pi3_state:
             detail = '' if state in ('lost', 'observing') or not pi3.get('cls') else f" ({pi3['cls']})"
@@ -137,7 +147,7 @@ def main(argv=None) -> int:
     def ota():
         progress = read_json(args.device_root / 'progress.json')
         return {k: progress.get(k) for k in ('stage', 'version', 'candidate', 'slot_view', 'detail',
-                                           'timeline_id', 'timeline')}
+                                           'timeline_id', 'timeline', 'received', 'total')}
 
     def events():
         return [json.loads(line) for line in (args.device_root / 'events.jsonl').read_text().splitlines() if line]
@@ -154,8 +164,12 @@ def main(argv=None) -> int:
     tap = DelayTap()
     threading.Thread(target=run_tap, args=(args.channel, tap, lambda: running['now']), daemon=True).start()
 
+    def extra():
+        path = args.out_dir / 'extra.jsonl'
+        return [json.loads(line) for line in path.read_text().splitlines() if line] if path.exists() else []
+
     feeder = Feeder(args.out_dir, cluster, pi3, ota, events, lambda: read_json(args.ivi_run / 'status.json'), ivi_ui,
-                    shot=shot, tap=lambda: tap.snapshot(time.time()))
+                    shot=shot, tap=lambda: tap.snapshot(time.time()), extra=extra)
     while running['now']:
         started = time.monotonic()
         feeder.write()
