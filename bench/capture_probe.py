@@ -45,6 +45,7 @@ def main(argv=None) -> int:
     baseline = field.pi2_status(boards["pi2"])
     if baseline["version"] != "2.0.0" or baseline["phase"] != "stable":
         raise SystemExit("Pi2 is not at a stable V2: " + json.dumps(baseline))
+    field.check_committed_slot(boards["pi2"])
     results = []
     field.start_real_services(boards, print)
     try:

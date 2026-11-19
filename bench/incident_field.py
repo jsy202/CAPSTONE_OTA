@@ -308,6 +308,19 @@ def wait_for(predicate, timeout, interval=0.5):
     return None
 
 
+def integrity_command():
+    """The device's own start-up recovery check (no URL, so nothing is installed). `status` alone never checks the slot tree."""
+    return ["cd", RUNTIME, "&&", "./root-python", "-m", "capstone_ota", "--root", IVI_ROOT, "ivi-update",
+            "--check-command", shlex.quote(json.dumps(passing_recheck()))]
+
+
+def check_committed_slot(pi2):
+    done = pi2.run(" ".join(integrity_command()), check=False, timeout=120)
+    if done.returncode:
+        raise SystemExit("Pi2's committed slot fails its recorded tree hash, so the device refuses updates (a previous run left it "
+                         "tampered). Restore it before running: " + (done.stderr or done.stdout)[-300:].strip())
+
+
 def pi2_status(pi2):
     # `status` exits 2 for a rolled_back device (a valid, stable state), so read the answer, not the exit code.
     done = pi2.run(f"cd {RUNTIME} && ./root-python -m capstone_ota --root {IVI_ROOT} status", check=False)
@@ -332,6 +345,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
     baseline = pi2_status(pi2)
     if baseline["version"] != "2.0.0" or baseline["phase"] != "stable":
         raise SystemExit("Pi2 IVI is not at a stable V2 baseline: " + json.dumps(baseline))
+    check_committed_slot(pi2)
     note("baseline", status=baseline)
 
     # Attack image: an older, validly signed IVI tree (the attacker already owns it).

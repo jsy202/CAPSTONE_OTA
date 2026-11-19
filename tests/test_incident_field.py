@@ -113,3 +113,25 @@ def test_final_gateway_port_line_says_closed_not_just_ended():
 def test_the_screen_run_captures_the_cluster_ten_times_a_second_by_default():
     import inspect
     assert inspect.signature(field.start_screen).parameters["interval"].default == 0.1  # measured: no extra Pi3 delay (2026-11-19)
+
+
+def test_the_baseline_checks_the_committed_slot_not_only_the_status_file():
+    command = field.integrity_command()
+    assert "ivi-update" in command and "--check-command" in command
+    assert not any(part.startswith("http") for part in command)  # no URL: it only runs the device's own recovery check
+
+
+def test_a_tampered_committed_slot_stops_the_run_before_anything_is_started():
+    import subprocess
+    import pytest
+
+    class Tampered:
+        def run(self, command, **kwargs):
+            return subprocess.CompletedProcess(command, 1, "", "OTA error: recovery application tree hash mismatch\n")
+    with pytest.raises(SystemExit, match="tree hash"):
+        field.check_committed_slot(Tampered())
+
+    class Fine:
+        def run(self, command, **kwargs):
+            return subprocess.CompletedProcess(command, 0, '{"phase": "stable"}', "")
+    field.check_committed_slot(Fine())
