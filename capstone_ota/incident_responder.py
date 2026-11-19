@@ -44,10 +44,19 @@ class IncidentResponder:
 
     # --- public -----------------------------------------------------------------------------
     def handle(self, result: dict) -> dict:
-        """React to a Pi2 result. Only `recovery_failed` starts an incident."""
+        """React to a Pi2 result. Only `recovery_failed` starts an incident.
+
+        The attacker-facing gateway stays open while the incident is handled and is closed when it is over
+        (restored, rejected, timed out or failed): the restore does not use that port (it goes over Pi1's
+        restricted SSH key), and the close is in `finally` so no outcome can leave it open."""
         if result.get("result") != "recovery_failed":
             return {"action": "none"}
-        self.gateway.close("device reported recovery_failed")
+        try:
+            return self._handle_incident(result)
+        finally:
+            self.gateway.close("incident handled; the diagnostic port is closed after the restore")
+
+    def _handle_incident(self, result: dict) -> dict:
         nonce = secrets.token_hex(16)
         report = self._report(result, nonce)
         if report is None:

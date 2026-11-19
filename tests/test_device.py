@@ -437,3 +437,24 @@ def test_http_deadline_interrupts_trickling_peer_and_next_update_still_works(dev
     monkeypatch.setattr(module, "DOWNLOAD_TIMEOUT", 30)
     with serving(releases) as url:
         assert device_type(tmp_path / "device").update(url + "/v1", public_key=keys[1])["result"] == "committed"
+
+
+def test_install_and_rollback_report_real_work_progress(device_type, releases, keys, tmp_path):
+    device = device_type(tmp_path / "device")
+    calls = []
+    original = device._progress
+
+    def spy(stage, **fields):
+        calls.append((stage, fields.get("work")))
+        return original(stage, **fields)
+
+    device._progress = spy
+    with serving(releases) as url:
+        device.update(url + "/v2", public_key=keys[1])
+        installed = [w for s, w in calls if s == "install" and w]
+        assert installed and installed[-1]["kind"] == "install" and installed[-1]["done"] == installed[-1]["total"] > 0
+        calls.clear()
+        assert device.update(url + "/bad")["result"] == "rolled_back"
+    rollback = [w for s, w in calls if s == "recover" and w]
+    assert rollback and rollback[-1]["kind"] == "rollback" and rollback[-1]["done"] == rollback[-1]["total"] > 0
+    assert "work" not in json.loads((device.root / "progress.json").read_text())   # nothing is left reporting after the end

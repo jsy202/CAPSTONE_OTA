@@ -15,6 +15,16 @@ function versionText(ota, labels) {
     return version + " → " + candidate;
 }
 
+// "V2 → V3" while updating, "V3 → V2" while rolling back, nothing at rest. Same wording as the alert strip.
+function versionChange(ota, labels) {
+    if (!ota || !ota.candidate) return "";
+    var from = versionLabel(ota.version || "—", labels), to = versionLabel(ota.candidate, labels);
+    if (from === to) return "";
+    var back = ota.stage === "recover" || ota.stage === "recovery_verified" || ota.stage === "recheck"
+            || ota.stage === "rolled_back" || ota.stage === "recovery_failed" || ota.stage === "verification_failed";
+    return back ? to + " → " + from : from + " → " + to;
+}
+
 function consume(state, ota, labels) {
     if (!ota || !ota.timeline_id || !ota.timeline) return [];
     if (state.run !== ota.timeline_id) {
@@ -51,32 +61,34 @@ function consume(state, ota, labels) {
     return events;
 }
 
-// What the big progress gauge shows for one telemetry stage. `kind` picks the colour: update (orange),
-// rollback (red), done (green), failed (red, stays). Download uses the real byte counts when the device sent them.
-var PHASES = {
-    download_and_verify: ["업데이트 준비", 0.04, "update"], metadata: ["업데이트 정보 확인", 0.08, "update"], signature: ["서명 확인 중", 0.16, "update"],
-    signature_verified: ["서명 확인 완료", 0.22, "update"], archive_verify: ["받은 파일 검사", 0.46, "update"],
-    install: ["설치 중", 0.58, "update"], trial: ["시운전 중", 0.72, "update"], verify: ["지연 측정 중", 0.85, "update"],
-    verification_failed: ["검증 실패", 0.85, "rollback"], recover: ["롤백 중 · 이전 버전으로", 0.3, "rollback"],
-    recovery_verified: ["이전 버전 검사 통과", 0.65, "rollback"], recheck: ["롤백 후 재검증", 0.85, "rollback"],
-    rolled_back: ["롤백 완료", 1, "done"], committed: ["업데이트 완료", 1, "done"],
-    recovery_failed: ["복구 거부 · 실행 차단", 0.6, "failed"], failed: ["업데이트 실패", 0.4, "failed"],
-    service_stopped_after_recovery_failure: ["실패한 앱 중지됨", 0.6, "failed"],
-    error: ["오류", 0.3, "failed"]
-};
-
-function phase(ota) {
-    if (!ota || !ota.stage) return {label: "대기", fraction: 0, kind: "idle", percent: ""};
-    if (ota.stage === "download") {
+// The progress bar shows how far the CURRENT operation is, and nothing else. Only three operations have a bar:
+// download (real bytes received), install (real bytes written) and rollback (real bytes of the retained image
+// checked). Every other device stage (signature, trial, delay measurement...) shows no title and an empty bar;
+// the delay measurement has its own readout below. `kind` picks the colour: update, rollback, done, blocked, failed.
+// `historical` = a recorded stage replayed after the fact (the stage queue): it is over, so its bar is full.
+function phase(ota, historical) {
+    var idle = {label: "", fraction: 0, kind: "idle", percent: ""};
+    if (!ota || !ota.stage) return idle;
+    function pct(done, total) { return total > 0 ? Math.max(0, Math.min(1, done / total)) : 0; }
+    function made(label, fraction, kind) { return {label: label, fraction: fraction, kind: kind, percent: Math.round(fraction * 100) + "%"}; }
+    var stage = ota.stage, work = ota.work || null;
+    if (historical && (stage === "download" || stage === "install" || stage === "recover"))
+        return made(stage === "download" ? "다운로드" : stage === "install" ? "설치" : "롤백", 1, stage === "recover" ? "rollback" : "update");
+    if (stage === "download") {
         var known = ota.total > 0 && ota.received !== undefined && ota.received !== null;
-        var ratio = known ? Math.max(0, Math.min(1, ota.received / ota.total)) : 0.3;
-        return {label: "파일 받는 중", fraction: 0.22 + 0.2 * ratio, kind: "update",
-                percent: known ? Math.round(ratio * 100) + "%" : ""};
+        return known ? made("다운로드", pct(ota.received, ota.total), "update") : {label: "다운로드", fraction: 0, kind: "update", percent: ""};
     }
-    // The device ends a refused recovery with a generic `error`; the detail says what it really was.
-    if (ota.stage === "error" && String(ota.detail || "").indexOf("recovery failed") === 0)
-        return {label: PHASES.recovery_failed[0], fraction: PHASES.recovery_failed[1], kind: "failed", percent: ""};
-    var row = PHASES[ota.stage];
-    if (!row) return {label: "진행 중", fraction: 0.5, kind: "update", percent: ""};
-    return {label: row[0], fraction: row[1], kind: row[2], percent: ""};
+    if (stage === "install") return work && work.kind === "install" ? made("설치", pct(work.done, work.total), "update") : made("설치", 0, "update");
+    if (stage === "committed") return made("설치", 1, "done");
+    if (stage === "recover") return work && work.kind === "rollback" ? made("롤백", pct(work.done, work.total), "rollback") : made("롤백", 0, "rollback");
+    if (stage === "recovery_verified" || stage === "recheck") return made("롤백", 1, "rollback");
+    if (stage === "rolled_back") return made("롤백", 1, "done");
+    var refused = stage === "recovery_failed" || (stage === "error" && String(ota.detail || "").indexOf("recovery failed") === 0);
+    if (refused) {
+        // A refused recovery before the image checked out is the defence blocking a tampered image; after it, a real failure.
+        var verified = false, rows = ota.timeline || [];
+        for (var i = 0; i < rows.length; i++) if (rows[i].stage === "recovery_verified") verified = true;
+        return made("롤백", 1, verified ? "failed" : "blocked");
+    }
+    return idle;
 }

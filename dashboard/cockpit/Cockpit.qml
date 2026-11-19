@@ -140,36 +140,28 @@ Window {
                 x: 32; y: 16; width: panel.width - 64; height: 160
                 readonly property var live: {
                     var o = win.shownOta ? win.shownOta : win.ota
-                    if (o && o.stage === "download" && win.ota && win.ota.stage === "download") o = win.ota
-                    return Transitions.phase(o)
+                    var current = win.ota && o && o.stage === win.ota.stage && (o.stage === "download" || o.stage === "install" || o.stage === "recover")
+                    if (current) o = win.ota        // these three carry live progress; replayed rows do not
+                    return Transitions.phase(o, !current && o !== win.ota)
                 }
-                readonly property color tone: live.kind === "rollback" || live.kind === "failed" ? win.critical
-                                            : live.kind === "done" ? win.success : win.accent
+                readonly property color tone: live.kind === "rollback" ? win.warn
+                                            : live.kind === "failed" ? win.critical
+                                            : live.kind === "done" || live.kind === "blocked" ? win.success
+                                            : live.kind === "update" ? win.accent : win.inkMuted
                 property real shown: live.fraction
-                Behavior on shown { NumberAnimation { duration: 600; easing.type: Easing.OutCubic } }
+                Behavior on shown { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
                 Text { id: gaugePercent; anchors.right: parent.right; y: 0; text: gauge.live.percent; color: win.ink
                     font.family: fGroteskBold.name; font.pixelSize: 44 }
-                Text { x: 0; y: 0; width: parent.width - gaugePercent.width - 12; elide: Text.ElideRight
-                    text: gauge.live.label; color: gauge.tone; font.family: fGroteskBold.name; font.pixelSize: 44
-                    Behavior on color { ColorAnimation { duration: 300 } } }
+                Row { x: 0; y: 0; spacing: 20; width: parent.width - gaugePercent.width - 12
+                    Text { id: gaugeTitle; text: gauge.live.label; color: gauge.tone; font.family: fGroteskBold.name; font.pixelSize: 44
+                        Behavior on color { ColorAnimation { duration: 300 } } }
+                    // the version change, small, beside the title: the same "V2 → V3" form as on the alert strip
+                    Text { visible: gauge.live.label !== ""; anchors.baseline: gaugeTitle.baseline; color: win.inkMuted
+                        font.family: fGroteskMed.name; font.pixelSize: 30
+                        text: Transitions.versionChange(win.ota, win.d.version_labels) } }
                 Rectangle { y: 66; width: parent.width; height: 34; color: "#11151b"
                     Rectangle { width: parent.width * gauge.shown; height: parent.height; color: gauge.tone
                         Behavior on color { ColorAnimation { duration: 300 } } } }
-                // version readout: it "pops" when a step completes
-                property bool wasComplete: false
-                onShownChanged: {
-                    if (shown >= 0.999 && !wasComplete) { wasComplete = true; completePulse.restart() }
-                    else if (shown < 0.999) wasComplete = false
-                }
-                Row { y: 112; spacing: 0
-                    Text { id: verText; anchors.verticalCenter: parent.verticalCenter; color: win.ink
-                        font.family: fGroteskMed.name; font.pixelSize: 48; transformOrigin: Item.Left
-                        text: Transitions.versionText(win.ota, win.d.version_labels)
-                        SequentialAnimation { id: completePulse
-                            // wait for the alert band (y0..190, ~2.3 s) to leave before popping the version
-                            PauseAnimation { duration: 2400 }
-                            NumberAnimation { target: verText; property: "scale"; to: 1.14; duration: 140; easing.type: Easing.OutQuad }
-                            NumberAnimation { target: verText; property: "scale"; to: 1.0; duration: 260; easing.type: Easing.OutBack; easing.overshoot: 2.0 } } } }
             }
             Rectangle { x: 32; y: 190; width: panel.width - 64; height: 1; color: win.hairline }
 

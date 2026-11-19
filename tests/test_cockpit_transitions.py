@@ -22,7 +22,14 @@ assert.strictEqual(versionText({stage: 'recovery_failed', version: '2.0.0', cand
 const names = {'2.0.0': 'V2', '3.0.0': 'V3'};
 assert.strictEqual(versionText({stage: 'verify', version: '2.0.0', candidate: '3.0.0'}, names), 'V2 → V3');
 assert.strictEqual(versionText({stage: 'recover', version: '2.0.0', candidate: '3.0.0'}, names), 'V3 → V2');
-assert.strictEqual(phase({stage: 'verify'}).label, '지연 측정 중');
+assert.deepStrictEqual(phase({stage: 'download', received: 10, total: 40}), {label: '다운로드', fraction: 0.25, kind: 'update', percent: '25%'});
+assert.strictEqual(phase({stage: 'install', work: {kind: 'install', done: 3, total: 4}}).fraction, 0.75);
+assert.strictEqual(phase({stage: 'recover', work: {kind: 'rollback', done: 1, total: 4}}).kind, 'rollback');
+assert.strictEqual(phase({stage: 'recovery_failed', timeline: [{stage: 'recover'}]}).kind, 'blocked');
+assert.strictEqual(phase({stage: 'recovery_failed', timeline: [{stage: 'recover'}, {stage: 'recovery_verified'}]}).kind, 'failed');
+assert.strictEqual(phase({stage: 'install'}, true).fraction, 1);
+assert.strictEqual(versionChange({stage: 'install', version: '2.0.0', candidate: '3.0.0'}, names), 'V2 → V3');
+assert.strictEqual(versionChange({stage: 'recover', version: '2.0.0', candidate: '3.0.0'}, names), 'V3 → V2');
 const labelled = consume({run: null, seen: 0, kinds: {}}, {timeline_id: 'n', timeline: [
     {stage: 'metadata', version: '2.0.0', candidate: '3.0.0'}, {stage: 'verify', version: '2.0.0', candidate: '3.0.0'}]}, names);
 assert.deepStrictEqual(labelled.map(e => e.transition), ['V2 → V3', 'V2 → V3']);
@@ -105,7 +112,7 @@ Item {
     assert 'Error:' not in done.stderr, done.stderr
 
 
-def test_gauge_phase_names_each_step_and_uses_real_download_bytes():
+def test_bar_shows_only_download_install_and_rollback_with_real_progress():
     node = shutil.which('node')
     if not node:
         pytest.skip('Node is needed to exercise the QML JavaScript helper')
@@ -113,25 +120,19 @@ def test_gauge_phase_names_each_step_and_uses_real_download_bytes():
     script = r'''
 const fs = require('fs'), vm = require('vm'), assert = require('assert');
 vm.runInThisContext(fs.readFileSync(process.argv[1], 'utf8'));
-assert.deepStrictEqual(phase(null), {label: '대기', fraction: 0, kind: 'idle', percent: ''});
+assert.deepStrictEqual(phase(null), {label: '', fraction: 0, kind: 'idle', percent: ''});
 const half = phase({stage: 'download', received: 100, total: 200});
-assert.strictEqual(half.label, '파일 받는 중'); assert.strictEqual(half.percent, '50%'); assert.strictEqual(half.kind, 'update');
-const none = phase({stage: 'download'});            // size unknown: no invented percentage
-assert.strictEqual(none.percent, '');
-const early = phase({stage: 'download', received: 0, total: 200}).fraction;
-const late = phase({stage: 'download', received: 200, total: 200}).fraction;
-assert(early < late && late < phase({stage: 'install'}).fraction);   // the gauge only moves forward through an update
-assert.strictEqual(phase({stage: 'trial'}).label, '시운전 중');
-const back = phase({stage: 'recover'});
-assert.strictEqual(back.kind, 'rollback'); assert.strictEqual(back.label, '롤백 중 · 이전 버전으로');
-assert.strictEqual(phase({stage: 'recovery_verified'}).kind, 'rollback');
-assert.strictEqual(phase({stage: 'recovery_verified'}).label, '이전 버전 검사 통과');
-assert.strictEqual(phase({stage: 'rolled_back'}).label, '롤백 완료');
+assert.strictEqual(half.label, '다운로드'); assert.strictEqual(half.percent, '50%'); assert.strictEqual(half.kind, 'update');
+assert.strictEqual(phase({stage: 'download'}).percent, '');            // size unknown: no invented percentage
+assert.strictEqual(phase({stage: 'install', work: {kind: 'install', done: 3, total: 4}}).percent, '75%');
+assert.strictEqual(phase({stage: 'install'}).percent, '0%');           // no report yet: not a made-up value
+const back = phase({stage: 'recover', work: {kind: 'rollback', done: 1, total: 4}});
+assert.strictEqual(back.label, '롤백'); assert.strictEqual(back.kind, 'rollback'); assert.strictEqual(back.percent, '25%');
 assert.strictEqual(phase({stage: 'rolled_back'}).kind, 'done');
-assert.strictEqual(phase({stage: 'recovery_failed'}).kind, 'failed');
-assert.strictEqual(phase({stage: 'committed'}).fraction, 1);
-assert.strictEqual(phase({stage: 'something_new'}).kind, 'update');   // unknown stage is shown, not hidden
-assert.strictEqual(phase({stage: 'something_new'}).label, '진행 중');  // never a raw identifier
+assert.strictEqual(phase({stage: 'committed'}).label, '설치');
+for (const quiet of ['signature', 'signature_verified', 'trial', 'verify', 'verification_failed', 'something_new'])
+    assert.deepStrictEqual(phase({stage: quiet}), {label: '', fraction: 0, kind: 'idle', percent: ''});   // no other titles
+assert.strictEqual(phase({stage: 'install'}, true).fraction, 1);       // a replayed (finished) stage shows a full bar
 '''
     subprocess.run([node, '-e', script, str(helper)], check=True)
 
@@ -144,13 +145,10 @@ def test_gauge_says_what_a_refused_recovery_is_instead_of_a_bare_error():
     script = r'''
 const fs = require('fs'), vm = require('vm'), assert = require('assert');
 vm.runInThisContext(fs.readFileSync(process.argv[1], 'utf8'));
-const refused = phase({stage: 'error', detail: 'recovery failed; no successful recovery is claimed'});
-assert.strictEqual(refused.label, '복구 거부 · 실행 차단');
-assert.strictEqual(phase({stage: 'recovery_failed'}).label, '복구 거부 · 실행 차단');
-assert.strictEqual(phase({stage: 'service_stopped_after_recovery_failure'}).label, '실패한 앱 중지됨'); assert.strictEqual(refused.kind, 'failed');
-assert.strictEqual(phase({stage: 'service_stopped_after_recovery_failure'}).kind, 'failed');
-assert.strictEqual(phase({stage: 'error', detail: 'disk full'}).label, '오류');   // a different error stays a plain error
-assert.strictEqual(phase({stage: 'download_and_verify'}).kind, 'update');
-assert(!/[a-z]_[a-z]/.test(phase({stage: 'download_and_verify'}).label));         // never a raw stage name on screen
+// A recovery refused before the image checked out = the defence blocking a tampered image (green "blocked"); after = a real failure.
+const refused = phase({stage: 'error', detail: 'recovery failed; no successful recovery is claimed', timeline: [{stage: 'recover'}]});
+assert.strictEqual(refused.label, '롤백'); assert.strictEqual(refused.kind, 'blocked');
+assert.strictEqual(phase({stage: 'recovery_failed', timeline: [{stage: 'recover'}, {stage: 'recovery_verified'}]}).kind, 'failed');
+assert.strictEqual(phase({stage: 'error', detail: 'some other error'}).label, '');
 '''
     subprocess.run([node, '-e', script, str(helper)], check=True)

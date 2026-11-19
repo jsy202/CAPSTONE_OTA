@@ -168,7 +168,7 @@ def main(argv=None) -> int:
     def ota():
         progress = read_json(args.device_root / 'progress.json')
         return {k: progress.get(k) for k in ('stage', 'version', 'candidate', 'slot_view', 'detail',
-                                           'timeline_id', 'timeline', 'received', 'total')}
+                                           'timeline_id', 'timeline', 'received', 'total', 'work')}
 
     def events():
         return [json.loads(line) for line in (args.device_root / 'events.jsonl').read_text().splitlines() if line]

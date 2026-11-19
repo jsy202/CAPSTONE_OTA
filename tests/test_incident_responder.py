@@ -84,7 +84,7 @@ def world(tmp_path, tampered, served, keys, order_keys):
     gateway.server_close()
 
 
-def test_recovery_failed_closes_gate_reports_and_restores_on_approval(world):
+def test_recovery_failed_reports_restores_on_approval_then_closes_gate(world):
     device, gateway, build = world
     server, responder = build()
     operate(server, "approve")
@@ -95,7 +95,7 @@ def test_recovery_failed_closes_gate_reports_and_restores_on_approval(world):
     incident = server.incidents[0]
     assert incident["status"] == "closed" and incident["outcome"]["result"] == "rolled_back"
     report = incident["report"]
-    assert report["committed_version"] == "2.0.0" and report["gateway_state"] == "closed"
+    assert report["committed_version"] == "2.0.0" and report["gateway_state"] == "open"   # reported before the restore; it closes afterwards
     assert report["source"] == "192.0.2.50:41000" and report["cluster"] == "unaffected"
     assert report["expected_tree_sha256"] and report["observed_tree_sha256"] != report["expected_tree_sha256"]
 
@@ -279,3 +279,37 @@ def test_report_names_the_slot_the_device_says_failed_its_check(world):
                   error="recovery application tree hash mismatch")
     responder.handle(result)
     assert server.incidents[0]["report"]["slot"] == other
+
+
+def test_the_gate_stays_open_during_the_restore_and_closes_after_it(world):
+    device, gateway, build = world
+    server, responder = build()
+    seen = {}
+    original = responder._restore
+
+    def spy(incident, order):
+        seen["open_during_restore"] = gateway.is_open
+        return original(incident, order)
+
+    responder._restore = spy
+    operate(server, "approve")
+    assert responder.handle(dict(device.status(), **device.recovery_evidence()))["action"] == "restored"
+    assert seen["open_during_restore"] is True and gateway.is_open is False
+
+
+@pytest.mark.parametrize("decision", ["reject"])
+def test_the_gate_closes_when_the_restore_is_rejected_too(world, decision):
+    device, gateway, build = world
+    server, responder = build()
+    operate(server, decision)
+    outcome = responder.handle(dict(device.status(), **device.recovery_evidence()))
+    assert outcome["action"] == "maintenance_required" and gateway.is_open is False
+
+
+def test_the_gate_closes_even_if_handling_raises(world):
+    device, gateway, build = world
+    server, responder = build()
+    responder._handle_incident = lambda result: (_ for _ in ()).throw(RuntimeError("boom"))
+    with pytest.raises(RuntimeError):
+        responder.handle({"result": "recovery_failed"})
+    assert gateway.is_open is False

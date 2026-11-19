@@ -99,6 +99,8 @@ class Device:
 
     def _progress(self, stage: str, **fields) -> None:
         """Best-effort display telemetry, never an input to security decisions."""
+        if "work" not in fields and stage not in ("install", "recover"):
+            self._progress_data.pop("work", None)   # a finished install/rollback does not keep reporting
         self._progress_data.update(fields, stage=stage, updated=time.time(), pid=os.getpid())
         try:
             # Preserve brief transitions between display polls; telemetry never authorizes execution.
@@ -130,6 +132,18 @@ class Device:
             raise
         except OSError:
             pass
+
+    def _work_progress(self, stage: str, kind: str):
+        """Display-only callback: how much of an install/rollback is done, written at most every 50 ms (and at the end)."""
+        last = {"at": 0.0}
+
+        def report(done: int, total: int) -> None:
+            now = time.monotonic()
+            if done < total and now - last["at"] < 0.05:
+                return
+            last["at"] = now
+            self._progress(stage, work={"kind": kind, "done": done, "total": total})
+        return report
 
     @contextmanager
     def _locked(self):
@@ -288,7 +302,7 @@ class Device:
                 if not self._service("is-active"):
                     raise ValueError("Central service did not stay active")
 
-    def _verify_record(self, record: dict, floor: int) -> None:
+    def _verify_record(self, record: dict, floor: int, progress=None) -> None:
         slot = self._slot(record["slot"])
         if not self.recovery_verification:
             self._event("VULNERABLE_MODE_RECOVERY_UNVERIFIED")
@@ -296,7 +310,7 @@ class Device:
         if record["release"]["svn"] < floor:
             raise ValueError("recovery security version is below the floor")
         try:
-            observed = tree_hash(slot)
+            observed = tree_hash(slot, progress)
         except OSError:
             observed = None
         # Display/incident telemetry only; the comparison below is the security decision.
@@ -319,7 +333,7 @@ class Device:
         try:
             previous = state["committed"]
             if previous:
-                self._verify_record(previous, state["min_svn"])
+                self._verify_record(previous, state["min_svn"], self._work_progress("recover", "rollback"))
                 self._progress("recovery_verified")
                 self._activate(previous["slot"], state)
             else:
@@ -449,7 +463,7 @@ class Device:
                 release = self._download_release(url, public_key, staging, precheck)
                 previous = state["committed"]
                 self._progress("install")
-                extract(staging / "app.tar.gz", staging / "payload")
+                extract(staging / "app.tar.gz", staging / "payload", self._work_progress("install", "install"))
                 slot = "B" if previous and previous["slot"] == "A" else "A"
                 target = self._slot(slot)
                 # Establish the empty journal/key before touching a first slot:
