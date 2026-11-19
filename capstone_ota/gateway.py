@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import errno
 import socket
 import socketserver
 import sys
@@ -92,8 +93,12 @@ class _Handler(socketserver.StreamRequestHandler):
                     remaining -= len(chunk)
                 upstream.shutdown(socket.SHUT_WR)
                 self.forwarded = True  # Only a complete upload counts as delivered.
-            except (BrokenPipeError, ConnectionResetError):
-                pass  # Upstream already answered (for example an invalid slot); read that answer below.
+            except OSError as exc:
+                # Upstream already answered and closed (for example an invalid slot): sendall()/shutdown() then fail with a
+                # broken pipe, a reset, or ENOTCONN. Read that answer below; anything else is a real transport error.
+                if not isinstance(exc, (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)) \
+                        and exc.errno != errno.ENOTCONN:
+                    raise
             response = b""
             while chunk := upstream.recv(4096):
                 response += chunk
