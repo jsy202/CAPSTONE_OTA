@@ -138,13 +138,13 @@ def test_download_bytes_reach_the_display_data(tmp_path):
 
 
 def test_port_events_from_the_control_side_appear_in_the_log_once(tmp_path):
-    rows = [{'t': '06:11:02', 'text': '진단 포트 7400 열림'}]
+    rows = [{'t': '06:11:02', 'text': '디버깅 포트 7400 열림'}]
     feeder = make(tmp_path, extra=lambda: list(rows))
-    assert any(line['text'] == '진단 포트 7400 열림' for line in feeder.collect()['log'])
-    rows.append({'t': '06:11:20', 'text': '진단 포트 닫힘 (사고 보고)'})
+    assert any(line['text'] == '디버깅 포트 7400 열림' for line in feeder.collect()['log'])
+    rows.append({'t': '06:11:20', 'text': '디버깅 포트 닫힘 (사고 보고)'})
     texts = [line['text'] for line in feeder.collect()['log']]
-    assert texts.count('진단 포트 7400 열림') == 1 and texts.count('진단 포트 닫힘 (사고 보고)') == 1
-    assert [line['t'] for line in feeder.collect()['log'] if '진단' in line['text']] == ['06:11:02', '06:11:20']  # their own time
+    assert texts.count('디버깅 포트 7400 열림') == 1 and texts.count('디버깅 포트 닫힘 (사고 보고)') == 1
+    assert [line['t'] for line in feeder.collect()['log'] if '디버깅' in line['text']] == ['06:11:02', '06:11:20']  # their own time
 
 
 def test_every_event_the_device_writes_has_korean_text_and_no_raw_identifier():

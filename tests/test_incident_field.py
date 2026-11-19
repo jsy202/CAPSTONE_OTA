@@ -114,10 +114,10 @@ def test_ui_map_trigger_waits_for_the_tap_and_times_out_clearly():
 
 def test_gateway_log_entries_become_short_port_lines_for_the_cockpit():
     sent = {"event": "request", "source": "172.20.10.14:34178", "slot": "A", "size": 210660, "forwarded": True, "response": "OK"}
-    assert field.port_line(sent) == "진단 포트 · 슬롯 A 이미지 수신 (172.20.10.14)"
-    assert field.port_line({"event": "gateway_closed", "reason": "device reported recovery_failed"}) == "진단 포트 닫힘"
+    assert field.port_line(sent) == "디버깅 포트 · 슬롯 A 이미지 수신 (172.20.10.14)"
+    assert field.port_line({"event": "gateway_closed", "reason": "device reported recovery_failed"}) == "디버깅 포트 닫힘"
     refused = dict(sent, forwarded=False, response="ERROR gateway closed")
-    assert field.port_line(refused) == "진단 포트 · 닫힌 포트 접속 거부 (172.20.10.14)"
+    assert field.port_line(refused) == "디버깅 포트 · 닫힌 포트 접속 거부 (172.20.10.14)"
     assert field.port_line({"event": "request", "source": "x:1", "slot": "", "size": 0, "response": "ERROR bad"}) is None  # port probe, no payload
     assert field.port_line({"event": "something_else"}) is None
 
@@ -142,7 +142,7 @@ def test_the_cockpit_capture_interval_can_be_chosen_for_the_interference_measure
 
 
 def test_final_gateway_port_line_says_closed_not_just_ended():
-    assert field.gateway_final_line() == f"진단 포트 {field.GATEWAY_PORT} 닫힘 · 게이트웨이 종료"
+    assert field.gateway_final_line() == f"디버깅 포트 {field.GATEWAY_PORT} 닫힘 · 게이트웨이 종료"
 
 
 def test_the_screen_run_captures_the_cluster_ten_times_a_second_by_default():

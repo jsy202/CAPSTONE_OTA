@@ -46,8 +46,8 @@ Window {
         if (logSeen < 0 || rows.length < logSeen) { logSeen = rows.length; return }   // never replay history
         for (; logSeen < rows.length; logSeen++) {
             var t = String(rows[logSeen].text || "")
-            if (t.indexOf("진단 포트 · 슬롯") === 0) band.enqueue({kind: "port_in", text: t})
-            else if (t.indexOf("진단 포트 닫힘") === 0) band.enqueue({kind: "port_closed", text: t})
+            if (t.indexOf("디버깅 포트 · 슬롯") === 0) band.enqueue({kind: "port_in", text: t})
+            else if (t.indexOf("디버깅 포트 닫힘") === 0) band.enqueue({kind: "port_closed", text: t})
             else if (t.indexOf("모니터: 한계 초과") === 0) band.enqueue({kind: "limit", text: t})
         }
     }

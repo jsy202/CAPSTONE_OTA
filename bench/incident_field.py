@@ -297,19 +297,19 @@ def start_screen(boards, pi3_ip, log, interval=0.1, ivi_ui=None, virtual=False, 
 def port_line(entry):
     """One short cockpit line for a gateway log entry, or None for noise (a bare port probe has no payload)."""
     if entry.get("event") == "gateway_closed":
-        return "진단 포트 닫힘"
+        return "디버깅 포트 닫힘"
     if entry.get("event") != "request" or not entry.get("slot"):
         return None
     source = str(entry.get("source", "?")).rsplit(":", 1)[0]
     if "gateway closed" in str(entry.get("response")):
-        return f"진단 포트 · 닫힌 포트 접속 거부 ({source})"
+        return f"디버깅 포트 · 닫힌 포트 접속 거부 ({source})"
     if entry.get("response") == "OK":
-        return f"진단 포트 · 슬롯 {entry['slot']} 이미지 수신 ({source})"
-    return f"진단 포트 · 요청 거부 ({source})"
+        return f"디버깅 포트 · 슬롯 {entry['slot']} 이미지 수신 ({source})"
+    return f"디버깅 포트 · 요청 거부 ({source})"
 
 
 def gateway_final_line():
-    return f"진단 포트 {GATEWAY_PORT} 닫힘 · 게이트웨이 종료"
+    return f"디버깅 포트 {GATEWAY_PORT} 닫힘 · 게이트웨이 종료"
 
 
 def show_port(pi2, text):
@@ -575,7 +575,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
              pi2_maintenance_listening_on=pi2.run(f"ss -ltn | grep ':{MAINTENANCE_PORT} ' || true").stdout.split()[3:4])
 
         if screen:
-            show_port(pi2, f"진단 포트 {GATEWAY_PORT} 열림 · Wi-Fi에서 접속 가능")
+            show_port(pi2, f"디버깅 포트 {GATEWAY_PORT} 열림 · Wi-Fi에서 접속 가능")
             threading.Thread(target=watch_gateway, args=(pi1, pi2, gateway_stop), daemon=True).start()
 
         # V3's trial is running on Pi2 (relayed by Pi1); wait for it, then attack through the gateway.
