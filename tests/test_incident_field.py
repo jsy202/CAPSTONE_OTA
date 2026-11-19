@@ -224,3 +224,10 @@ def test_on_the_virtual_display_the_cockpit_window_gets_an_explicit_size_not_a_f
     assert fitted.count("visible: true") == source.count("visible: true")   # only the size request changed
     with __import__("pytest").raises(ValueError):
         field.fit_to_virtual_display("Window { visible: true }")             # a changed cockpit must not be silently mis-patched
+
+
+def test_the_run_can_use_the_virtual_screen_and_the_cli_flag_implies_the_screen():
+    import inspect
+    assert inspect.signature(field.run).parameters["virtual_screen"].default is False
+    source = (field.ROOT / "bench" / "incident_field.py").read_text()
+    assert "--virtual-screen" in source and "start_screen(boards, pi3_ip, log, virtual=virtual_screen)" in source

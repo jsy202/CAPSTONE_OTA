@@ -412,7 +412,7 @@ def require_baseline(status, config):
 
 
 def run(config, boards, output, verdict="forced", decision="human", attack=True, log=print, screen=False,
-        map_trigger="script"):
+        map_trigger="script", virtual_screen=False):
     output = Path(output).absolute()
     output.mkdir(parents=True, exist_ok=False)
     pi1, pi2 = boards["pi1"], boards["pi2"]
@@ -467,7 +467,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
             start_real_services(boards, log)
             pi3_ip = pi3_address(boards["pi3"])
             if screen:
-                start_screen(boards, pi3_ip, log)
+                start_screen(boards, pi3_ip, log, virtual=virtual_screen)
                 show_port(pi2, f"정비 포트 {MAINTENANCE_PORT} 열림 · 이더넷 전용")
             trial = probation_command(pi3_ip)
             recheck = probation_command(pi3_ip, probation=20, max_total=120, trace="recheck-trace.jsonl")
@@ -586,9 +586,11 @@ def main(argv=None) -> int:
     parser.add_argument("--decision", choices=["human", "approve", "reject"], default="human")
     parser.add_argument("--no-attack", action="store_true", help="only watch the real detection and the normal rollback")
     parser.add_argument("--screen", action="store_true", help="show the whole cockpit on Pi2's HDMI monitor (needs --verdict real)")
+    parser.add_argument("--virtual-screen", action="store_true", help="no monitor: run the cockpit on a private virtual display on Pi2 (implies --screen)")
     parser.add_argument("--map-trigger", choices=["script", "ui"], default="script",
                         help="script: touch the flag after the attack; ui: wait for the tap on the map tile of the cockpit screen (use with --screen)")
     args = parser.parse_args(argv)
+    args.screen = args.screen or args.virtual_screen
     if args.screen and args.verdict != "real":
         parser.error("--screen needs --verdict real")
     config, boards = load(args.config)
@@ -599,7 +601,7 @@ def main(argv=None) -> int:
     else:
         if args.output is None:
             parser.error("run needs --output")
-        outcome = run(config, boards, args.output, args.verdict, args.decision, attack=not args.no_attack, screen=args.screen,
+        outcome = run(config, boards, args.output, args.verdict, args.decision, attack=not args.no_attack, screen=args.screen, virtual_screen=args.virtual_screen,
                        map_trigger=args.map_trigger)
         print(json.dumps({"final": outcome.get("pi2_final"), "forced_verdict": outcome["forced_verdict"]}))
     return 0
