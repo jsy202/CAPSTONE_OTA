@@ -38,7 +38,7 @@ def test_state_changes_and_device_events_become_log_lines_once(tmp_path):
     events.append({'time': 2.0, 'event': 'recover'})
     third = feeder.collect()
     texts = [l['text'] for l in third['log']]
-    assert '모니터: 한계 초과 확정 (freeze)' in texts and describe_event('recover') in texts
+    assert '모니터: 한계 초과 확정 (응답 멈춤)' in texts and describe_event('recover') in texts
 
 
 def test_ivi_version_change_is_logged_and_log_is_bounded(tmp_path):
@@ -69,7 +69,7 @@ def test_monitor_state_lines_are_korean(tmp_path):
     feeder = make(tmp_path, pi3=lambda: state['pi3'])
     assert '모니터: 정상 관측' in [l['text'] for l in feeder.collect()['log']]
     state['pi3'] = {'state': 'suspect', 'cls': 'freeze'}
-    assert '모니터: 징후 포착 (freeze)' in [l['text'] for l in feeder.collect()['log']]
+    assert '모니터: 징후 포착 (응답 멈춤)' in [l['text'] for l in feeder.collect()['log']]
 
 
 def test_write_is_atomic_and_world_readable(tmp_path):
@@ -145,3 +145,21 @@ def test_port_events_from_the_control_side_appear_in_the_log_once(tmp_path):
     texts = [line['text'] for line in feeder.collect()['log']]
     assert texts.count('진단 포트 7400 열림') == 1 and texts.count('진단 포트 닫힘 (사고 보고)') == 1
     assert [line['t'] for line in feeder.collect()['log'] if '진단' in line['text']] == ['06:11:02', '06:11:20']  # their own time
+
+
+def test_every_event_the_device_writes_has_korean_text_and_no_raw_identifier():
+    import re
+    import bench.cockpit_feeder as feeder
+    device_events = ['committed', 'download_and_verify', 'recover', 'recovery_failed', 'repair_installed',
+                     'repair_rejected', 'repair_started', 'service_stopped_after_recovery_failure', 'trial']
+    for name in device_events:
+        text = describe_event(name)
+        assert not re.search(r'[a-z]+_[a-z]+', text), (name, text)  # a raw identifier must never reach the screen
+        assert re.search('[가-힣]', text), (name, text)
+    assert feeder.CLASS_TEXT['freeze'] == '응답 멈춤' and feeder.CLASS_TEXT['delay'] == '응답 지연'
+
+
+def test_the_monitor_log_line_names_the_failure_class_in_korean(tmp_path):
+    pi3 = {'seq': 1, 'state': 'confirmed', 'cls': 'freeze', 'fired': [], 'monitored_s': 5, 'bus_stopped_s': 0, 'bus_speed': 0}
+    log = make(tmp_path, pi3=lambda: pi3).collect()['log']
+    assert any('한계 초과 확정' in line['text'] and '응답 멈춤' in line['text'] and 'freeze' not in line['text'] for line in log)
