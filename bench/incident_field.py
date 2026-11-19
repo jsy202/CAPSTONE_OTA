@@ -39,6 +39,14 @@ PI1_ETH, PI2_ETH = "10.77.0.1", "10.77.0.2"
 MAINTENANCE_PORT, GATEWAY_PORT, SERVER_PORT = 7312, 7400, 8080
 MARKER = "pi1-incident-repair"
 PY = RUNTIME + "/venv/bin/python"
+MONITOR_DIR = RUNTIME + "/monitor"
+MONITOR_BASELINE = "/home/otauser/ivi-monitor/baseline.json"  # measured with the cluster pinned to core 0 (2026-11-05, E4)
+MAP_FLAG = "/run/capstone-ivi/map_active"
+DROPIN = "/run/systemd/system/{unit}.d/field-cpu.conf"
+PI2_ROOT_TO_PI3 = ["ssh", "-F", "/dev/null", "-i", "/root/.ssh/capstone-source-ed25519", "-o", "IdentitiesOnly=yes",
+                   "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=yes",
+                   "-o", "UserKnownHostsFile=/root/.ssh/capstone-verifier-known_hosts",
+                   "-o", "HostKeyAlias=capstone-verifier"]
 
 
 class Board:
@@ -75,11 +83,11 @@ def gate_config(check_update, check_repair):
             "repair": {"check_command": check_repair}}
 
 
-def target_for(check):
+def target_for(check, repair_check=None):
     """What Pi1's relay is told about Pi2. Must match gate_config(), which a test pins."""
     return {"host": "pi2-incident", "checkout": RUNTIME, "python": RUNTIME + "/root-python", "root": IVI_ROOT,
-            "public_key": IVI_PUBLIC, "check_command": check, "repair_check_command": passing_recheck(),
-            "application": "ivi"}
+            "public_key": IVI_PUBLIC, "check_command": check,
+            "repair_check_command": repair_check or passing_recheck(), "application": "ivi"}
 
 
 def deploy(boards):
@@ -98,6 +106,18 @@ def deploy(boards):
 def forced_failure(seconds):
     """V3's trial result: wait (the attack lands meanwhile), then report a failure. Scripted, not measured."""
     return [PY, "-c", f"import json,time;time.sleep({seconds});print(json.dumps({{'passed': False, 'error': 'forced field verdict'}}))"]
+
+
+def probation_command(pi3_address, probation=45, max_total=400, trace="probation-trace.jsonl"):
+    """The real verifier: Pi2's probation supervisor reads the Pi3 monitor's verdict over SSH.
+
+    Pinned to cores 1-3 (the cluster owns core 0), as in the 2026-11-05 field run, so the measurement does
+    not itself starve the cluster. The Device appends the slot path as the last argument."""
+    ssh = [*PI2_ROOT_TO_PI3, f"otauser@{pi3_address}"]
+    return ["taskset", "-c", "1-3", PY, "-m", "capstone_ota.probation", "--pi3-ssh", json.dumps(ssh),
+            "--verdict-path", MONITOR_DIR + "/verdict.json", "--reset-path", MONITOR_DIR + "/monitor.reset",
+            "--trace-file", f"{RUNTIME}/{trace}", "--probation", str(probation), "--safe", "5",
+            "--max-wait", "300", "--max-total", str(max_total), "--poll", "2"]
 
 
 def passing_recheck():
@@ -123,12 +143,61 @@ def setup(config, boards):
     return {"deployed": installed, "pi1_key": public.split()[-1], "pi2_host_key_pinned": True}
 
 
+def pi3_address(pi3):
+    return pi3.run("ip -4 -o addr show wlan0 | awk '{print $4}' | cut -d/ -f1").stdout.strip()
+
+
+def start_real_services(boards, log):
+    """Cluster pinned to core 0, IVI V2, Pi1 drive profile and the Pi3 monitor. Returns what was changed."""
+    pi1, pi2, pi3 = boards["pi1"], boards["pi2"], boards["pi3"]
+    for name in ("__init__.py", "drive_cycle.py", "play_profile.py"):
+        pi1.put(f"{RUNTIME}/bench/{name}", (ROOT / "bench" / name).read_bytes())
+    pi2.run("sudo systemctl stop capstone-ivi.service capstone-cluster.service; true", check=False)
+    for unit, cpus in (("capstone-cluster.service", "0"), ("capstone-cluster-display.service", "1-3")):
+        path = DROPIN.format(unit=unit)
+        pi2.run(f"sudo mkdir -p {shlex.quote(path.rsplit('/', 1)[0])} && printf '[Service]\\nCPUAffinity={cpus}\\n' "
+                f"| sudo tee {shlex.quote(path)} >/dev/null")
+    pi2.run("sudo systemctl daemon-reload && sudo systemctl restart capstone-cluster-display.service "
+            "&& sudo systemctl start capstone-cluster.service && sudo systemctl start capstone-ivi.service")
+    pi3.run(f"mkdir -p {MONITOR_DIR} && pkill -f '[m]onitor.service' ; rm -f {MONITOR_DIR}/monitor.reset; "
+            f"nohup setsid {PY} -m capstone_ota.monitor.service --baseline {MONITOR_BASELINE} --out-dir {MONITOR_DIR} "
+            f"> {MONITOR_DIR}/monitor.log 2>&1 < /dev/null & echo started")
+    pi1.run(f"pkill -f '[p]lay_profile'; cd {RUNTIME} && nohup setsid {PY} -m bench.play_profile --channel can0 "
+            f"> {RUNTIME}/profile.log 2>&1 < /dev/null & echo started")
+    log("[services] cluster(core 0) + IVI V2 on Pi2, Pi3 monitor, Pi1 drive profile started")
+
+
+def stop_real_services(boards):
+    pi1, pi2, pi3 = boards["pi1"], boards["pi2"], boards["pi3"]
+    pi1.run("pkill -f '[p]lay_profile'; true", check=False)
+    pi3.run("pkill -f '[m]onitor.service'; true", check=False)
+    pi2.run(f"rm -f {MAP_FLAG} 2>/dev/null; sudo systemctl stop capstone-ivi.service capstone-cluster.service; "
+            + "; ".join(f"sudo rm -rf {shlex.quote(DROPIN.format(unit=u).rsplit('/', 1)[0])}"
+                        for u in ("capstone-cluster.service", "capstone-cluster-display.service"))
+            + "; sudo systemctl daemon-reload; sudo systemctl restart capstone-cluster-display.service; true", check=False)
+
+
+def pi3_verdict(pi3):
+    done = pi3.run(f"cat {MONITOR_DIR}/verdict.json", check=False, timeout=20)
+    try:
+        return json.loads(done.stdout)
+    except ValueError:
+        return None
+
+
+def healthy(verdict):
+    """A fresh monitor verdict that has seen both frames of the cluster path (not blind, pairs measured)."""
+    return bool(verdict and verdict.get("frames", 0) > 0 and verdict.get("state") in {"normal", "suspect"}
+                and abs(time.time() - verdict.get("now", 0)) < 5 and verdict.get("recent_delay_ms") is not None)
+
+
 def teardown(config, boards):
     boards["pi2"].run("sudo systemctl stop field-maintenance.service 2>/dev/null; "
                       f"grep -v {shlex.quote(MARKER)} ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.new && "
                       "mv ~/.ssh/authorized_keys.new ~/.ssh/authorized_keys; true", check=False)
     boards["pi1"].run("pkill -f '[c]apstone_ota.central_incident'; true", check=False)
-    return {"authorized_key_removed": True}
+    stop_real_services(boards)
+    return {"authorized_key_removed": True, "real_services_stopped": True}
 
 
 def reachable(host, port, timeout=2.0):
@@ -159,7 +228,7 @@ def pi2_status(pi2):
         raise RuntimeError(f"cannot read Pi2 status: {done.stderr[-300:]}") from exc
 
 
-def run(config, boards, output, verdict="forced", decision="human", log=print):
+def run(config, boards, output, verdict="forced", decision="human", attack=True, log=print):
     output = Path(output).absolute()
     output.mkdir(parents=True, exist_ok=False)
     pi1, pi2 = boards["pi1"], boards["pi2"]
@@ -206,15 +275,23 @@ def run(config, boards, output, verdict="forced", decision="human", log=print):
         pi2.run("sudo systemctl stop field-maintenance.service 2>/dev/null; true", check=False)
         pi2.run(f"sudo systemd-run --quiet --collect --unit field-maintenance {PY} -m capstone_ota.debug_port "
                 f"--device-root {IVI_ROOT} --bind {PI2_ETH} --port {MAINTENANCE_PORT}")
-        trial = forced_failure(25) if verdict == "forced" else None
-        if trial is None:
-            raise SystemExit("--verdict real is not wired yet")
-        pi2.write(RUNTIME + "/gate.json", json.dumps(gate_config(trial, passing_recheck())))
+        if verdict == "forced":
+            trial, recheck = forced_failure(25), passing_recheck()
+        else:
+            start_real_services(boards, log)
+            pi3_ip = pi3_address(boards["pi3"])
+            trial = probation_command(pi3_ip)
+            recheck = probation_command(pi3_ip, probation=20, max_total=120, trace="recheck-trace.jsonl")
+            seen = wait_for(lambda: healthy(pi3_verdict(boards["pi3"])), 90, 3.0)
+            note("monitor_health", healthy=bool(seen), verdict=pi3_verdict(boards["pi3"]))
+            if not seen:
+                raise SystemExit("the Pi3 monitor does not see both the vehicle input and the cluster answer")
+        pi2.write(RUNTIME + "/gate.json", json.dumps(gate_config(trial, recheck)))
 
         # Pi1: target, keys, and the one process that runs gateway + relay + responder.
         pi1.write(RUNTIME + "/ivi-public.pem", (releases / "keys/ivi-public.pem").read_text())
         pi1.write(RUNTIME + "/order-public.pem", order_pub.read_text())
-        pi1.write(RUNTIME + "/target.json", json.dumps(target_for(trial)))
+        pi1.write(RUNTIME + "/target.json", json.dumps(target_for(trial, recheck)))
         pi1.run(f"rm -f {RUNTIME}/result.json {RUNTIME}/gateway.jsonl {RUNTIME}/central.log")
         command = shlex.join([
             PY, "-m", "capstone_ota.central_incident", "--server", server_url, "--vehicle", "PI2-001",
@@ -235,14 +312,31 @@ def run(config, boards, output, verdict="forced", decision="human", log=print):
         # V3's trial is running on Pi2 (relayed by Pi1); wait for it, then attack through the gateway.
         in_trial = wait_for(lambda: '"stage": "verify"' in pi2.run(f"sudo cat {IVI_ROOT}/progress.json", check=False).stdout, 120)
         note("v3_in_trial", seen=bool(in_trial))
-        result["attack_response"] = push(pi1_wifi, GATEWAY_PORT, "A", archive)
-        note("attack_through_gateway", response=result["attack_response"])
+        timeline, watching = [], {"on": True}
 
-        incident = wait_for(lambda: server.incidents, 240)
-        if not incident:
+        def watch():
+            while watching["on"]:
+                v = pi3_verdict(boards["pi3"]) if verdict == "real" else None
+                if v:
+                    timeline.append({"t": time.time(), **{k: v.get(k) for k in (
+                        "state", "cls", "fired", "confirm_t", "monitored_s", "recent_delay_ms", "bus_speed", "bus_stopped_s")}})
+                time.sleep(2.0)
+        threading.Thread(target=watch, daemon=True).start()
+        if attack:
+            result["attack_response"] = push(pi1_wifi, GATEWAY_PORT, "A", archive)
+            note("attack_through_gateway", response=result["attack_response"])
+        if verdict == "real":
+            time.sleep(8)
+            pi2.run(f"touch {MAP_FLAG}")  # the map screen opens: V3's background workers start
+            note("map_opened", flag=MAP_FLAG)
+        incident = wait_for(lambda: server.incidents, 240 if verdict == "forced" else 600) if attack else None
+        if attack and not incident:
             raise SystemExit("no incident reached the control centre")
-        note("incident_reported", id=incident[0]["id"], status=incident[0]["status"])
-        if decision == "human":
+        if attack:
+            note("incident_reported", id=incident[0]["id"], status=incident[0]["status"])
+        if not attack:
+            pass
+        elif decision == "human":
             note("waiting_for_human", url=server_url + "/")
         else:
             import http.client
@@ -255,8 +349,11 @@ def run(config, boards, output, verdict="forced", decision="human", log=print):
         if not done:
             raise SystemExit("Pi1 produced no result: " + pi1.run(f"tail -8 {RUNTIME}/central.log", check=False).stdout)
         result["pi1"] = json.loads(done)
-        result["reattack_response"] = push(pi1_wifi, GATEWAY_PORT, "A", archive)
-        note("reattack_through_closed_gate", response=result["reattack_response"])
+        watching["on"] = False
+        result["verdict_timeline"] = timeline
+        if attack:
+            result["reattack_response"] = push(pi1_wifi, GATEWAY_PORT, "A", archive)
+            note("reattack_through_closed_gate", response=result["reattack_response"])
         result["gateway_log"] = [json.loads(line) for line in pi1.run(f"cat {RUNTIME}/gateway.jsonl").stdout.splitlines()]
         result["pi2_final"] = pi2_status(pi2)
         result["incident_record"] = server.incidents
@@ -266,6 +363,10 @@ def run(config, boards, output, verdict="forced", decision="human", log=print):
         server.server_close()
         pi2.run("sudo systemctl stop field-maintenance.service 2>/dev/null; true", check=False)
         pi1.run("pkill -f '[c]apstone_ota.central_incident'; true", check=False)
+        if verdict == "real":
+            subprocess.run([*boards["pi3"].ssh, f"tar -C {MONITOR_DIR} -cf - evidence verdict.json monitor.log"],
+                           stdout=(output / "pi3-evidence.tar").open("wb"), check=False, timeout=60)
+            stop_real_services(boards)
         (output / "result.json").write_text(json.dumps(result, indent=1, default=str))
     return result
 
@@ -277,6 +378,7 @@ def main(argv=None) -> int:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--verdict", choices=["forced", "real"], default="forced")
     parser.add_argument("--decision", choices=["human", "approve", "reject"], default="human")
+    parser.add_argument("--no-attack", action="store_true", help="only watch the real detection and the normal rollback")
     args = parser.parse_args(argv)
     config, boards = load(args.config)
     if args.command == "setup":
@@ -286,7 +388,7 @@ def main(argv=None) -> int:
     else:
         if args.output is None:
             parser.error("run needs --output")
-        outcome = run(config, boards, args.output, args.verdict, args.decision)
+        outcome = run(config, boards, args.output, args.verdict, args.decision, attack=not args.no_attack)
         print(json.dumps({"final": outcome.get("pi2_final"), "forced_verdict": outcome["forced_verdict"]}))
     return 0
 
