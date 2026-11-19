@@ -214,3 +214,13 @@ def test_the_click_tool_parses_its_arguments_and_rejects_nonsense():
         xclick.parse([":94", "-5", "20"])
     with pytest.raises(SystemExit):
         xclick.parse(["../etc", "5", "5"])
+
+
+def test_on_the_virtual_display_the_cockpit_window_gets_an_explicit_size_not_a_fullscreen_request():
+    source = (field.ROOT / "dashboard/cockpit/Cockpit.qml").read_text()
+    assert "visibility: Window.FullScreen" in source        # the shipped file stays a fullscreen window for a real monitor
+    fitted = field.fit_to_virtual_display(source)
+    assert "visibility: Window.FullScreen" not in fitted and "width: 2160; height: 1440" in fitted
+    assert fitted.count("visible: true") == source.count("visible: true")   # only the size request changed
+    with __import__("pytest").raises(ValueError):
+        field.fit_to_virtual_display("Window { visible: true }")             # a changed cockpit must not be silently mis-patched

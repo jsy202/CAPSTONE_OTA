@@ -216,6 +216,13 @@ def virtual_display_command(display=VDISPLAY):
     return ["/usr/bin/Xvfb", display, "-screen", "0", "2160x1440x24", "-ac", "-nolisten", "tcp"]
 
 
+def fit_to_virtual_display(qml):
+    """No window manager on the virtual display, so a fullscreen request is ignored and the window stays tiny: ask for the size."""
+    if "visibility: Window.FullScreen;" not in qml:
+        raise ValueError("Cockpit.qml no longer has the fullscreen request this patch expects")
+    return qml.replace("visibility: Window.FullScreen;", "width: 2160; height: 1440;", 1)
+
+
 def cockpit_ui_command(display=None):
     """The whole monitoring screen: fullscreen on the HDMI monitor's own desktop session, or on a private virtual display."""
     env = (f"QT_QPA_PLATFORM=xcb QT_QUICK_BACKEND=software DISPLAY={display}" if display
@@ -238,6 +245,8 @@ def start_screen(boards, pi3_ip, log, interval=0.1, ivi_ui=None, virtual=False):
             "-p Environment=XAUTHORITY=/var/lib/capstone-app/Xauthority " + shlex.join(feeder_command(pi3_ip, interval, ivi_ui)))
     pi2.run("pkill -f '[q]mlscene.*Cockpit.qml'; true", check=False)
     if virtual:
+        pi2.put(f"{SCREEN}/cockpit/Cockpit.qml",
+                fit_to_virtual_display((ROOT / "dashboard/cockpit/Cockpit.qml").read_text()).encode())
         pi2.put(f"{SCREEN}/xclick.py", (ROOT / "bench" / "xclick.py").read_bytes())
         pi2.run("sudo systemctl stop field-cockpit-display.service 2>/dev/null; true", check=False)
         pi2.run("sudo systemd-run --quiet --collect --unit field-cockpit-display -p CPUAffinity=1-3 "
