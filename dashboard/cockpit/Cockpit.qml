@@ -47,6 +47,7 @@ Window {
         for (; logSeen < rows.length; logSeen++) {
             var t = String(rows[logSeen].text || "")
             if (t.indexOf("디버깅 포트 닫힘") === 0) band.enqueue({kind: "port_closed", text: t})
+            else if (t.indexOf("화면 앱 V1 실행") === 0) band.enqueue({kind: "attack_running", text: t})   // the IVI itself reports V1
         }
     }
     onDChanged: {
@@ -248,6 +249,7 @@ Window {
             property string kind: "rollback"
             property string headline: ""
             property string tag: ""
+            property string sub: ""     // small text beside the headline: the version change, e.g. "V2 → V3"
             property color tone: win.critical
             property var pending: []
             function enqueue(event) {
@@ -258,12 +260,19 @@ Window {
                 if (!pending.length) return
                 var event = pending.shift()
                 kind = event.kind
-                // Only these six messages ever show on the strip.
+                sub = event.transition ? event.transition : ""
+                // A rollback goes the other way: the transition recorded for it is old -> candidate.
+                if (sub && (kind === "rollback" || kind === "restored" || kind === "rejected" || kind === "recovery_error"))
+                    sub = sub.split(" → ").reverse().join(" → ")
+                // Only these messages ever show on the strip.
                 if (kind === "preparing") { tone = win.accent; headline = "업데이트 시작"; tag = "[ OTA ]" }
                 else if (kind === "installed") { tone = win.success; headline = "업데이트 완료"; tag = "[ OTA ]" }
-                else if (kind === "rollback") { tone = win.critical; headline = "롤백 준비"; tag = "[ SYS ]" }
+                else if (kind === "rollback") { tone = win.warn; headline = "롤백 준비"; tag = "[ SYS ]" }
                 else if (kind === "restored") { tone = win.success; headline = "롤백 완료"; tag = "[ SYS ]" }
-                else if (kind === "rejected" || kind === "recovery_error") { tone = win.critical; headline = "롤백 실패"; tag = "[ SYS ]" }
+                // Here the image a rollback would run is the attacker's V1, so a refused rollback is the DEFENCE working.
+                else if (kind === "rejected") { tone = win.success; headline = "롤백 차단"; tag = "[ SEC ]"; sub = "변조 이미지" }
+                else if (kind === "recovery_error") { tone = win.critical; headline = "롤백 실패"; tag = "[ SYS ]" }
+                else if (kind === "attack_running") { tone = win.critical; headline = "공격 이미지 실행 중"; tag = "[ SEC ]"; sub = "V1" }
                 else if (kind === "port_closed") { tone = win.success; headline = "디버깅 포트 닫힘"; tag = "[ NET ]" }
                 else { pending.length ? next() : 0; return }   // anything else (e.g. the final commit) is not announced
                 seq.start()
@@ -276,8 +285,10 @@ Window {
                 Row { x: 48; anchors.verticalCenter: parent.verticalCenter; spacing: 28
                     Rectangle { width: 108; height: 44; color: "transparent"; border.width: 2; border.color: "#05070a"
                         Text { anchors.centerIn: parent; text: band.tag; color: "#05070a"; font.family: fMono.name; font.pixelSize: 17; font.letterSpacing: 1 } }
-                    Text { text: band.headline; color: "#05070a"; font.family: fGroteskBold.name; font.pixelSize: 64; width: 1850
-                        fontSizeMode: Text.Fit; minimumPixelSize: 32; elide: Text.ElideRight; anchors.verticalCenter: parent.verticalCenter }
+                    Text { id: headlineText; text: band.headline; color: "#05070a"; font.family: fGroteskBold.name; font.pixelSize: 64
+                        anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: band.sub; visible: band.sub !== ""; color: "#05070a"; opacity: 0.72; font.family: fGroteskMed.name; font.pixelSize: 34
+                        anchors.baseline: headlineText.baseline }
                 }
                 Rectangle { id: topScan; y: parent.height - 4; width: 220; height: 4; color: "#05070a"; opacity: 0.55 }
             }
