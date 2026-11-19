@@ -31,7 +31,17 @@ NEW_RELEASES = {name: (label, BASELINE_VERSION if name == "v2" else version, svn
                 for name, (label, version, svn) in RELEASES.items()}
 
 
-def build_releases(release_dir, output_dir, map_file=None):
+def releases_for(v2_version=BASELINE_VERSION, v2_svn=None, v3_version=None, v3_svn=None):
+    """Release table for a new baseline. A committed V3 raises the device's svn floor, so a later baseline
+    must carry a higher svn (and a higher version) than everything the device has already committed."""
+    table = dict(NEW_RELEASES)
+    table["v2"] = ("V2", v2_version, v2_svn if v2_svn is not None else table["v2"][2])
+    if v3_version is not None:
+        table["v3"] = ("V3", v3_version, v3_svn if v3_svn is not None else table["v3"][2])
+    return table
+
+
+def build_releases(release_dir, output_dir, map_file=None, table=None):
     """Sign fresh releases from the current dashboard/ivi build with the key pair already in release_dir/keys."""
     release_dir, output_dir = Path(release_dir).absolute(), Path(output_dir).absolute()
     private, public = release_dir / "keys/ivi-private.pem", release_dir / "keys/ivi-public.pem"
@@ -44,7 +54,7 @@ def build_releases(release_dir, output_dir, map_file=None):
     shutil.copyfile(public, keys / "ivi-public.pem")
     (keys / "ivi-private.pem").symlink_to(private.resolve())  # a pointer, never a copy of the secret
     releases = {}
-    for name, (label, version, svn) in NEW_RELEASES.items():
+    for name, (label, version, svn) in (table or NEW_RELEASES).items():
         staging = output_dir / "payloads" / name
         payload(staging, label, map_file=map_file)
         releases[name] = pack(staging, output_dir / "releases" / name, version, svn, private)
@@ -106,10 +116,15 @@ def main(argv=None) -> int:
     parser.add_argument("config", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--map", type=Path, help="map.json to ship inside the V3 release (build only)")
+    for flag in ("v2-version", "v3-version"):
+        parser.add_argument("--" + flag, help="build only: version of this release (default 2.1.0 / 3.0.0)")
+    for flag in ("v2-svn", "v3-svn"):
+        parser.add_argument("--" + flag, type=int, help="build only: security version (must exceed the device's current floor)")
     args = parser.parse_args(argv)
     config, boards = field.load(args.config)
     if args.command == "build":
-        print(json.dumps(build_releases(config["release_dir"], args.output, args.map), indent=1))
+        print(json.dumps(build_releases(config["release_dir"], args.output, args.map,
+                                          releases_for(args.v2_version or BASELINE_VERSION, args.v2_svn, args.v3_version, args.v3_svn)), indent=1))
     else:
         print(json.dumps(install_baseline(config, boards, args.output), indent=1))
     return 0

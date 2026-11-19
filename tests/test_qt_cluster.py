@@ -165,3 +165,28 @@ def test_normal_signal_acceptance_with_real_qt():
     assert report['timeout_detected'] is True
     assert report['source_profile'] == 'latest'
     assert report['cycles'] == 2
+
+
+def test_check_reports_the_new_cluster_design_not_the_old_gauges():
+    import json, os, subprocess
+    slot = default_payload()
+    environment = dict(os.environ, DISPLAY=':65530', QT_QPA_PLATFORM='xcb')
+    result = subprocess.run([str(slot / 'bin/app'), '--check'], env=environment,
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)['ui'] == 'CapstoneCluster'
+
+
+def test_new_cluster_gauges_display_the_vehicle_values_and_go_blank_when_stale():
+    import time
+    q = qt()
+    with q.running_dashboard(default_payload()) as target:
+        report = q.deliver(target, speed=790, rpm=2500, gear=3, counter=10)
+        assert report['shown_speed'] == 79.0
+        assert report['shown_rpm'] == 2500
+        assert report['shown_gear'] == 'D'
+        assert report['shown_valid'] is True
+        faster = q.deliver(target, speed=1400, rpm=6100, gear=3, counter=11)
+        assert faster['shown_speed'] == 140.0 and faster['shown_rpm'] == 6100
+        time.sleep(0.65)
+        assert q.snapshot(target)['shown_valid'] is False

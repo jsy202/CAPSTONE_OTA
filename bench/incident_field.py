@@ -121,6 +121,23 @@ def probation_command(pi3_address, probation=45, max_total=400, trace="probation
             "--max-wait", "300", "--max-total", str(max_total), "--poll", "2"]
 
 
+# Demo only: the device's documented vulnerable mode. Every device the CLI builds skips the recovery tree-hash check.
+VULNERABLE_PATCH = (
+    "from capstone_ota.cluster import ClusterDevice as _D\n"
+    "_init = _D.__init__\n"
+    "def _weak(self, *a, **k):\n"
+    "    k['recovery_verification'] = False\n"
+    "    _init(self, *a, **k)\n"
+    "_D.__init__ = _weak\n")
+
+
+def vulnerable_launcher_script():
+    """The root launcher for --vulnerable: same `-m capstone_ota ...` arguments, devices built without the recovery check."""
+    return ("#!/bin/sh\nshift 2\nexec sudo -n %s -c %s \"$@\"\n" % (PY, shlex.quote(
+        VULNERABLE_PATCH + "import sys, runpy\nsys.argv = ['capstone_ota'] + sys.argv[1:]\n"
+        "runpy.run_module('capstone_ota', run_name='__main__')\n")))
+
+
 def passing_recheck():
     return [PY, "-c", "import json;print(json.dumps({'passed': True}))"]
 
@@ -425,7 +442,7 @@ def require_baseline(status, config):
 
 
 def run(config, boards, output, verdict="forced", decision="human", attack=True, log=print, screen=False,
-        map_trigger="script", virtual_screen=False):
+        map_trigger="script", virtual_screen=False, vulnerable=False):
     output = Path(output).absolute()
     output.mkdir(parents=True, exist_ok=False)
     pi1, pi2 = boards["pi1"], boards["pi2"]
@@ -443,6 +460,12 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
     check_committed_slot(pi2)
     attack_slot = recovery_slot(baseline)
     note("baseline", status=baseline, attack_slot=attack_slot)
+    if vulnerable:
+        if not (attack and verdict == "real" and screen):
+            raise SystemExit("--vulnerable needs the attack, --verdict real and --screen (it shows what the defence failure looks like)")
+        pi2.write(RUNTIME + "/root-python", vulnerable_launcher_script(), "755")
+        note("vulnerable_device", recovery_verification=False,
+             warning="DEMO ONLY: this device skips the recovery tree-hash check; Pi2's slot is left unrestored by design")
 
     # Attack image: an older, validly signed IVI tree (the attacker already owns it).
     key = releases / "keys/ivi-private.pem"
@@ -543,6 +566,17 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
                 wait_for_map_click(lambda: (lambda r: r.stdout if r.returncode == 0 else None)(
                     pi2.run(f"cat {MAP_FLAG}", check=False)), 900, 1.0)
                 note("map_opened", flag=MAP_FLAG, by="ui")
+        if vulnerable:
+            # The defence is off: the rollback lands on the attacker's image, so there is no incident to wait for.
+            settled = wait_for(lambda: (lambda s: s if s.get("phase") == "stable" else None)(pi2_status(pi2)), 600, 3.0)
+            result["vulnerable_outcome"] = {"settled": bool(settled), "status": settled or pi2_status(pi2),
+                                            "events": pi2.run(f"sudo grep -c VULNERABLE_MODE_RECOVERY_UNVERIFIED {IVI_ROOT}/events.jsonl 2>/dev/null; true",
+                                                              check=False).stdout.strip()}
+            note("vulnerable_outcome", settled=bool(settled))
+            time.sleep(75)  # keep the screen up: this is the picture the user sees if the defence fails
+            watching["on"] = False
+            result["verdict_timeline"] = timeline
+            return result
         incident = wait_for(lambda: server.incidents, 240 if verdict == "forced" else 600) if attack else None
         if attack and not incident:
             raise SystemExit("no incident reached the control centre")
@@ -573,6 +607,8 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
         result["incident_record"] = server.incidents
         note("final", status=result["pi2_final"])
     finally:
+        if vulnerable:
+            pi2.write(RUNTIME + "/root-python", f'#!/bin/sh\nexec sudo -n {PY} "$@"\n', "755")
         server.shutdown()
         server.server_close()
         pi2.run("sudo systemctl stop field-maintenance.service 2>/dev/null; true", check=False)
@@ -592,6 +628,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
 
 
 def main(argv=None) -> int:
+    sys.stdout.reconfigure(line_buffering=True)  # helpers (the map clicker) watch this log; block buffering hid "waiting_for_map_click"
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["setup", "run", "teardown"])
     parser.add_argument("config", type=Path)
@@ -603,6 +640,8 @@ def main(argv=None) -> int:
     parser.add_argument("--virtual-screen", action="store_true", help="no monitor: run the cockpit on a private virtual display on Pi2 (implies --screen)")
     parser.add_argument("--map-trigger", choices=["script", "ui"], default="script",
                         help="script: touch the flag after the attack; ui: wait for the tap on the map tile of the cockpit screen (use with --screen)")
+    parser.add_argument("--vulnerable", action="store_true",
+                        help="DEMO ONLY: Pi2 skips the recovery check, so the attack wins and the V1 screen shows. Needs a manual slot restore afterwards")
     args = parser.parse_args(argv)
     args.screen = args.screen or args.virtual_screen
     if args.screen and args.verdict != "real":
@@ -616,7 +655,7 @@ def main(argv=None) -> int:
         if args.output is None:
             parser.error("run needs --output")
         outcome = run(config, boards, args.output, args.verdict, args.decision, attack=not args.no_attack, screen=args.screen, virtual_screen=args.virtual_screen,
-                       map_trigger=args.map_trigger)
+                       map_trigger=args.map_trigger, vulnerable=args.vulnerable)
         print(json.dumps({"final": outcome.get("pi2_final"), "forced_verdict": outcome["forced_verdict"]}))
     return 0
 

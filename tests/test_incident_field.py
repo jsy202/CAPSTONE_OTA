@@ -241,3 +241,14 @@ def test_the_attack_targets_the_slot_that_holds_the_committed_release_not_a_fixe
         field.recovery_slot({"active_slot": None, "phase": "stable"})
     source = (field.ROOT / "bench" / "incident_field.py").read_text()
     assert 'GATEWAY_PORT, "A"' not in source and 'GATEWAY_PORT, "B"' not in source   # both the attack and the re-attack use the chosen slot
+
+
+def test_the_vulnerable_demo_device_skips_only_the_recovery_check(tmp_path):
+    """--vulnerable swaps the root launcher for one that builds every device with recovery_verification=False."""
+    import subprocess, sys
+    script = field.vulnerable_launcher_script()
+    assert script.startswith("#!/bin/sh\n") and field.PY in script and "sudo -n" in script
+    done = subprocess.run([sys.executable, "-c", field.VULNERABLE_PATCH + "\nfrom capstone_ota.ivi import IviDevice\n"
+                           "print(IviDevice(%r).recovery_verification)" % str(tmp_path)],
+                          capture_output=True, text=True, cwd=str(field.ROOT))
+    assert done.stdout.strip() == "False", done.stderr

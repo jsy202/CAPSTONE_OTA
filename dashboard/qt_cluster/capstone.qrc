@@ -1,1 +1,1 @@
-<RCC><qresource prefix="/capstone"><file>Overlay.qml</file></qresource></RCC>
+<RCC><qresource prefix="/capstone"><file>Main.qml</file><file>Cluster.qml</file><file alias="fonts/DMSans-Regular.ttf">fonts/DMSans-Regular.ttf</file></qresource></RCC>

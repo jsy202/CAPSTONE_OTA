@@ -26,14 +26,6 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <cstring>
-#include <speedometer_model.h>
-#include <tachometer_model.h>
-#include <temp_and_fuel_gauge_model.h>
-#include <accessory_gauge_model.h>
-#include <warning_light_model.h>
-#include <indicator_model.h>
-#include <odometer_model.h>
-#include <key_press_emitter.h>
 
 static volatile std::sig_atomic_t stopping = 0;
 static void stop(int) { stopping = 1; }
@@ -46,10 +38,16 @@ static QQuickItem *findVisual(QQuickItem *item, const QString &name) {
 
 class State : public QObject {
     Q_OBJECT
+    Q_PROPERTY(double speed MEMBER speed NOTIFY changed)
+    Q_PROPERTY(int rpm MEMBER rpm NOTIFY changed)
     Q_PROPERTY(int gear MEMBER gear NOTIFY changed)
+    Q_PROPERTY(bool warning MEMBER warning NOTIFY changed)
     Q_PROPERTY(bool valid MEMBER valid NOTIFY changed)
 public:
+    double speed = 0;
+    int rpm = 0;
     int gear = 0;
+    bool warning = false;
     bool valid = false;
 signals:
     void changed();
@@ -88,41 +86,11 @@ int main(int argc, char **argv) {
         const int i = args.indexOf(name);
         return i >= 0 && i + 1 < args.size() ? args[i + 1] : fallback;
     };
-    SpeedometerModel speed;
-    speed.setMinValue(0); speed.setMaxValue(220); speed.setUnits("km/h"); speed.setTopUnits("°C");
-    TachometerModel rpm;
-    rpm.setMaxRpm(7000); rpm.setRedLine(6000);
-    TempAndFuelGaugeModel temp;
-    temp.setProperty("minTemp", -40); temp.setProperty("maxTemp", 130); temp.setProperty("currentTemp", 90);
-    temp.setProperty("fuelLevel", 60); temp.setProperty("tempUnits", "°C");
-    OdometerModel odo;
-    KeyPressEmitter keys;
     State state;
-    // The engine must be destroyed before the models its bindings observe.
+    // The engine must be destroyed before the state its bindings observe.
     QQmlApplicationEngine engine;
-    auto context = engine.rootContext();
-    context->setContextProperty("speedoModel", &speed);
-    context->setContextProperty("rpmModel", &rpm);
-    context->setContextProperty("tempFuelModel", &temp);
-    context->setContextProperty("odometerModel", &odo);
-    context->setContextProperty("keyPressEmitter", &keys);
-    context->setContextProperty("RASPBERRY_PI", false);
-    context->setContextProperty("capstoneState", &state);
-    for (const auto name : {"coolantTempModel", "fuelLevelModel", "oilPModel", "oilTModel", "boostModel", "voltMeterModel"}) {
-        auto model = new AccessoryGaugeModel(&app);
-        model->setMinValue(0); model->setMaxValue(150); model->setUnits("");
-        context->setContextProperty(name, model);
-    }
-    WarningLightModel *warning = nullptr;
-    for (const auto name : {"parkingBrakeLightModel", "brakeFailureLightModel", "bulbFailureLightModel", "shiftUpLightModel", "highBeamLightModel", "srsWarningLightModel", "oilWarningLightModel", "batteryWarningLightModel", "absWarningLightModel", "checkEngineLightModel", "serviceLightModel"}) {
-        auto model = new WarningLightModel(&app);
-        model->setLightColor(QColor("#ffb347"));
-        model->setText(QString(name) == "checkEngineLightModel" ? "CHECK\nENGINE" : "");
-        context->setContextProperty(name, model);
-        if (QString(name) == "checkEngineLightModel") warning = model;
-    }
-    for (const auto name : {"leftBlinkerModel", "rightBlinkerModel"}) context->setContextProperty(name, new IndicatorModel(&app));
-    engine.load(QUrl("qrc:/main.qml"));
+    engine.rootContext()->setContextProperty("capstoneState", &state);
+    engine.load(QUrl("qrc:/capstone/Main.qml"));
     // The root object can still be completing asynchronously (incubating QML
     // components, deferred bindings) when load() returns; checking once,
     // synchronously, races that completion and fails intermittently under
@@ -135,13 +103,11 @@ int main(int argc, char **argv) {
     if (engine.rootObjects().isEmpty()) return 2;
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
     if (window && qEnvironmentVariable("CAPSTONE_QT_LIVE") == "1") window->setPosition(0, 0);
-    QQmlComponent component(&engine, QUrl("qrc:/capstone/Overlay.qml"));
-    auto panel = qobject_cast<QQuickItem *>(component.create());
-    if (!window || !panel) { qWarning() << component.errors(); return 2; }
-    panel->setParentItem(window->contentItem());
+    auto cluster = findVisual(window ? window->contentItem() : nullptr, "capstoneCluster");
+    if (!window || !cluster) { qWarning() << "cluster screen missing"; return 2; }
     auto uiReady = [&] {
         return window->property("capstoneGaugeReady").toBool()
-            && findVisual(window->contentItem(), "capstoneSpeedNeedle")
+            && cluster->isVisible()
             && (!engine.incubationController() || engine.incubationController()->incubatingObjectCount() == 0);
     };
     if (check) {
@@ -153,7 +119,7 @@ int main(int argc, char **argv) {
             if (loader) loader->incubateFor(5);
             if (!uiReady()) stable = 0; else ++stable;
             if (stable >= 3) {
-                QTextStream(stdout) << "{\"initialized\":true,\"ui\":\"VolvoQt\"}\n";
+                QTextStream(stdout) << "{\"initialized\":true,\"ui\":\"CapstoneCluster\"}\n";
                 app.quit();
             } else if (deadline.elapsed() > 3000) app.exit(2);
         });
@@ -185,12 +151,12 @@ int main(int argc, char **argv) {
             ++rejected; return;
         }
         last = counter;
-        speed.setCurrentValue(value / 10.0);
-        rpm.setRpm(revs);
+        state.speed = value / 10.0;
+        state.rpm = revs;
         state.gear = quint8(data[4]); state.valid = true;
-        warning->setOn(quint8(data[5]) & 1);
+        state.warning = quint8(data[5]) & 1;
         age.restart(); emit state.changed();
-        sendEcho(can, qRound(speed.currentValue() * 10), counter, state.valid, startId);
+        sendEcho(can, qRound(state.speed * 10), counter, state.valid, startId);
     };
     QUdpSocket udp;
     QSocketNotifier *canNotifier = nullptr;
@@ -242,10 +208,11 @@ int main(int argc, char **argv) {
                 }
                 QJsonObject out{{"nonce", input.value("nonce")}, {"pid", int(QCoreApplication::applicationPid())},
                     {"ui_ready", uiReady()},
-                    {"model_speed", speed.currentValue()}, {"qml_speed", findVisual(window->contentItem(), "capstoneSpeedNeedle")
-                        ? findVisual(window->contentItem(), "capstoneSpeedNeedle")->property("value").toDouble() : -1.0},
-                    {"rpm", panel->property("displayedRpm").toInt()}, {"gear", panel->property("displayedGear").toInt()},
-                    {"warning", panel->property("displayedWarning").toBool()}, {"valid", panel->property("displayedValid").toBool()},
+                    {"model_speed", state.speed}, {"qml_speed", cluster->property("speed").toDouble()},
+                    {"rpm", state.rpm}, {"gear", state.gear},
+                    {"warning", state.warning}, {"valid", state.valid},
+                    {"shown_speed", cluster->property("speed").toDouble()}, {"shown_rpm", cluster->property("rpm").toInt()},
+                    {"shown_gear", cluster->property("gear").toString()}, {"shown_valid", cluster->property("valid").toBool()},
                     {"source_counter", last}, {"received_counter", received}, {"generation", generation}, {"rejected", rejected},
                     {"executable", QCoreApplication::applicationFilePath()},
                     {"udp_port", int(udp.localPort())}};

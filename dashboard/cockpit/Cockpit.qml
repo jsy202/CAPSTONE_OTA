@@ -210,6 +210,10 @@ Window {
                         Text { color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28; anchors.bottom: parent.bottom; anchors.bottomMargin: 10; text: "km/h" } } } }
         }
 
+        // ---------------- section dividers: cluster | monitor over IVI (all three read as separate zones) ----------------
+        Rectangle { z: 60; x: 1438; y: 0; width: 4; height: 540; color: "#3a4a68" }
+        Rectangle { z: 60; x: 0; y: 538; width: 2160; height: 4; color: "#3a4a68" }
+
         // ---------------- IVI of the current slot (real app, live — untouched) ----------------
         Rectangle { x: 0; y: 540; width: 2160; height: 675; color: "#0a0e15"; clip: true
             Loader { id: iviLoader; width: 1920; height: 600; transformOrigin: Item.TopLeft; scale: 1.125

@@ -349,6 +349,6 @@ PASS를 만들 수 없다.** 비밀키는 두 보드 바깥(배포 시점)에만
 
 HTTP 전송은 실험망 용도이며 암호화·접속 인증을 제공하지 않는다.
 개인키·SSH 키·Wi-Fi 비밀번호를 Git이나 릴리스 제공 폴더에 넣지 않는다.
-Volvo 원본 Qt 계기판 출처와 MIT 라이선스는 [UPSTREAM.md](dashboard/qt_cluster/UPSTREAM.md)에 있다.
+클러스터 화면은 자체 제작(`dashboard/qt_cluster/Cluster.qml`)이며 Volvo 원본 코드는 더 이상 쓰지 않는다. 글꼴 DM Sans는 SIL OFL(`dashboard/qt_cluster/fonts/dmsans-OFL.txt`).
 
 지도 데이터: © OpenStreetMap contributors (ODbL), Overpass API로 받은 서울시청 일대 도로망이다. 화면에는 표기하지 않으므로 영상 크레딧에 이 출처를 넣는다.
