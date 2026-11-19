@@ -116,6 +116,7 @@ def main(argv=None) -> int:
     parser.add_argument('--ivi-run', type=Path, default=Path('/run/capstone-ivi'))
     parser.add_argument('--pi3-ssh', required=True, help='JSON argv list for ssh to the Verifier board')
     parser.add_argument('--verdict-path', required=True)
+    parser.add_argument('--interval', type=float, default=0.5, help='seconds between data.json writes (and cluster captures)')
     parser.add_argument('--channel', default='can0', help='CAN channel for the fast local delay tap')
     args = parser.parse_args(argv)
     ssh = json.loads(args.pi3_ssh)
@@ -173,7 +174,7 @@ def main(argv=None) -> int:
     while running['now']:
         started = time.monotonic()
         feeder.write()
-        time.sleep(max(0.05, 0.5 - (time.monotonic() - started)))
+        time.sleep(max(0.05, args.interval - (time.monotonic() - started)))
     return 0
 
 

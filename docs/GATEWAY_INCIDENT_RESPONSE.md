@@ -76,7 +76,7 @@ Pi2: 서명·커밋 기록과 동일 릴리스·tree hash 확인 → V2 설치 �
 - [x] 승인 후 `ivi-repair`가 진짜 SSH(제한된 키)로 Pi2에서 성공, `rolled_back` / V2 / 슬롯 A로 종료
 - [x] 게이트가 닫힌 뒤 재공격이 `ERROR gateway closed`로 거부
 - [x] 실제 Pi3 감시기가 V3 지연을 판정할 때 같은 흐름이 이어지는지(`--verdict real`, 2026-11-19 1회, `forced_verdict: false`, Pi3 freeze-frame suspect→confirmed 확인; 반복 측정 아님)
-- [ ] 사람이 브라우저에서 승인 버튼을 누르는 실보드 실행
+- [x] 사람이 브라우저에서 승인 버튼을 누르는 실보드 실행 (2026-11-19, `--verdict real --decision human --screen`, 1회. Pi1이 INC-0001 보고 → 관제 화면 `waiting_for_human` → 사람이 승인 클릭(보고 약 9초 뒤) → `rolled_back`, 재공격 `ERROR gateway closed`, Pi2 V2/슬롯 A/stable. 증적 디렉터리(Git 제외): `.demo/field-real-screen`, `.demo/field-real-ui` (두 실행 모두 사람이 승인 클릭; `.demo/field-real-human`은 승인 전에 내가 중단한 실행이라 증적에 넣지 않는다). 승인한 사람은 프로젝트 작성자)
 - [ ] 서버를 끈 채로 사고를 내서 `maintenance_required`와 콕핏 표시가 의도대로인지
 
 실보드에서 처음 드러난 결함(시험이 아니라 보드에서만 보였다): 복원 명령이 **갱신의 검증 명령**(V3 시험, 25초 강제 실패)을

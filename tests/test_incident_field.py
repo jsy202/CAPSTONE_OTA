@@ -99,3 +99,8 @@ def test_a_slow_pi3_read_is_a_missing_sample_not_a_crash():
 def test_the_run_has_no_two_things_called_watching():
     source = (field.ROOT / "bench" / "incident_field.py").read_text()
     assert source.count("watching = ") == 1 and "watching.set()" not in source  # the old `watching` is a dict, not an Event
+
+
+def test_the_cockpit_capture_interval_can_be_chosen_for_the_interference_measurement():
+    assert field.feeder_command("172.20.10.4")[-2:] == ["--interval", "0.5"]          # default is unchanged
+    assert field.feeder_command("172.20.10.4", interval=0.1)[-2:] == ["--interval", "0.1"]
