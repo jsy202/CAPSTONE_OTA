@@ -18,7 +18,7 @@ vm.runInThisContext(fs.readFileSync(process.argv[1], 'utf8'));
 assert.strictEqual(versionText({stage: 'rolled_back', version: '2.0.0', candidate: '3.0.0'}), '2.0.0');
 assert.strictEqual(versionText({stage: 'verify', version: '2.0.0', candidate: '3.0.0'}), '2.0.0 → 3.0.0');
 assert.strictEqual(versionText({stage: 'recover', version: '2.0.0', candidate: '3.0.0'}), '3.0.0 → 2.0.0');
-assert.strictEqual(versionText({stage: 'recovery_failed', version: '2.0.0', candidate: '3.0.0'}), '복구 실패');
+assert.strictEqual(versionText({stage: 'recovery_failed', version: '2.0.0', candidate: '3.0.0'}), '2.0.0');
 const state = {run: null, seen: 0, kinds: {}};
 assert.deepStrictEqual(consume(state, {stage: 'committed', version: '2.0.0'}), []);
 const stages = ['metadata', 'signature_verified', 'download', 'install', 'trial',
@@ -114,14 +114,17 @@ assert.strictEqual(none.percent, '');
 const early = phase({stage: 'download', received: 0, total: 200}).fraction;
 const late = phase({stage: 'download', received: 200, total: 200}).fraction;
 assert(early < late && late < phase({stage: 'install'}).fraction);   // the gauge only moves forward through an update
-assert.strictEqual(phase({stage: 'trial'}).label, '시험 운전 중');
+assert.strictEqual(phase({stage: 'trial'}).label, '시운전 중');
 const back = phase({stage: 'recover'});
-assert.strictEqual(back.kind, 'rollback'); assert.strictEqual(back.label, '이전 버전으로 되돌리는 중');
+assert.strictEqual(back.kind, 'rollback'); assert.strictEqual(back.label, '롤백 중 · 이전 버전으로');
 assert.strictEqual(phase({stage: 'recovery_verified'}).kind, 'rollback');
+assert.strictEqual(phase({stage: 'recovery_verified'}).label, '이전 버전 검사 통과');
+assert.strictEqual(phase({stage: 'rolled_back'}).label, '롤백 완료');
 assert.strictEqual(phase({stage: 'rolled_back'}).kind, 'done');
 assert.strictEqual(phase({stage: 'recovery_failed'}).kind, 'failed');
 assert.strictEqual(phase({stage: 'committed'}).fraction, 1);
 assert.strictEqual(phase({stage: 'something_new'}).kind, 'update');   // unknown stage is shown, not hidden
+assert.strictEqual(phase({stage: 'something_new'}).label, '진행 중');  // never a raw identifier
 '''
     subprocess.run([node, '-e', script, str(helper)], check=True)
 
@@ -135,7 +138,9 @@ def test_gauge_says_what_a_refused_recovery_is_instead_of_a_bare_error():
 const fs = require('fs'), vm = require('vm'), assert = require('assert');
 vm.runInThisContext(fs.readFileSync(process.argv[1], 'utf8'));
 const refused = phase({stage: 'error', detail: 'recovery failed; no successful recovery is claimed'});
-assert.strictEqual(refused.label, '복구 실패 · 점검 필요'); assert.strictEqual(refused.kind, 'failed');
+assert.strictEqual(refused.label, '복구 거부 · 실행 차단');
+assert.strictEqual(phase({stage: 'recovery_failed'}).label, '복구 거부 · 실행 차단');
+assert.strictEqual(phase({stage: 'service_stopped_after_recovery_failure'}).label, '실패한 앱 중지됨'); assert.strictEqual(refused.kind, 'failed');
 assert.strictEqual(phase({stage: 'service_stopped_after_recovery_failure'}).kind, 'failed');
 assert.strictEqual(phase({stage: 'error', detail: 'disk full'}).label, '오류');   // a different error stays a plain error
 assert.strictEqual(phase({stage: 'download_and_verify'}).kind, 'update');

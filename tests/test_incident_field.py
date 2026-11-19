@@ -104,3 +104,7 @@ def test_the_run_has_no_two_things_called_watching():
 def test_the_cockpit_capture_interval_can_be_chosen_for_the_interference_measurement():
     assert field.feeder_command("172.20.10.4")[-2:] == ["--interval", "0.5"]          # default is unchanged
     assert field.feeder_command("172.20.10.4", interval=0.1)[-2:] == ["--interval", "0.1"]
+
+
+def test_final_gateway_port_line_says_closed_not_just_ended():
+    assert field.gateway_final_line() == f"진단 포트 {field.GATEWAY_PORT} 닫힘 · 게이트웨이 종료"

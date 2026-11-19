@@ -17,18 +17,19 @@ import time
 from pathlib import Path
 
 EVENT_TEXT = {
-    'download_and_verify': 'Update: downloading and verifying the signed release',
-    'trial': 'Trial: new version installed, running under probation',
-    'committed': 'Commit: release accepted (installed version is now final)',
-    'recover': 'Rollback: restoring the previous version',
-    'recovery_verified': 'Rollback: previous version checked against its recorded hash',
-    'recovery_failed': 'Rollback FAILED: needs manual repair',
+    'download_and_verify': '업데이트: 서명된 릴리스를 내려받는 중',
+    'trial': '시운전: 새 버전 설치, 시험 중',
+    'committed': '확정: 새 버전 최종 승인',
+    'recover': '롤백: 이전 버전으로 되돌리는 중',
+    'recovery_verified': '롤백: 이전 버전 검사 통과',
+    'recovery_failed': '롤백 실패: 수동 점검 필요',
 }
+MONITOR_TEXT = {'lost': '신호 끊김', 'observing': '정상 관측', 'suspect': '징후 포착', 'confirmed': '한계 초과 확정'}
 LOG_LIMIT = 14
 
 
 def describe_event(name: str) -> str:
-    return EVENT_TEXT.get(name, 'Device: ' + name)
+    return EVENT_TEXT.get(name, '장치: ' + name)
 
 
 class Feeder:
@@ -71,11 +72,12 @@ class Feeder:
         state = pi3.get('state') if pi3 else 'lost'
         if state != self._pi3_state:
             detail = '' if state in ('lost', 'observing') or not pi3.get('cls') else f" ({pi3['cls']})"
-            self._add(now, f'Pi3 monitor: {"signal lost" if state == "lost" else state}{detail}')
+            label = MONITOR_TEXT.get(state, state)
+            self._add(now, f'모니터: {label}{detail}')
             self._pi3_state = state
         version = ivi.get('version') if ivi else None
         if version and version != self._ivi_version:
-            self._add(now, f'IVI running {version}')
+            self._add(now, f'화면 앱 {version} 실행 중')
             self._ivi_version = version
         return {'now': now, 'cluster': cluster, 'pi3': pi3, 'ota': ota, 'ivi': ivi, 'ivi_ui': self._call(self.ivi_ui),
                 'shot': self._call(self.shot) if self.shot else None,
