@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mock IVI head unit used to study cross-function interference on a shared Cockpit board.
 
-While the map screen is open (flag file), tile-decode workers burn CPU. The release configuration
+While the map screen is open (flag file exists and is not "0"; the head unit UI writes it when the map tile is tapped), tile-decode workers burn CPU. The release configuration
 decides how many workers run and at which scheduling priority. This is a test application: the
 'decode' is a busy loop standing in for CPU-bound tile decoding/rendering, not a real IVI.
 """
@@ -81,6 +81,14 @@ def worker(priority):
             value = (value * 1103515245 + 12345) & 0xFFFFFFFF
 
 
+def flag_active(path):
+    """The map is open when the flag file exists and does not say "0" (an empty file, as from `touch`, means open)."""
+    try:
+        return path.read_text().strip() != '0'
+    except OSError:
+        return False
+
+
 def atomic_json(path, data):
     temporary = path.with_name('.' + path.name + '.tmp')
     temporary.write_text(json.dumps(data))
@@ -107,7 +115,7 @@ def main(argv):
     speed_kmh, distance, drive_s = 0.0, 0.0, 0.0
     try:
         while not stopping['now']:
-            active = enabled and flag.exists()
+            active = enabled and flag_active(flag)
             workers = [w for w in workers if w.poll() is None]
             if active and len(workers) < wanted:
                 workers += [subprocess.Popen([sys.executable, __file__, '--worker', config['map_priority']])

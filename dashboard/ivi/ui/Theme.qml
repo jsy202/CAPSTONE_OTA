@@ -14,6 +14,8 @@ QtObject {
     readonly property color ink: "#ffffff"
     readonly property color inkMuted: "#a9b0bd"
     readonly property color inkOnAccent: "#04121f"
+    readonly property color badge: "#ff7a1a"       // installed-version badge: the monitoring screen's signature orange, not the map blue
+    readonly property color inkOnBadge: "#1a0d00"
     readonly property color good: "#2ecc71"
     readonly property color warn: "#ffb020"
     readonly property color danger: "#ff5a5f"
@@ -36,23 +38,28 @@ QtObject {
     readonly property int tMd: 36
     readonly property int tLg: 44
     readonly property int tXl: 56
-    readonly property int tNum: 132
 
     // icons: one 48 grid, one 4-unit stroke (see icons.js), two display sizes
     readonly property int iconGrid: 48
     readonly property int iconXs: 28
     readonly property int iconSm: 36
     readonly property int iconLg: 44
+    readonly property int iconXl: 52    // free-standing dock glyphs
+    readonly property real iconStroke: 3.6   // rendered stroke in px, the same at every size
 
     // font families (files shipped in ./fonts and registered by Ivi.qml); Hangul falls back to the system sans
     readonly property string fHead: "Space Grotesk"
     readonly property string fBody: "DM Sans"
     readonly property string fBodyMed: "DM Sans"
 
-    // frame geometry
+    // frame geometry (1920x600 strip: status bar, stage, dock)
     readonly property int topH: 64
-    readonly property int leftW: 624
     readonly property int dockH: 96
+    readonly property int leftW: 480                       // vehicle column = 25% of the width
+    readonly property int stageX: leftW + s2               // map / player starts after a one-step gutter
+    readonly property int stageW: 1920 - stageX - s2
+    readonly property int stageH: 600 - topH - dockH
     readonly property int tile: 64
     readonly property int button: 88
+    readonly property int dockUnit: 88                     // dock pitch: every slot is a multiple of this
 }

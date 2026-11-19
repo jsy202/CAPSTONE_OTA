@@ -1,6 +1,8 @@
 """bench.incident_field: what Pi1 sends must be exactly what Pi2's pinned gate allows (no board needed)."""
 import shlex
 
+import pytest
+
 from bench import incident_field as field
 from capstone_ota import ota_gate
 from capstone_ota.incident_responder import IncidentResponder
@@ -75,6 +77,39 @@ def test_the_cockpit_window_is_shown_on_the_desktop_session_of_the_connected_mon
     assert "QT_QPA_PLATFORM=wayland" in command and "WAYLAND_DISPLAY=wayland-0" in command
     assert "taskset -c 1-3" in command and command.rstrip().endswith("& echo started")
     assert "< /dev/null" in command  # no `cd ... &` and no inherited stdin: either one hangs the ssh channel
+
+
+def test_the_cockpit_process_may_write_the_map_flag_file():
+    # Ivi.qml writes <run>/map_active by XMLHttpRequest PUT; Qt refuses that unless this variable is set.
+    assert "QML_XHR_ALLOW_FILE_WRITE=1" in field.cockpit_ui_command()
+
+
+def test_map_flag_rule_is_shared_by_the_app_and_the_orchestrator():
+    assert field.map_flag_active(None) is False          # file missing (cat printed nothing / failed)
+    assert field.map_flag_active("") is True             # old `touch`: an empty file still means open
+    assert field.map_flag_active("1\n") is True
+    assert field.map_flag_active("0\n") is False
+    assert field.map_flag_active(" 0 ") is False
+
+
+def test_map_trigger_option_defaults_to_the_script_and_accepts_ui(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(field, "load", lambda path: ({}, {}))
+    monkeypatch.setattr(field, "run", lambda *a, **k: seen.update(k) or {"forced_verdict": None})
+    assert field.main(["run", "cfg.json", "--output", "out"]) == 0
+    assert seen["map_trigger"] == "script"
+    assert field.main(["run", "cfg.json", "--output", "out", "--map-trigger", "ui"]) == 0
+    assert seen["map_trigger"] == "ui"
+    with pytest.raises(SystemExit):
+        field.main(["run", "cfg.json", "--output", "out", "--map-trigger", "never"])
+
+
+def test_ui_map_trigger_waits_for_the_tap_and_times_out_clearly():
+    reads = iter([None, "", ])
+    waited = field.wait_for_map_click(lambda: next(reads), timeout=5, interval=0)
+    assert waited is True
+    with pytest.raises(SystemExit, match="map"):
+        field.wait_for_map_click(lambda: "0", timeout=0.05, interval=0.01)
 
 
 def test_gateway_log_entries_become_short_port_lines_for_the_cockpit():

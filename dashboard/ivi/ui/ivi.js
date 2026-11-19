@@ -1,11 +1,6 @@
 // Pure helpers for Ivi.qml (free of QML globals so tests can run them under node).
+// Speed, rpm and gear are not shown here: the digital cluster above the strip already owns them.
 // Route and map maths live in geo.js.
-
-// Speed only comes from real CAN 0x200 frames; without a live bus (or before the first read) show a quiet placeholder.
-function speedText(nav, canLive) {
-    if (!canLive || !nav || typeof nav.speed !== "number") return "--"
-    return String(Math.round(nav.speed))
-}
 
 function clockText(date) {
     var h = date.getHours(), m = date.getMinutes()

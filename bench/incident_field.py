@@ -196,10 +196,22 @@ def feeder_command(pi3_address, interval=0.5, ivi_ui=None):
             *(["--ivi-ui", str(ivi_ui)] if ivi_ui else []), "--interval", str(interval)]
 
 
+def map_flag_active(content):
+    """Same rule as dashboard/ivi/ivi.py: the file exists (content is not None) and its text is not "0"."""
+    return content is not None and content.strip() != "0"
+
+
+def wait_for_map_click(read_flag, timeout=900, interval=1.0):
+    """Poll the flag content (None = missing) until the user's tap on the map tile makes it active."""
+    if not wait_for(lambda: map_flag_active(read_flag()), timeout, interval):
+        raise SystemExit(f"nobody tapped the map (navigation) tile within {timeout:.0f} s; {MAP_FLAG} never became active")
+    return True
+
+
 def cockpit_ui_command():
     """The whole monitoring screen, fullscreen on the HDMI monitor's own desktop session (not the private Xvfb)."""
     return (f"cd {SCREEN}/cockpit 2>/dev/null; env QT_QPA_PLATFORM=wayland XDG_RUNTIME_DIR=/run/user/1000 "
-            f"WAYLAND_DISPLAY=wayland-0 nohup setsid taskset -c 1-3 qmlscene {SCREEN}/cockpit/Cockpit.qml "
+            f"QML_XHR_ALLOW_FILE_READ=1 QML_XHR_ALLOW_FILE_WRITE=1 WAYLAND_DISPLAY=wayland-0 nohup setsid taskset -c 1-3 qmlscene {SCREEN}/cockpit/Cockpit.qml "
             f"> {SCREEN}/ui.log 2>&1 < /dev/null & echo started")
 
 
@@ -363,7 +375,8 @@ def require_baseline(status, config):
         raise SystemExit(f"Pi2 IVI is not at a stable baseline {wanted}: " + json.dumps(status))
 
 
-def run(config, boards, output, verdict="forced", decision="human", attack=True, log=print, screen=False):
+def run(config, boards, output, verdict="forced", decision="human", attack=True, log=print, screen=False,
+        map_trigger="script"):
     output = Path(output).absolute()
     output.mkdir(parents=True, exist_ok=False)
     pi1, pi2 = boards["pi1"], boards["pi2"]
@@ -470,9 +483,16 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
             result["attack_response"] = push(pi1_wifi, GATEWAY_PORT, "A", archive)
             note("attack_through_gateway", response=result["attack_response"])
         if verdict == "real":
-            time.sleep(8)
-            pi2.run(f"touch {MAP_FLAG}")  # the map screen opens: V3's background workers start
-            note("map_opened", flag=MAP_FLAG)
+            if map_trigger == "script":
+                time.sleep(8)
+                pi2.run(f"touch {MAP_FLAG}")  # the map screen opens: V3's background workers start
+                note("map_opened", flag=MAP_FLAG, by="script")
+            else:
+                note("waiting_for_map_click", message="Tap the navigation (map) tile on Pi2's screen; "
+                     "that tap opens the map and starts the CPU contention.")
+                wait_for_map_click(lambda: (lambda r: r.stdout if r.returncode == 0 else None)(
+                    pi2.run(f"cat {MAP_FLAG}", check=False)), 900, 1.0)
+                note("map_opened", flag=MAP_FLAG, by="ui")
         incident = wait_for(lambda: server.incidents, 240 if verdict == "forced" else 600) if attack else None
         if attack and not incident:
             raise SystemExit("no incident reached the control centre")
@@ -530,6 +550,8 @@ def main(argv=None) -> int:
     parser.add_argument("--decision", choices=["human", "approve", "reject"], default="human")
     parser.add_argument("--no-attack", action="store_true", help="only watch the real detection and the normal rollback")
     parser.add_argument("--screen", action="store_true", help="show the whole cockpit on Pi2's HDMI monitor (needs --verdict real)")
+    parser.add_argument("--map-trigger", choices=["script", "ui"], default="script",
+                        help="script: touch the flag after the attack; ui: wait for the tap on the map tile of the cockpit screen (use with --screen)")
     args = parser.parse_args(argv)
     if args.screen and args.verdict != "real":
         parser.error("--screen needs --verdict real")
@@ -541,7 +563,8 @@ def main(argv=None) -> int:
     else:
         if args.output is None:
             parser.error("run needs --output")
-        outcome = run(config, boards, args.output, args.verdict, args.decision, attack=not args.no_attack, screen=args.screen)
+        outcome = run(config, boards, args.output, args.verdict, args.decision, attack=not args.no_attack, screen=args.screen,
+                       map_trigger=args.map_trigger)
         print(json.dumps({"final": outcome.get("pi2_final"), "forced_verdict": outcome["forced_verdict"]}))
     return 0
 

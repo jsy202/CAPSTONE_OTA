@@ -22,13 +22,8 @@ def run_node(script):
     return json.loads(result.stdout)
 
 
-def test_speed_and_clock_helpers():
+def test_clock_and_sample_helpers():
     out = run_node(r"""
-assert.strictEqual(speedText({speed: 59.6}, true), '60');
-assert.strictEqual(speedText({speed: 0}, true), '0');
-assert.strictEqual(speedText({speed: 12}, false), '--');   // no live CAN: a quiet placeholder, never a number
-assert.strictEqual(speedText({}, true), '--');             // nothing read yet
-assert.strictEqual(speedText(null, true), '--');
 assert.strictEqual(clockText(new Date(2026, 0, 1, 11, 30)), '오전 11:30');
 assert.strictEqual(clockText(new Date(2026, 0, 1, 0, 5)), '오전 12:05');
 assert.strictEqual(clockText(new Date(2026, 0, 1, 15, 7)), '오후 3:07');
@@ -68,7 +63,7 @@ def test_qml_text_sizes_come_from_tokens_and_are_legible():
     ui = QML.parent
     theme = (ui / 'Theme.qml').read_text()
     scale = [int(n) for n in re.findall(r'readonly property int t[A-Z]\w*:\s*(\d+)', theme)]
-    assert scale and min(scale) >= 28 and max(scale) >= 120
+    assert scale and min(scale) >= 28
     for qml in ui.glob('*.qml'):
         for n in re.findall(r'pixelSize:\s*(\d+)', qml.read_text()):
             assert int(n) >= 28, (qml.name, n)
@@ -89,3 +84,11 @@ def test_no_dead_files_ship_in_the_ui_dir():
             continue
         needle = str(path.relative_to(ui)) if path.suffix == '.png' else path.stem
         assert any(needle in text for name, text in texts.items() if name != path.name), path.name
+
+
+def test_strip_does_not_repeat_what_the_cluster_above_shows():
+    # Ivi.qml is only the bottom strip of the cockpit; speed, rpm and gear belong to the digital cluster.
+    text = re.sub(r'//[^\n]*', '', QML.read_text()).lower()   # code only, not comments
+    for word in ('km/h', 'rpm', 'speedtext', 'nav.speed'):
+        assert word not in text, word
+    assert 'speedText' not in HELPER.read_text()
