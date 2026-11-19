@@ -316,7 +316,11 @@ def integrity_command():
 
 def check_committed_slot(pi2):
     done = pi2.run(" ".join(integrity_command()), check=False, timeout=120)
-    if done.returncode:
+    try:  # the CLI exits 2 for result=rolled_back (a valid stable state), so judge the answer, not the exit code
+        healthy_answer = json.loads(done.stdout).get("phase") == "stable"
+    except ValueError:
+        healthy_answer = False
+    if "OTA error" in done.stderr or not healthy_answer:
         raise SystemExit("Pi2's committed slot fails its recorded tree hash, so the device refuses updates (a previous run left it "
                          "tampered). Restore it before running: " + (done.stderr or done.stdout)[-300:].strip())
 

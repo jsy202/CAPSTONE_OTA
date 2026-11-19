@@ -135,3 +135,12 @@ def test_a_tampered_committed_slot_stops_the_run_before_anything_is_started():
         def run(self, command, **kwargs):
             return subprocess.CompletedProcess(command, 0, '{"phase": "stable"}', "")
     field.check_committed_slot(Fine())
+
+
+def test_a_rolled_back_but_healthy_device_passes_the_slot_check_despite_exit_code_2():
+    import subprocess
+
+    class RolledBack:  # the CLI exits 2 for result=rolled_back, which is a valid stable state
+        def run(self, command, **kwargs):
+            return subprocess.CompletedProcess(command, 2, '{"phase": "stable", "result": "rolled_back"}', "")
+    field.check_committed_slot(RolledBack())
