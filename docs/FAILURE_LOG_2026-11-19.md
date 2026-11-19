@@ -281,3 +281,13 @@ Run B3  수정 후      공격 슬롯 B == 보고 슬롯 B, 해시 9942e1c13d23 
 - 측정은 1회(약 1분)이다. `Canvas.Threaded` 뒤 클러스터 프로세스 CPU는 약 22%에서 약 58%로 올랐다(스레드 합계).
 - 50 Hz에서 **지도 부하 감지(지연 900 ms 이상)가 여전히 잡히는지는 아직 측정하지 않았다.** 시연 전에 반드시 확인해야 한다.
 - 설정 `profile_hz`(기본 10)가 주행 프로파일 주기와 감시기 기준선을 함께 정한다.
+
+### 50 Hz 실제 감지 확인과 새 IVI 기준선 (2026-11-20)
+
+- 지도 데이터가 빠진 3.1.0/3.2.0 대신 `--map`을 넣어 **V2 3.3.0 (svn 5) / V3 3.4.0 (svn 6)** 을 다시 만들고 일반 OTA로 Pi2에 설치했다(`ivi_rebaseline`). V3 릴리스에 `map.json`이 들어 있음을 `tar tzf`로 확인했다. 장치 슬롯 검사 통과.
+- `bench.incident_field run --verdict real --decision approve`를 `profile_hz=50`으로 1회 실행했다(`.demo/hz50-verify`, `forced_verdict: false`).
+  - 지도를 열기 전: 감시기 `observing / normal`, 최근 지연 약 17 ms.
+  - 지도를 연 뒤: Pi3가 `confirmed / freeze`, 근거 `latency_limit, latency_p99, cusum, freeze_gap, skip_ratio`, 최근 지연 약 960~1430 ms.
+  - 복구 승인 뒤 게이트가 닫혀 재공격은 `ERROR gateway closed`, 장치는 `stable / rolled_back / 3.3.0`, 슬롯 검사 통과, 감시기는 다시 `normal`.
+- 이 실행의 승인은 사람이 아니라 내(`--decision approve`)가 했다. 사람이 지도 타일을 직접 누르는 시연은 아직 이 설정으로 하지 않았다. 반복 측정이 아니라 1회다.
+- 실행이 끝나면 클러스터·IVI 서비스는 정지 상태가 된다(오케스트레이터가 정리).
