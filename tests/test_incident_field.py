@@ -144,3 +144,10 @@ def test_a_rolled_back_but_healthy_device_passes_the_slot_check_despite_exit_cod
         def run(self, command, **kwargs):
             return subprocess.CompletedProcess(command, 2, '{"phase": "stable", "result": "rolled_back"}', "")
     field.check_committed_slot(RolledBack())
+
+
+def test_the_screen_can_be_started_with_a_preview_ivi_ui_without_changing_the_default_command():
+    plain = field.feeder_command("172.20.10.4", 0.1)
+    assert "--ivi-ui" not in plain and plain[-2:] == ["--interval", "0.1"]
+    preview = field.feeder_command("172.20.10.4", 0.1, ivi_ui="/home/otauser/x/ui")
+    assert preview[preview.index("--ivi-ui") + 1] == "/home/otauser/x/ui" and preview[-2:] == ["--interval", "0.1"]
