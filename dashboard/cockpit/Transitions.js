@@ -1,8 +1,8 @@
 // Ordered display events, independent of animation speed and telemetry polling frequency.
 function versionText(ota) {
     if (!ota) return "—";
-    if (ota.stage === "recovery_failed") return "복구 실패";
     var version = ota.version || "—", candidate = ota.candidate;
+    if (ota.stage === "recovery_failed") return version;
     if (ota.stage === "committed" || ota.stage === "rolled_back") return version;
     if (!candidate || candidate === version) return version;
     if (ota.stage === "recover" || ota.stage === "recovery_verified" || ota.stage === "recheck")
@@ -51,12 +51,12 @@ function consume(state, ota) {
 var PHASES = {
     download_and_verify: ["업데이트 준비", 0.04, "update"], metadata: ["업데이트 정보 확인", 0.08, "update"], signature: ["서명 확인 중", 0.16, "update"],
     signature_verified: ["서명 확인 완료", 0.22, "update"], archive_verify: ["받은 파일 검사", 0.46, "update"],
-    install: ["설치 중", 0.58, "update"], trial: ["시험 운전 중", 0.72, "update"], verify: ["성능 검증 중", 0.85, "update"],
-    verification_failed: ["검증 실패", 0.85, "rollback"], recover: ["이전 버전으로 되돌리는 중", 0.3, "rollback"],
-    recovery_verified: ["복구본 검사 통과", 0.65, "rollback"], recheck: ["복구 후 재검증", 0.85, "rollback"],
+    install: ["설치 중", 0.58, "update"], trial: ["시운전 중", 0.72, "update"], verify: ["성능 검증 중", 0.85, "update"],
+    verification_failed: ["검증 실패", 0.85, "rollback"], recover: ["롤백 중 · 이전 버전으로", 0.3, "rollback"],
+    recovery_verified: ["이전 버전 검사 통과", 0.65, "rollback"], recheck: ["롤백 후 재검증", 0.85, "rollback"],
     rolled_back: ["롤백 완료", 1, "done"], committed: ["업데이트 완료", 1, "done"],
-    recovery_failed: ["복구 실패 · 점검 필요", 0.6, "failed"], failed: ["업데이트 실패", 0.4, "failed"],
-    service_stopped_after_recovery_failure: ["실패한 앱 정지", 0.6, "failed"],
+    recovery_failed: ["복구 거부 · 실행 차단", 0.6, "failed"], failed: ["업데이트 실패", 0.4, "failed"],
+    service_stopped_after_recovery_failure: ["실패한 앱 중지됨", 0.6, "failed"],
     error: ["오류", 0.3, "failed"]
 };
 
@@ -72,6 +72,6 @@ function phase(ota) {
     if (ota.stage === "error" && String(ota.detail || "").indexOf("recovery failed") === 0)
         return {label: PHASES.recovery_failed[0], fraction: PHASES.recovery_failed[1], kind: "failed", percent: ""};
     var row = PHASES[ota.stage];
-    if (!row) return {label: ota.stage, fraction: 0.5, kind: "update", percent: ""};
+    if (!row) return {label: "진행 중", fraction: 0.5, kind: "update", percent: ""};
     return {label: row[0], fraction: row[1], kind: row[2], percent: ""};
 }

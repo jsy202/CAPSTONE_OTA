@@ -22,7 +22,7 @@ def test_collect_merges_sources_and_marks_missing_ones_as_none(tmp_path):
     assert data['ota']['version'] == '2.0.0' and data['ivi']['version'] == 'V2' and data['ivi_ui'].endswith('Ivi.qml')
     gone = make(tmp_path, cluster=lambda: None, pi3=lambda: None).collect()
     assert gone['cluster'] is None and gone['pi3'] is None
-    assert any('Pi3' in line['text'] and 'lost' in line['text'] for line in gone['log'])
+    assert any(line['text'] == '모니터: 신호 끊김' for line in gone['log'])
     json.dumps(data)
 
 
@@ -38,7 +38,7 @@ def test_state_changes_and_device_events_become_log_lines_once(tmp_path):
     events.append({'time': 2.0, 'event': 'recover'})
     third = feeder.collect()
     texts = [l['text'] for l in third['log']]
-    assert any('confirmed' in t and 'freeze' in t for t in texts) and describe_event('recover') in texts
+    assert '모니터: 한계 초과 확정 (freeze)' in texts and describe_event('recover') in texts
 
 
 def test_ivi_version_change_is_logged_and_log_is_bounded(tmp_path):
@@ -47,7 +47,7 @@ def test_ivi_version_change_is_logged_and_log_is_bounded(tmp_path):
     feeder.collect()
     ivi['v'] = {'version': 'V2', 'workers': 1, 'map_active': True}
     texts = [l['text'] for l in feeder.collect()['log']]
-    assert any('V2' in t for t in texts)
+    assert '화면 앱 V2 실행 중' in texts
     for i in range(40):
         ivi['v'] = {'version': 'V%d' % (i % 2 + 2), 'workers': 0, 'map_active': False}
         feeder.collect()
@@ -55,8 +55,21 @@ def test_ivi_version_change_is_logged_and_log_is_bounded(tmp_path):
 
 
 def test_unknown_events_are_described_not_dropped():
-    assert describe_event('something_new') == 'Device: something_new'
-    assert 'Rollback' in describe_event('recover') and 'Trial' in describe_event('trial')
+    assert describe_event('something_new') == '장치: something_new'
+    assert describe_event('download_and_verify') == '업데이트: 서명된 릴리스를 내려받는 중'
+    assert describe_event('trial') == '시운전: 새 버전 설치, 시험 중'
+    assert describe_event('committed') == '확정: 새 버전 최종 승인'
+    assert describe_event('recover') == '롤백: 이전 버전으로 되돌리는 중'
+    assert describe_event('recovery_verified') == '롤백: 이전 버전 검사 통과'
+    assert describe_event('recovery_failed') == '롤백 실패: 수동 점검 필요'
+
+
+def test_monitor_state_lines_are_korean(tmp_path):
+    state = {'pi3': {'state': 'observing', 'cls': 'normal'}}
+    feeder = make(tmp_path, pi3=lambda: state['pi3'])
+    assert '모니터: 정상 관측' in [l['text'] for l in feeder.collect()['log']]
+    state['pi3'] = {'state': 'suspect', 'cls': 'freeze'}
+    assert '모니터: 징후 포착 (freeze)' in [l['text'] for l in feeder.collect()['log']]
 
 
 def test_write_is_atomic_and_world_readable(tmp_path):

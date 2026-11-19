@@ -27,10 +27,10 @@ Window {
     readonly property color critical: "#ff3b30"
     readonly property color success: "#22c55e"     // a successful commit only -- never used for anything ambient
     readonly property color ink: "#eef1f6"
-    readonly property color inkMuted: "#7c8696"
+    readonly property color inkMuted: "#9aa5b6"
     readonly property color hairline: Qt.rgba(1, 1, 1, 0.09)
     readonly property color stateColor: pstate === "confirmed" ? critical : pstate === "suspect" ? warn
-                                      : pstate === "observing" ? accent : inkMuted
+                                      : pstate === "observing" ? accent : warn
 
     FontLoader { id: fGroteskBold; source: "fonts/SpaceGrotesk-Bold.ttf" }
     FontLoader { id: fGroteskMed; source: "fonts/SpaceGrotesk-Medium.ttf" }
@@ -61,7 +61,12 @@ Window {
         var rows = ota.timeline || []
         var run = ota.timeline_id ? String(ota.timeline_id) : ""
         if (run !== stageRun) { stageRun = run; stagesSeen = _haveSnapshot ? 0 : rows.length }
-        for (; stagesSeen < rows.length; stagesSeen++) stageQueue.push(rows[stagesSeen])
+        for (; stagesSeen < rows.length; stagesSeen++) {
+            var row = rows[stagesSeen]
+            // A refused recovery shows at once so the gauge never lags the alert band.
+            if (Transitions.phase(row).kind === "failed") { stageQueue = []; shownOta = row; stageTimer.restart() }
+            else stageQueue.push(row)
+        }
         if (stageQueue.length && !stageTimer.running) { shownOta = stageQueue.shift(); stageTimer.restart() }
     }
     onOtaChanged: {
@@ -81,13 +86,6 @@ Window {
     }
     Timer { interval: 400; running: true; repeat: true; triggeredOnStart: true; onTriggered: win.readData() }
 
-    function stageFraction(stage) {
-        var map = {metadata: 0.08, signature: 0.16, signature_verified: 0.22, download: 0.32, archive_verify: 0.45,
-                   install: 0.58, trial: 0.72, verify: 0.85, verification_failed: 0.85, recover: 0.72,
-                   recovery_verified: 0.88, recheck: 0.94, committed: 1.0, rolled_back: 1.0,
-                   recovery_failed: 0.6, failed: 0.4, error: 0.3}
-        return map[stage] !== undefined ? map[stage] : 0
-    }
     function lerp(a, b, t) { return a + (b - a) * Math.max(0, Math.min(1, t)) }
     function rampColor(ratio) {
         if (ratio <= 0.65) return win.accent
@@ -158,50 +156,58 @@ Window {
                         font.family: fGroteskMed.name; font.pixelSize: 48; transformOrigin: Item.Left
                         text: Transitions.versionText(win.ota)
                         SequentialAnimation { id: completePulse
+                            // wait for the alert band (y0..190, ~2.3 s) to leave before popping the version
+                            PauseAnimation { duration: 2400 }
                             NumberAnimation { target: verText; property: "scale"; to: 1.14; duration: 140; easing.type: Easing.OutQuad }
                             NumberAnimation { target: verText; property: "scale"; to: 1.0; duration: 260; easing.type: Easing.OutBack; easing.overshoot: 2.0 } } } }
             }
-            Rectangle { x: 32; y: 184; width: panel.width - 64; height: 1; color: win.hairline }
+            Rectangle { x: 32; y: 190; width: panel.width - 64; height: 1; color: win.hairline }
 
             // the one big causal visual: live cluster processing delay vs. its limit
-            Text { x: 32; y: 194; text: "계기판 처리 지연"; color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28 }
-            Row { x: 32; y: 228; spacing: 14; height: 100
+            // fixed line heights keep every box inside its row (measured natural heights: 28px=42, 58px=75, 92px=118)
+            Text { x: 32; y: 200; text: "계기판 처리 지연"; color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28
+                lineHeightMode: Text.FixedHeight; lineHeight: 34 }
+            Row { x: 32; y: 232; spacing: 14; height: 110
                 Text { text: panel.rawDelay === null || panel.rawDelay === undefined ? "--" : Math.round(panel.displayDelay)
                     color: panel.tone; font.family: fGroteskBold.name; font.pixelSize: 92
+                    lineHeightMode: Text.FixedHeight; lineHeight: 108
                     Behavior on color { ColorAnimation { duration: 450 } } }
                 Text { text: "ms"; color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 34
                     anchors.bottom: parent.bottom; anchors.bottomMargin: 8 } }
-            Rectangle { x: 32; y: 338; width: panel.width - 64; height: 12; color: "#11151b"
+            Rectangle { x: 32; y: 342; width: panel.width - 64; height: 12; color: "#11151b"
                 Rectangle { width: parent.width * Math.min(1, panel.ratio * 0.62); height: parent.height
                     color: panel.tone
                     Behavior on width { NumberAnimation { duration: 650; easing.type: Easing.OutCubic } }
                     Behavior on color { ColorAnimation { duration: 450 } } }
                 Rectangle { x: parent.width * 0.62 - 1; width: 3; height: parent.height; color: win.ink; opacity: 0.6 } }
+            // limit label beside the marker, right-aligned so it never touches the delay number
+            Text { x: panel.width - 32 - width; y: 342 - 34 - 2; lineHeightMode: Text.FixedHeight; lineHeight: 34; text: "한계 " + Math.round(panel.limitMs) + " ms"
+                color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28 }
 
             // status: a flat left-edge stripe, not a filled rounded pill
-            Row { x: 32; y: 364; width: panel.width - 64; height: 48; spacing: 16
+            Row { x: 32; y: 366; width: panel.width - 64; height: 48; spacing: 16
                 Rectangle { width: 5; height: parent.height; color: win.stateColor
                     Behavior on color { ColorAnimation { duration: 400 } } }
                 Text { anchors.verticalCenter: parent.verticalCenter; color: win.stateColor; font.family: fGroteskMed.name; font.pixelSize: 34
                     Behavior on color { ColorAnimation { duration: 400 } }
-                    text: win.pstate === "confirmed" ? "한계 초과 · 복구 결정"
+                    text: win.pstate === "confirmed" ? "한계 초과 · 롤백 판단"
                         : win.pstate === "suspect" ? "징후 포착 · 관찰 중"
-                        : win.pstate === "observing" ? "정상 관측 중" : "Pi3 신호 없음" } }
+                        : win.pstate === "observing" ? "정상 관측 중" : "모니터 신호 없음" } }
 
             // CAN truth vs. what the cluster shows
-            Row { x: 32; y: 430; width: panel.width - 64; height: 100
+            Row { x: 32; y: 432; width: panel.width - 64; height: 106
                 readonly property bool lagging: panel.shown !== null && panel.shown !== undefined && panel.shown.behind_frames >= 3
                 Column { width: parent.width / 2; spacing: 0
-                    Text { color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 26; text: "차량 속도 (CAN)" }
+                    Text { color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28; text: "차량 속도 (CAN)"; lineHeightMode: Text.FixedHeight; lineHeight: 34 }
                     Row { spacing: 8
-                        Text { color: win.accent; font.family: fGroteskBold.name; font.pixelSize: 58; text: panel.can ? Math.round(panel.can.speed) : "--" }
-                        Text { color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 26; anchors.bottom: parent.bottom; anchors.bottomMargin: 10; text: "km/h" } } }
+                        Text { color: win.accent; font.family: fGroteskBold.name; font.pixelSize: 58; lineHeightMode: Text.FixedHeight; lineHeight: 70; text: panel.can ? Math.round(panel.can.speed) : "--" }
+                        Text { color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28; anchors.bottom: parent.bottom; anchors.bottomMargin: 10; text: "km/h" } } }
                 Column { x: parent.width / 2 + 24; width: parent.width / 2 - 24; spacing: 0
-                    Text { color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 26; text: "계기판 표시" }
+                    Text { color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28; text: "계기판 표시"; lineHeightMode: Text.FixedHeight; lineHeight: 34 }
                     Row { spacing: 8
-                        Text { color: parent.parent.parent.lagging ? win.critical : win.ink; font.family: fGroteskBold.name; font.pixelSize: 58
+                        Text { color: parent.parent.parent.lagging ? win.critical : win.ink; font.family: fGroteskBold.name; font.pixelSize: 58; lineHeightMode: Text.FixedHeight; lineHeight: 70
                             text: panel.shown ? Math.round(panel.shown.speed) : "--" }
-                        Text { color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 26; anchors.bottom: parent.bottom; anchors.bottomMargin: 10; text: "km/h" } } } }
+                        Text { color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28; anchors.bottom: parent.bottom; anchors.bottomMargin: 10; text: "km/h" } } } }
         }
 
         // ---------------- IVI of the current slot (real app, live — untouched) ----------------
@@ -210,18 +216,28 @@ Window {
                 source: win.d.ivi_ui ? win.d.ivi_ui : ""
                 onLoaded: if (item && item.hasOwnProperty("runDir")) item.runDir = "file:///run/capstone-ivi/" }
             Text { visible: iviLoader.status !== Loader.Ready; anchors.centerIn: parent; color: win.inkMuted; font.family: fSans.name; font.pixelSize: 32
-                text: win.d.ivi_ui ? "IVI loading…" : "IVI not installed" }
+                text: win.d.ivi_ui ? "IVI 불러오는 중" : "IVI 설치 안 됨" }
         }
 
-        // ---------------- event log (unchanged) ----------------
+        // ---------------- event log: left = vehicle/monitor lines, right = port lines (never pushed out) ----------------
         Rectangle { x: 0; y: 1215; width: 2160; height: 225; color: "#070a10"
+            id: logArea
+            readonly property var rows: win.d.log ? win.d.log : []
+            function isPort(text) { return text.indexOf("진단 포트") === 0 || text.indexOf("정비 포트") === 0 }
+            function lineColor(text) {
+                if (isPort(text)) return text.indexOf("닫힘") >= 0 || text.indexOf("거부") >= 0 ? win.success : win.warn
+                if (text.indexOf("롤백") === 0 || text.indexOf("한계 초과") >= 0) return "#ff8a8a"
+                if (text.indexOf("확정") === 0) return win.accent
+                return "#aeb9cc"
+            }
             Rectangle { width: parent.width; height: 1; color: win.hairline }
-            Column { x: 28; y: 12; spacing: 4
-                Repeater { model: win.d.log ? win.d.log.slice(-5) : []
-                    Text { color: modelData.text.indexOf("Rollback") === 0 || modelData.text.indexOf("confirmed") >= 0 ? "#ff8a8a"
-                                : modelData.text.indexOf("진단 포트 닫힘") === 0 || modelData.text.indexOf("정비 포트") === 0 && modelData.text.indexOf("닫힘") > 0 ? win.success
-                                : modelData.text.indexOf("진단 포트") === 0 || modelData.text.indexOf("정비 포트") === 0 ? win.warn
-                                : modelData.text.indexOf("Commit") === 0 ? win.accent : "#aeb9cc"
+            Column { x: 28; y: 12; spacing: 0; width: 1040
+                Repeater { model: logArea.rows.filter(function (r) { return !logArea.isPort(r.text) }).slice(-4)
+                    Text { width: parent.width; elide: Text.ElideRight; color: logArea.lineColor(modelData.text)
+                        font.family: fSansMed.name; font.pixelSize: 28; text: modelData.t + "   " + modelData.text } } }
+            Column { x: 1100; y: 12; spacing: 0; width: 1032
+                Repeater { model: logArea.rows.filter(function (r) { return logArea.isPort(r.text) }).slice(-4)
+                    Text { width: parent.width; elide: Text.ElideRight; color: logArea.lineColor(modelData.text)
                         font.family: fSansMed.name; font.pixelSize: 28; text: modelData.t + "   " + modelData.text } } }
         }
 

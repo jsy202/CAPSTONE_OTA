@@ -232,6 +232,10 @@ def port_line(entry):
     return f"진단 포트 · 요청 거부 ({source})"
 
 
+def gateway_final_line():
+    return f"진단 포트 {GATEWAY_PORT} 닫힘 · 게이트웨이 종료"
+
+
 def show_port(pi2, text):
     """Append one line to the cockpit's log (the feeder reads it; display only)."""
     row = json.dumps({"text": text}, ensure_ascii=False)  # the feeder stamps Pi2's own clock, not the laptop's
@@ -460,7 +464,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
         pi1.run("pkill -f '[c]apstone_ota.central_incident'; true", check=False)
         gateway_stop.set()
         if screen and verdict == "real":
-            show_port(pi2, f"진단 포트 {GATEWAY_PORT} 종료")
+            show_port(pi2, gateway_final_line())
             show_port(pi2, f"정비 포트 {MAINTENANCE_PORT} 닫힘")
         if verdict == "real":
             subprocess.run([*boards["pi3"].ssh, f"[ -d {MONITOR_DIR} ] && tar -C {MONITOR_DIR} -cf - evidence verdict.json monitor.log"],

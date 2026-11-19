@@ -99,3 +99,7 @@ def test_a_slow_pi3_read_is_a_missing_sample_not_a_crash():
 def test_the_run_has_no_two_things_called_watching():
     source = (field.ROOT / "bench" / "incident_field.py").read_text()
     assert source.count("watching = ") == 1 and "watching.set()" not in source  # the old `watching` is a dict, not an Event
+
+
+def test_final_gateway_port_line_says_closed_not_just_ended():
+    assert field.gateway_final_line() == f"진단 포트 {field.GATEWAY_PORT} 닫힘 · 게이트웨이 종료"
