@@ -4,3 +4,4 @@ DockTile 1.0 DockTile.qml
 MapButton 1.0 MapButton.qml
 Readout 1.0 Readout.qml
 Card 1.0 Card.qml
+RoadMap 1.0 RoadMap.qml

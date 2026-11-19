@@ -4,12 +4,12 @@ import QtQuick 2.15
 // Design tokens for the head unit. Every colour, space, radius, type size and icon size in the UI comes from here.
 QtObject {
     // colour roles
-    readonly property color bg: "#0b0c10"          // screen
-    readonly property color surface: "#14161b"     // map ground, panels sitting on the screen
-    readonly property color overlay: "#2a2c32"     // floating cards and square buttons over the map
-    readonly property color overlayLine: "#3a3d45"
-    readonly property color accent: "#1e9bff"      // the one signature blue
-    readonly property color accentDim: "#2c5d8c"   // travelled part of the route
+    readonly property color bg: "#131417"          // screen
+    readonly property color surface: "#16181c"     // map ground, panels sitting on the screen
+    readonly property color overlay: "#313236"     // floating cards and square buttons over the map
+    readonly property color overlayLine: "#44464e"
+    readonly property color accent: "#1fa6f9"      // the one signature blue
+    readonly property color accentDim: "#2a5f8a"   // travelled part of the route
     readonly property color media: "#8a5cf6"       // media tile hue, used by the player panel
     readonly property color ink: "#ffffff"
     readonly property color inkMuted: "#a9b0bd"
@@ -36,7 +36,7 @@ QtObject {
     readonly property int tMd: 36
     readonly property int tLg: 44
     readonly property int tXl: 56
-    readonly property int tNum: 220
+    readonly property int tNum: 132
 
     // icons: one 48 grid, one 4-unit stroke (see icons.js), two display sizes
     readonly property int iconGrid: 48
