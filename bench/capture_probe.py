@@ -43,8 +43,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     config, boards = field.load(args.config)
     baseline = field.pi2_status(boards["pi2"])
-    if baseline["version"] != "2.0.0" or baseline["phase"] != "stable":
-        raise SystemExit("Pi2 is not at a stable V2: " + json.dumps(baseline))
+    field.require_baseline(baseline, config)
     field.check_committed_slot(boards["pi2"])
     results = []
     field.start_real_services(boards, print)

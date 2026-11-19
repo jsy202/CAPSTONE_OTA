@@ -334,6 +334,34 @@ def pi2_status(pi2):
         raise RuntimeError(f"cannot read Pi2 status: {done.stderr[-300:]}") from exc
 
 
+DEFAULT_BASELINE = "2.0.0"
+ATTACK_VERSION = "1.0.0"
+
+
+def baseline_version(config):
+    """The IVI version Pi2 must be committed at (config key "baseline_version", default unchanged)."""
+    return str(config.get("baseline_version", DEFAULT_BASELINE))
+
+
+def release_labels(config):
+    """Incident server: committed version -> release directory that repairs it."""
+    return {baseline_version(config): "v2"}
+
+
+def attack_version(baseline):
+    """The planted image must be an OLDER version than the baseline, or the device would not treat it as a downgrade."""
+    from capstone_ota.bundle import version_key
+    if version_key(ATTACK_VERSION) >= version_key(baseline):
+        raise SystemExit(f"the attack image {ATTACK_VERSION} must be older than the baseline {baseline}")
+    return ATTACK_VERSION
+
+
+def require_baseline(status, config):
+    wanted = baseline_version(config)
+    if status["version"] != wanted or status["phase"] != "stable":
+        raise SystemExit(f"Pi2 IVI is not at a stable baseline {wanted}: " + json.dumps(status))
+
+
 def run(config, boards, output, verdict="forced", decision="human", attack=True, log=print, screen=False):
     output = Path(output).absolute()
     output.mkdir(parents=True, exist_ok=False)
@@ -347,8 +375,8 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
         log(f"[{step}] " + " ".join(f"{k}={v}" for k, v in fields.items() if k != "detail"))
 
     baseline = pi2_status(pi2)
-    if baseline["version"] != "2.0.0" or baseline["phase"] != "stable":
-        raise SystemExit("Pi2 IVI is not at a stable V2 baseline: " + json.dumps(baseline))
+    require_baseline(baseline, config)
+    attack_as = attack_version(baseline_version(config))
     check_committed_slot(pi2)
     note("baseline", status=baseline)
 
@@ -357,7 +385,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
     staging = output / "attack-payload"
     payload(staging, "V2")
     (staging / "old-release.txt").write_text("IVI 1.0.0 (downgrade image planted through the maintenance port)\n")
-    pack(staging, output / "attack/v1", "1.0.0", 1, key)
+    pack(staging, output / "attack/v1", attack_as, 1, key)
     archive = output / "attack/v1/app.tar.gz"
 
     # Control centre on the laptop; Pi1 reports to it over Wi-Fi.
@@ -371,7 +399,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
     order_pub.write_bytes(private.public_key().public_bytes(serialization.Encoding.PEM,
                                                             serialization.PublicFormat.SubjectPublicKeyInfo))
     server = IncidentServer((laptop, SERVER_PORT), releases / "releases", output / "incidents.json", order_key,
-                            {"2.0.0": "v2"}, order_lifetime=600.0)
+                            release_labels(config), order_lifetime=600.0)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     server_url = f"http://{laptop}:{SERVER_PORT}"
     note("control_centre", url=server_url)
