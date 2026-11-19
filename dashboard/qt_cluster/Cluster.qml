@@ -95,7 +95,7 @@ Item {
         Canvas {
             id: live
             anchors.fill: parent
-            renderStrategy: Canvas.Cooperative
+            renderStrategy: Canvas.Threaded      // JS painting must not hold the thread that answers CAN frames
             property real v: ring.value
             onVChanged: requestPaint()
             onPaint: {
