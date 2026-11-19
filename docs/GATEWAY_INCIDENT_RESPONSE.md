@@ -46,7 +46,7 @@ Pi2: 서명·커밋 기록과 동일 릴리스·tree hash 확인 → V2 설치 �
 
 ## 한계 (정직하게)
 
-- **V3 실패 판정은 강제**다. Pi3의 실제 CPU 경합 감지가 아니다. 결과 파일에 `forced_verdict: true`로 표시한다.
+- `--verdict forced`의 V3 실패 판정은 강제다(결과 `forced_verdict: true`). `--verdict real`은 Pi3 감시기가 실제로 판정하며 `forced_verdict: false`다. 정차 구간의 판정만 롤백/복구 거부로 이어진다.
 - 로컬 시험(`demo.incident_drill`)은 모든 구성요소가 한 대의 노트북에서 도는 프로세스다. 실보드 실행에서는 Pi2의 정비
   포트가 이더넷 주소에만 열려 노트북에서 직접 닿지 않는 것을 확인했다.
 - 서버는 HTTP이며 **운영자 로그인이 없다.** 승인 페이지에 접근할 수 있으면 누구나 클릭할 수 있다(실험망 전제).
@@ -75,7 +75,7 @@ Pi2: 서명·커밋 기록과 동일 릴리스·tree hash 확인 → V2 설치 �
 - [x] 노트북 서버에 Pi1→HTTP 보고, 지시서 검증이 실제 LAN에서 동작 (**승인은 자동 승인(`--decision approve`)으로 시험**, 사람이 브라우저에서 누르는 실행은 아직 안 함)
 - [x] 승인 후 `ivi-repair`가 진짜 SSH(제한된 키)로 Pi2에서 성공, `rolled_back` / V2 / 슬롯 A로 종료
 - [x] 게이트가 닫힌 뒤 재공격이 `ERROR gateway closed`로 거부
-- [ ] 실제 Pi3 감시기가 V3 지연을 판정할 때 같은 흐름이 이어지는지(강제 판정 제거)
+- [x] 실제 Pi3 감시기가 V3 지연을 판정할 때 같은 흐름이 이어지는지(`--verdict real`, 2026-11-19 1회, `forced_verdict: false`, Pi3 freeze-frame suspect→confirmed 확인; 반복 측정 아님)
 - [ ] 사람이 브라우저에서 승인 버튼을 누르는 실보드 실행
 - [ ] 서버를 끈 채로 사고를 내서 `maintenance_required`와 콕핏 표시가 의도대로인지
 

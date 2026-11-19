@@ -289,7 +289,7 @@ Pi2가 바꿔친 복구 슬롯을 거부해 `recovery_failed`가 되면 Pi1이 �
 .venv/bin/python -m demo.incident_drill run --output .demo/incident-drill   # 출력된 주소를 열어 승인 버튼 클릭
 ```
 
-V3 실패 판정은 강제이고, 모든 구성요소가 한 노트북의 프로세스라 Pi1 경유는 네트워크가 아니라 설정으로 지켜진다.
+로컬 시뮬레이션에서는 V3 실패 판정이 강제이고(실보드 `--verdict real`은 실제 Pi3 감지, 2026-11-19 1회 확인), 로컬에서는 모든 구성요소가 한 노트북의 프로세스라 Pi1 경유는 네트워크가 아니라 설정으로 지켜진다.
 흐름, 방어 범위, 한계, 실보드 검증 상태는 [GATEWAY_INCIDENT_RESPONSE.md](docs/GATEWAY_INCIDENT_RESPONSE.md)에 있다. 시행착오는 [FAILURE_LOG_2026-11-17.md](docs/FAILURE_LOG_2026-11-17.md), [FAILURE_LOG_2026-11-19.md](docs/FAILURE_LOG_2026-11-19.md)에 기록했다.
 
 **2026-11-19에 실제 보드 3대에서 실행했다**(`python -m bench.incident_field`): 노트북 → Pi1:7400 → 이더넷 → Pi2 경로로 공격이 도달하고,
