@@ -67,7 +67,8 @@ def serving_release(directory, bind="127.0.0.1", advertise=None):
 
 def target_command(config):
     required = {"host", "checkout", "python", "root", "public_key"}
-    optional = {"check_command", "initialization_only", "systemd", "application", "can_channel", "can_secret_file"}
+    optional = {"check_command", "initialization_only", "systemd", "application", "can_channel", "can_secret_file",
+                "repair_check_command"}  # used only by the incident responder, never by an update
     present = config.keys() if isinstance(config, dict) else set()
     has_can = "can_channel" in present or "can_secret_file" in present
     if (not isinstance(config, dict) or not required <= config.keys()
@@ -78,6 +79,8 @@ def target_command(config):
             or (has_can and any(not isinstance(config[k], str) or not config[k] or "\x00" in config[k]
                                  for k in ("can_channel", "can_secret_file")))):
         raise ValueError("invalid Cluster target configuration")
+    if "repair_check_command" in config:
+        check_command(config["repair_check_command"])  # The re-check after a restore is its own command.
     application = config.get("application", "cluster")
     if not isinstance(application, str) or application not in {"cluster", "ivi"}:
         raise ValueError("invalid target application")

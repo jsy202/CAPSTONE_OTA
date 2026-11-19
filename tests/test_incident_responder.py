@@ -247,3 +247,25 @@ def test_report_uses_the_device_answer_not_its_files(world):
     assert report["expected_tree_sha256"] == "aa" * 32 and report["observed_tree_sha256"] == "bb" * 32
     assert report["detail"] == "recovery application tree hash mismatch"
     assert report["committed_version"] == "2.0.0"
+
+
+def test_repair_uses_its_own_recheck_not_the_updates_check():
+    """The update's check (V3's trial) and the re-check after a restore are different commands."""
+    responder = IncidentResponder.__new__(IncidentResponder)
+    update_check, repair_check = ["/bin/update-check", "--trial"], ["/bin/repair-check", "--recheck"]
+    responder.target = {"host": "pi2", "checkout": "/srv/x", "python": "/srv/x/python", "root": "/srv/root",
+                        "public_key": "/srv/key.pub", "check_command": update_check,
+                        "repair_check_command": repair_check, "application": "ivi"}
+    remote = responder._repair_command("http://10.77.0.1:5")[-1]
+    assert json.dumps(repair_check) in remote and "update-check" not in remote
+
+
+def test_target_may_name_a_repair_recheck_but_it_must_be_a_command():
+    from capstone_ota.relay import target_command
+    base = {"host": "pi2", "checkout": "/srv/x", "python": "/srv/x/python", "root": "/srv/root",
+            "public_key": "/srv/key.pub", "check_command": ["/bin/c"], "application": "ivi"}
+    arguments = target_command(dict(base, repair_check_command=["/bin/r"]))
+    assert "/bin/r" not in " ".join(arguments)  # the update never uses it
+    for bad in ("not a list", [], [""], [1]):
+        with pytest.raises(ValueError):
+            target_command(dict(base, repair_check_command=bad))

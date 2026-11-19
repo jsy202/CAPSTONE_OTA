@@ -147,6 +147,9 @@ class IncidentResponder:
                 skip = True  # repair uses the key pinned on the device
             elif argument != "--systemd":
                 command.append(argument)
+        if "repair_check_command" in self.target:
+            # The update's check judges a trial; the re-check after a restore is a different command.
+            command[command.index("--check-command") + 1] = json.dumps(self.target["repair_check_command"])
         remote = "cd " + shlex.quote(self.target["checkout"]) + " && " + shlex.join([*command, relay_url])
         return ["ssh", "-oBatchMode=yes", "-oStrictHostKeyChecking=yes", "-oConnectTimeout=5",
                 self.target["host"], remote]
