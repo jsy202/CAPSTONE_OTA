@@ -23,7 +23,12 @@ EVENT_TEXT = {
     'recover': '롤백: 이전 버전으로 되돌리는 중',
     'recovery_verified': '롤백: 이전 버전 검사 통과',
     'recovery_failed': '롤백 실패: 수동 점검 필요',
+    'service_stopped_after_recovery_failure': '보호: 실패한 앱을 중지함',
+    'repair_started': '복원: 승인된 릴리스를 다시 설치하는 중',
+    'repair_installed': '복원: 설치 완료',
+    'repair_rejected': '복원: 거부됨',
 }
+CLASS_TEXT = {'freeze': '응답 멈춤', 'delay': '응답 지연', 'input_anomaly': '입력 이상', 'normal': '정상'}
 MONITOR_TEXT = {'lost': '신호 끊김', 'observing': '정상 관측', 'suspect': '징후 포착', 'confirmed': '한계 초과 확정'}
 LOG_LIMIT = 14
 
@@ -71,7 +76,7 @@ class Feeder:
         self._extra_seen = len(rows)
         state = pi3.get('state') if pi3 else 'lost'
         if state != self._pi3_state:
-            detail = '' if state in ('lost', 'observing') or not pi3.get('cls') else f" ({pi3['cls']})"
+            detail = '' if state in ('lost', 'observing') or not pi3.get('cls') else f" ({CLASS_TEXT.get(pi3['cls'], '알 수 없음')})"
             label = MONITOR_TEXT.get(state, state)
             self._add(now, f'모니터: {label}{detail}')
             self._pi3_state = state
