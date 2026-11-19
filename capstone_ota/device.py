@@ -231,6 +231,13 @@ class Device:
                 "min_svn": state["min_svn"], "result": state["result"],
                 "trial_version": state["pending"]["release"]["version"] if state["pending"] else None}
 
+    def recovery_evidence(self) -> dict:
+        """What the last recovery check compared: the committed tree hash and the one found on disk.
+
+        Pi2 reports this in its own answer so a remote gateway never has to read Pi2's files."""
+        return {"expected_tree_sha256": self._progress_data.get("expected_tree_sha256"),
+                "observed_tree_sha256": self._progress_data.get("observed_tree_sha256")}
+
     def _select(self, slot: str | None) -> None:
         self._selected()  # Never replace an unexpected regular file or selector.
         current = self.root / "current"

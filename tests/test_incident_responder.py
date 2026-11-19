@@ -19,7 +19,7 @@ from test_device_repair import served, tampered  # noqa: F401
 from test_order import make_keypair, make_order, NONCE, order_keys  # noqa: F401
 
 ROOT = Path(__file__).resolve().parents[1]
-PASS_CHECK = [sys.executable, "-c", "import json;print(json.dumps({'passed': True}))"]
+PASS_CHECK = [sys.executable, "-m", "demo.restore_check"]  # the restored slot must be the committed one
 
 
 @pytest.fixture(autouse=True)
@@ -88,7 +88,7 @@ def test_recovery_failed_closes_gate_reports_and_restores_on_approval(world):
     device, gateway, build = world
     server, responder = build()
     operate(server, "approve")
-    outcome = responder.handle(device.status())
+    outcome = responder.handle(dict(device.status(), **device.recovery_evidence()))
     assert gateway.is_open is False
     assert outcome["action"] == "restored" and outcome["repair"]["result"] == "rolled_back"
     assert outcome["repair"]["version"] == "2.0.0"
@@ -234,3 +234,16 @@ def test_responder_sends_the_api_token(world, tmp_path, served, keys, order_keys
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_report_uses_the_device_answer_not_its_files(world):
+    device, _gateway, build = world
+    server, responder = build(decision_timeout=0.5)
+    responder.target["root"] = "/nonexistent-pi2-root"  # Pi1 cannot read Pi2's files on a real vehicle.
+    result = dict(device.status(), expected_tree_sha256="aa" * 32, observed_tree_sha256="bb" * 32,
+                  error="recovery application tree hash mismatch")
+    responder.handle(result)
+    report = server.incidents[0]["report"]
+    assert report["expected_tree_sha256"] == "aa" * 32 and report["observed_tree_sha256"] == "bb" * 32
+    assert report["detail"] == "recovery application tree hash mismatch"
+    assert report["committed_version"] == "2.0.0"

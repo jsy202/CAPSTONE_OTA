@@ -107,26 +107,19 @@ class IncidentResponder:
         except (OSError, HTTPException):
             pass  # The report is best effort; the device state is the record.
 
-    def _pi2_file(self, name: str):
-        try:
-            return json.loads((Path(self.target["root"]) / name).read_text())
-        except (OSError, ValueError, KeyError):
-            return None  # Pi2's files are only readable here when it shares this machine.
-
     def _report(self, result: dict, nonce: str):
-        state, progress = self._pi2_file("state.json") or {}, self._pi2_file("progress.json") or {}
-        committed = state.get("committed") or {}
-        version = result.get("version") or (committed.get("release") or {}).get("version")
+        # Everything about Pi2 comes from Pi2's own answer: on a real vehicle Pi1 cannot read its files.
+        version = result.get("version")
         if not version:
             return None
         source = next((entry.get("source") for entry in reversed(self.gateway.log_tail(100))
                        if entry.get("event") == "request" and entry.get("forwarded")), None)
         return {"vehicle": self.vehicle, "nonce": nonce, "time": time.time(), "type": "recovery_slot_tamper",
-                "slot": committed.get("slot"), "committed_version": version,
-                "committed_svn": (committed.get("release") or {}).get("svn", result.get("min_svn")),
-                "expected_tree_sha256": progress.get("expected_tree_sha256"),
-                "observed_tree_sha256": progress.get("observed_tree_sha256"),
-                "detail": result.get("error") or progress.get("detail"), "source": source,
+                "slot": result.get("active_slot"), "committed_version": version,
+                "committed_svn": result.get("min_svn"),
+                "expected_tree_sha256": result.get("expected_tree_sha256"),
+                "observed_tree_sha256": result.get("observed_tree_sha256"),
+                "detail": result.get("error"), "source": source,
                 "gateway_state": "open" if self.gateway.is_open else "closed",
                 "gateway_log_tail": self.gateway.log_tail(10), "cluster": "unaffected"}
 

@@ -28,7 +28,7 @@ from capstone_ota.ivi import IviDevice
 from dashboard.ivi.build import payload
 
 ROOT = Path(__file__).resolve().parents[1]
-PASS_CHECK = [sys.executable, "-c", "import json;print(json.dumps({'passed': True}))"]
+PASS_CHECK = [sys.executable, "-m", "demo.restore_check"]  # looks at the restored slot; not a constant yes
 
 # Forced Pi3 stand-in. Call 0 blesses the V2 baseline. Call 1 is V3's trial: while it is
 # "evaluating", the attacker pushes the old V1 image into the recovery slot THROUGH PI1'S
@@ -129,7 +129,7 @@ def run(output, decision="human"):
             device.update(f"{server_url}/releases/v3")
         except ValueError as exc:
             note("v3_trial_ended", error=str(exc))
-        status = device.status()
+        status = dict(device.status(), **device.recovery_evidence())  # what the CLI answer carries
         if status["result"] != "recovery_failed":
             raise ValueError("the attack did not leave the device in recovery_failed: " + json.dumps(status))
         attack_response = (counter.with_name(counter.name + ".attack")).read_text()

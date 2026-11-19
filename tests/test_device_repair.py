@@ -139,3 +139,11 @@ def test_repair_removes_staging_left_by_a_killed_run(tampered):
     (stale / "payload/leftover").write_text("x")
     assert device.repair(url + "/v2")["result"] == "rolled_back"
     assert not stale.exists()
+
+
+def test_recovery_evidence_names_both_hashes(tampered):
+    device, _url = tampered
+    state = json.loads((device.root / "state.json").read_bytes())
+    evidence = device.recovery_evidence()
+    assert evidence["expected_tree_sha256"] == state["committed"]["tree_sha256"]
+    assert evidence["observed_tree_sha256"] not in (None, evidence["expected_tree_sha256"])
