@@ -186,3 +186,31 @@ def test_the_screen_can_be_started_with_a_preview_ivi_ui_without_changing_the_de
     assert "--ivi-ui" not in plain and plain[-2:] == ["--interval", "0.1"]
     preview = field.feeder_command("172.20.10.4", 0.1, ivi_ui="/home/otauser/x/ui")
     assert preview[preview.index("--ivi-ui") + 1] == "/home/otauser/x/ui" and preview[-2:] == ["--interval", "0.1"]
+
+
+def test_the_cockpit_can_run_on_a_private_virtual_display_when_no_monitor_is_attached():
+    default = field.cockpit_ui_command()
+    assert "QT_QPA_PLATFORM=wayland" in default and " DISPLAY=" not in default      # unchanged: the HDMI monitor's desktop
+    virtual = field.cockpit_ui_command(display=":94")
+    assert "DISPLAY=:94" in virtual and "QT_QPA_PLATFORM=xcb" in virtual and "wayland" not in virtual.lower()
+    assert "QML_XHR_ALLOW_FILE_WRITE=1" in virtual and "taskset -c 1-3" in virtual   # the map tap must still be able to write the flag
+    assert virtual.rstrip().endswith("& echo started") and "< /dev/null" in virtual
+
+
+def test_the_virtual_display_is_a_private_xvfb_without_a_network_listener():
+    command = field.virtual_display_command(":94")
+    assert command[:2] == ["/usr/bin/Xvfb", ":94"] and "-nolisten" in command and "tcp" in command
+    assert command[command.index("-screen") + 2] == "2160x1440x24"
+
+
+def test_the_click_tool_parses_its_arguments_and_rejects_nonsense():
+    import pytest
+    from bench import xclick
+    assert xclick.parse([":94", "1050", "1160"]) == (":94", 1050, 1160, 1)
+    assert xclick.parse([":94", "10", "20", "3"]) == (":94", 10, 20, 3)
+    with pytest.raises(SystemExit):
+        xclick.parse([":94", "x", "20"])
+    with pytest.raises(SystemExit):
+        xclick.parse([":94", "-5", "20"])
+    with pytest.raises(SystemExit):
+        xclick.parse(["../etc", "5", "5"])

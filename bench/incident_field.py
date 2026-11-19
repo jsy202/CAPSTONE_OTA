@@ -208,14 +208,24 @@ def wait_for_map_click(read_flag, timeout=900, interval=1.0):
     return True
 
 
-def cockpit_ui_command():
-    """The whole monitoring screen, fullscreen on the HDMI monitor's own desktop session (not the private Xvfb)."""
-    return (f"cd {SCREEN}/cockpit 2>/dev/null; env QT_QPA_PLATFORM=wayland XDG_RUNTIME_DIR=/run/user/1000 "
-            f"QML_XHR_ALLOW_FILE_READ=1 QML_XHR_ALLOW_FILE_WRITE=1 WAYLAND_DISPLAY=wayland-0 nohup setsid taskset -c 1-3 qmlscene {SCREEN}/cockpit/Cockpit.qml "
+VDISPLAY = ":94"
+
+
+def virtual_display_command(display=VDISPLAY):
+    """A private virtual X display for the cockpit when no monitor is attached (no network listener, local socket only)."""
+    return ["/usr/bin/Xvfb", display, "-screen", "0", "2160x1440x24", "-ac", "-nolisten", "tcp"]
+
+
+def cockpit_ui_command(display=None):
+    """The whole monitoring screen: fullscreen on the HDMI monitor's own desktop session, or on a private virtual display."""
+    env = (f"QT_QPA_PLATFORM=xcb QT_QUICK_BACKEND=software DISPLAY={display}" if display
+           else "QT_QPA_PLATFORM=wayland XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0")
+    return (f"cd {SCREEN}/cockpit 2>/dev/null; env {env} "
+            f"QML_XHR_ALLOW_FILE_READ=1 QML_XHR_ALLOW_FILE_WRITE=1 nohup setsid taskset -c 1-3 qmlscene {SCREEN}/cockpit/Cockpit.qml "
             f"> {SCREEN}/ui.log 2>&1 < /dev/null & echo started")
 
 
-def start_screen(boards, pi3_ip, log, interval=0.1, ivi_ui=None):
+def start_screen(boards, pi3_ip, log, interval=0.1, ivi_ui=None, virtual=False):
     pi2 = boards["pi2"]
     for name in ("__init__.py", "cockpit_feeder.py"):
         pi2.put(f"{SCREEN}/bench/{name}", (ROOT / "bench" / name).read_bytes())
@@ -227,8 +237,17 @@ def start_screen(boards, pi3_ip, log, interval=0.1, ivi_ui=None):
             f"-p WorkingDirectory={SCREEN} -p Environment=PYTHONPATH={SCREEN}:{site} "
             "-p Environment=XAUTHORITY=/var/lib/capstone-app/Xauthority " + shlex.join(feeder_command(pi3_ip, interval, ivi_ui)))
     pi2.run("pkill -f '[q]mlscene.*Cockpit.qml'; true", check=False)
-    pi2.run(cockpit_ui_command())
-    log("[screen] cockpit feeder + fullscreen monitoring screen started on Pi2's HDMI monitor")
+    if virtual:
+        pi2.put(f"{SCREEN}/xclick.py", (ROOT / "bench" / "xclick.py").read_bytes())
+        pi2.run("sudo systemctl stop field-cockpit-display.service 2>/dev/null; true", check=False)
+        pi2.run("sudo systemd-run --quiet --collect --unit field-cockpit-display -p CPUAffinity=1-3 "
+                + shlex.join(virtual_display_command()))
+        time.sleep(2)
+        pi2.run(cockpit_ui_command(VDISPLAY))
+        log(f"[screen] cockpit feeder + monitoring screen started on Pi2's virtual display {VDISPLAY} (no monitor attached)")
+    else:
+        pi2.run(cockpit_ui_command())
+        log("[screen] cockpit feeder + fullscreen monitoring screen started on Pi2's HDMI monitor")
 
 
 def port_line(entry):
@@ -271,8 +290,16 @@ def watch_gateway(pi1, pi2, stop):
         stop.wait(1.0)
 
 
+def click_pi2(boards, x, y, button=1):
+    """A real pointer click on the cockpit's virtual display (what a mouse would send)."""
+    done = boards["pi2"].run(f"python3 {SCREEN}/xclick.py {VDISPLAY} {int(x)} {int(y)} {int(button)}", check=False, timeout=30)
+    if done.returncode:
+        raise RuntimeError("click failed: " + (done.stderr or done.stdout)[-300:])
+
+
 def stop_screen(boards):
     pi2 = boards["pi2"]
+    pi2.run("sudo systemctl stop field-cockpit-display.service 2>/dev/null; true", check=False)
     pi2.run("sudo systemctl stop field-cockpit-feeder.service 2>/dev/null; true", check=False)
     pi2.run("pkill -f '[q]mlscene.*Cockpit.qml'; true", check=False)
 
