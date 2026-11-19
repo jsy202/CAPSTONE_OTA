@@ -65,7 +65,8 @@ class Board:
         self.run(f"umask 077; cat > {shlex.quote(path)} && chmod {mode} {shlex.quote(path)}", data=text)
 
     def put(self, path, data: bytes):
-        done = subprocess.run([*self.ssh, f"cat > {shlex.quote(path)}"], input=data, capture_output=True, timeout=120)
+        done = subprocess.run([*self.ssh, f"mkdir -p {shlex.quote(str(Path(path).parent))} && cat > {shlex.quote(path)}"],
+                              input=data, capture_output=True, timeout=120)
         if done.returncode:
             raise RuntimeError(f"upload failed: {done.stderr[-400:]!r}")
 
@@ -159,10 +160,14 @@ def start_real_services(boards, log):
                 f"| sudo tee {shlex.quote(path)} >/dev/null")
     pi2.run("sudo systemctl daemon-reload && sudo systemctl restart capstone-cluster-display.service "
             "&& sudo systemctl start capstone-cluster.service && sudo systemctl start capstone-ivi.service")
-    pi3.run(f"mkdir -p {MONITOR_DIR} && pkill -f '[m]onitor.service' ; rm -f {MONITOR_DIR}/monitor.reset; "
+    # Kill in its own call: `pkill -f` would also match the shell whose command line holds the start command.
+    pi3.run("pkill -f '[m]onitor.service'; true", check=False)
+    pi3.run(f"mkdir -p {MONITOR_DIR} && rm -f {MONITOR_DIR}/monitor.reset; "
             f"nohup setsid {PY} -m capstone_ota.monitor.service --baseline {MONITOR_BASELINE} --out-dir {MONITOR_DIR} "
             f"> {MONITOR_DIR}/monitor.log 2>&1 < /dev/null & echo started")
-    pi1.run(f"pkill -f '[p]lay_profile'; cd {RUNTIME} && nohup setsid {PY} -m bench.play_profile --channel can0 "
+    pi1.run("pkill -f '[p]lay_profile'; true", check=False)
+    # No `cd ... &&` before the `&`: that backgrounds a subshell that keeps the ssh channel open forever.
+    pi1.run(f"PYTHONPATH={RUNTIME} nohup setsid {PY} -m bench.play_profile --channel can0 "
             f"> {RUNTIME}/profile.log 2>&1 < /dev/null & echo started")
     log("[services] cluster(core 0) + IVI V2 on Pi2, Pi3 monitor, Pi1 drive profile started")
 
@@ -187,7 +192,8 @@ def pi3_verdict(pi3):
 
 def healthy(verdict):
     """A fresh monitor verdict that has seen both frames of the cluster path (not blind, pairs measured)."""
-    return bool(verdict and verdict.get("frames", 0) > 0 and verdict.get("state") in {"normal", "suspect"}
+    # The monitor's states: observing (healthy so far), suspect, confirmed, blind (cannot see the bus).
+    return bool(verdict and verdict.get("frames", 0) > 0 and verdict.get("state") == "observing"
                 and abs(time.time() - verdict.get("now", 0)) < 5 and verdict.get("recent_delay_ms") is not None)
 
 
@@ -364,8 +370,8 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
         pi2.run("sudo systemctl stop field-maintenance.service 2>/dev/null; true", check=False)
         pi1.run("pkill -f '[c]apstone_ota.central_incident'; true", check=False)
         if verdict == "real":
-            subprocess.run([*boards["pi3"].ssh, f"tar -C {MONITOR_DIR} -cf - evidence verdict.json monitor.log"],
-                           stdout=(output / "pi3-evidence.tar").open("wb"), check=False, timeout=60)
+            subprocess.run([*boards["pi3"].ssh, f"[ -d {MONITOR_DIR} ] && tar -C {MONITOR_DIR} -cf - evidence verdict.json monitor.log"],
+                           stdout=(output / "pi3-evidence.tar").open("wb"), stderr=subprocess.DEVNULL, check=False, timeout=60)
             stop_real_services(boards)
         (output / "result.json").write_text(json.dumps(result, indent=1, default=str))
     return result

@@ -52,9 +52,11 @@ def test_probation_runs_on_the_instrument_cores_and_reads_the_monitor_files():
 
 def test_health_needs_a_fresh_verdict_that_measured_the_cluster_answer():
     import time
-    fresh = {"frames": 40, "state": "normal", "now": time.time(), "recent_delay_ms": 3.2}
+    fresh = {"frames": 40, "state": "observing", "now": time.time(), "recent_delay_ms": 3.2}
     assert field.healthy(fresh)
     assert not field.healthy(dict(fresh, recent_delay_ms=None))   # no 0x300 answer paired yet
     assert not field.healthy(dict(fresh, now=time.time() - 60))   # stale
     assert not field.healthy(dict(fresh, state="blind"))
+    assert not field.healthy(dict(fresh, state="suspect"))        # already degrading before the update starts
+    assert not field.healthy(dict(fresh, state="confirmed"))
     assert not field.healthy(None)
