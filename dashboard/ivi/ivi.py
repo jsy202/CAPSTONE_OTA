@@ -49,8 +49,10 @@ def load_route():
 def load_config(path=None):
     config = json.loads(Path(path or ROOT / 'ivi.json').read_text())
     workers = config.get('map_workers') if isinstance(config, dict) else None
-    if (not isinstance(config, dict) or set(config) != {'version', 'map_enabled', 'map_workers', 'map_priority'}
-            or not isinstance(config['version'], str) or type(config['map_enabled']) is not bool
+    base = {'version', 'map_enabled', 'map_workers', 'map_priority'}
+    # vehicle_data is optional so older ivi.json files (without it) keep their exact behaviour.
+    if (not isinstance(config, dict) or set(config) not in (base, base | {'vehicle_data'})
+            or type(config.get('vehicle_data', False)) is not bool or not isinstance(config['version'], str) or type(config['map_enabled']) is not bool
             or config['map_priority'] not in PRIORITIES
             or not (workers == 'cores' or (type(workers) is int and 0 <= workers <= 64))):
         raise ValueError('invalid IVI configuration')
@@ -99,9 +101,10 @@ def main(argv):
         signal.signal(name, lambda *_: stopping.update(now=True))
     enabled = config['map_enabled']          # V2 ships without a map: the flag does nothing there
     route = load_route() if enabled else None
-    bus = open_can(os.environ.get('CAPSTONE_IVI_CAN', 'can0')) if enabled else None
+    vehicle_data = enabled or config.get('vehicle_data', False)   # read CAN speed (V2: trip info only, no map)
+    bus = open_can(os.environ.get('CAPSTONE_IVI_CAN', 'can0')) if vehicle_data else None
     workers, wanted, last, last_loop = [], worker_count(config), 0.0, time.monotonic()
-    speed_kmh, distance = 0.0, 0.0
+    speed_kmh, distance, drive_s = 0.0, 0.0, 0.0
     try:
         while not stopping['now']:
             active = enabled and flag.exists()
@@ -125,11 +128,16 @@ def main(argv):
                         speed_kmh = int.from_bytes(data[0:2], 'big') / 10.0
             now = time.monotonic()
             distance += speed_kmh / 3.6 * (now - last_loop)
+            drive_s += (now - last_loop) if speed_kmh > 0.5 else 0.0
             last_loop = now
             if route is not None:
                 x, y, heading = position(route, distance)
                 atomic_json(nav_file, {'x': round(x, 1), 'y': round(y, 1), 'heading': round(heading, 1),
-                                       'speed': speed_kmh, 'distance': round(distance, 1), 'updated': time.time()})
+                                       'speed': speed_kmh, 'distance': round(distance, 1), 'drive_s': round(drive_s, 1),
+                                       'updated': time.time()})
+            elif bus is not None:   # no map (V2): trip info only, no position/route fields
+                atomic_json(nav_file, {'speed': speed_kmh, 'distance': round(distance, 1),
+                                       'drive_s': round(drive_s, 1), 'updated': time.time()})
             if time.monotonic() - last >= 1:
                 last = time.monotonic()
                 atomic_json(status, {'version': config['version'], 'map_active': active, 'workers': len(workers),
