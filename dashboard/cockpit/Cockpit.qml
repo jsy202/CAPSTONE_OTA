@@ -46,9 +46,7 @@ Window {
         if (logSeen < 0 || rows.length < logSeen) { logSeen = rows.length; return }   // never replay history
         for (; logSeen < rows.length; logSeen++) {
             var t = String(rows[logSeen].text || "")
-            if (t.indexOf("디버깅 포트 · 슬롯") === 0) band.enqueue({kind: "port_in", text: t})
-            else if (t.indexOf("디버깅 포트 닫힘") === 0) band.enqueue({kind: "port_closed", text: t})
-            else if (t.indexOf("모니터: 한계 초과") === 0) band.enqueue({kind: "limit", text: t})
+            if (t.indexOf("디버깅 포트 닫힘") === 0) band.enqueue({kind: "port_closed", text: t})
         }
     }
     onDChanged: {
@@ -260,16 +258,14 @@ Window {
                 if (!pending.length) return
                 var event = pending.shift()
                 kind = event.kind
-                if (kind === "rollback") { tone = win.critical; headline = "롤백 준비 · 복구 이미지 검사"; tag = "[ SYS ]" }
-                else if (kind === "rejected") { tone = win.critical; headline = "복구 이미지 거부 · 실행 차단"; tag = "[ SEC ]" }
-                else if (kind === "recovery_error") { tone = win.critical; headline = "복구 실패 · 수동 점검 필요"; tag = "[ SYS ]" }
-                else if (kind === "preparing") { tone = win.accent; headline = "업데이트 준비 · " + event.transition; tag = "[ OTA ]" }
-                else if (kind === "installed") { tone = win.success; headline = "설치 완료 · " + event.transition + " · 시험 운전"; tag = "[ OTA ]" }
-                else if (kind === "port_in") { tone = win.warn; headline = event.text; tag = "[ NET ]" }
-                else if (kind === "port_closed") { tone = win.success; headline = event.text; tag = "[ NET ]" }
-                else if (kind === "limit") { tone = win.critical; headline = event.text; tag = "[ MON ]" }
-                else if (kind === "restored") { tone = win.success; headline = "이전 버전 복귀 완료"; tag = "[ SYS ]" }
-                else { tone = win.success; headline = "업데이트 최종 승인"; tag = "[ OTA ]" }
+                // Only these six messages ever show on the strip.
+                if (kind === "preparing") { tone = win.accent; headline = "업데이트 시작"; tag = "[ OTA ]" }
+                else if (kind === "installed") { tone = win.success; headline = "업데이트 완료"; tag = "[ OTA ]" }
+                else if (kind === "rollback") { tone = win.critical; headline = "롤백 준비"; tag = "[ SYS ]" }
+                else if (kind === "restored") { tone = win.success; headline = "롤백 완료"; tag = "[ SYS ]" }
+                else if (kind === "rejected" || kind === "recovery_error") { tone = win.critical; headline = "롤백 실패"; tag = "[ SYS ]" }
+                else if (kind === "port_closed") { tone = win.success; headline = "디버깅 포트 닫힘"; tag = "[ NET ]" }
+                else { pending.length ? next() : 0; return }   // anything else (e.g. the final commit) is not announced
                 seq.start()
             }
 
