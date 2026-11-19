@@ -147,3 +147,21 @@ def test_recovery_evidence_names_both_hashes(tampered):
     evidence = device.recovery_evidence()
     assert evidence["expected_tree_sha256"] == state["committed"]["tree_sha256"]
     assert evidence["observed_tree_sha256"] not in (None, evidence["expected_tree_sha256"])
+
+
+def test_failed_recovery_stops_the_failed_trial_service(tmp_path, served, keys, monkeypatch):
+    """A refused recovery must not leave the just-failed candidate running (it may be what starves the cluster)."""
+    root, counter = tmp_path / "device", tmp_path / "calls"
+    device = ClusterDevice(root, verifier_command=[sys.executable, "-c", VERIFIER, str(counter), str(root)])
+    actions = []
+    monkeypatch.setattr(device, "_service", lambda action: actions.append(action) or True)
+    monkeypatch.setattr(device, "_check_arguments", lambda app: [str(app), "--check"])  # not `runuser` (needs root)
+    with serving(served) as url:
+        device.update(url + "/v2", public_key=keys[1], systemd=True)
+        actions.clear()
+        with pytest.raises(ValueError, match="recovery failed"):
+            device.update(url + "/v3")
+    assert device.status()["result"] == "recovery_failed"
+    assert actions[-1] == "stop", actions
+    events = [json.loads(line)["event"] for line in (root / "events.jsonl").read_text().splitlines()]
+    assert "service_stopped_after_recovery_failure" in events

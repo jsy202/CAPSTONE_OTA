@@ -333,6 +333,13 @@ class Device:
             self._save(state)
             self._progress("recovery_failed", detail=str(exc))
             self._event("recovery_failed")
+            try:
+                if state["systemd"] and self._service("stop"):
+                    # The candidate just failed its trial and nothing safe can replace it yet: do not leave it
+                    # running (it may be what is starving other applications) while an operator decides.
+                    self._event("service_stopped_after_recovery_failure")
+            except (OSError, subprocess.SubprocessError):
+                pass  # Best effort: never hide the recovery failure itself behind a systemctl problem.
             raise ValueError("recovery failed; no successful recovery is claimed") from exc
 
     def _download_release(self, url: str, public_key: Path, staging: Path, precheck=None) -> dict:
