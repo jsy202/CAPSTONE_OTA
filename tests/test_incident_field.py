@@ -263,3 +263,21 @@ def test_cockpit_shows_product_names_not_release_numbers(tmp_path):
     labels = field.version_labels({"release_dir": str(tmp_path)})
     assert labels == {field.ATTACK_VERSION: "V1", "3.3.0": "V2", "3.4.0": "V3"}
     assert "--version-labels" in field.feeder_command("10.0.0.1", labels=labels)
+
+
+class _RecordingBoard:
+    def __init__(self):
+        self.commands = []
+
+    def run(self, command, **_kw):
+        self.commands.append(command)
+        return type("R", (), {"stdout": "", "returncode": 0})()
+
+    def put(self, *_a, **_kw):
+        pass
+
+
+def test_profile_command_carries_the_selected_cycle():
+    boards = {name: _RecordingBoard() for name in ("pi1", "pi2", "pi3")}
+    field.start_real_services(boards, lambda *_: None, hz=50, cycle="demo")
+    assert any("play_profile" in c and "--cycle demo" in c and "--hz 50" in c for c in boards["pi1"].commands)

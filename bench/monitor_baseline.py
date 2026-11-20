@@ -20,7 +20,6 @@ from bench import incident_field as field
 from capstone_ota.monitor import trace
 from capstone_ota.monitor.metrics import fit_baseline
 
-REMOTE_DIR = "/home/otauser/capstone-incident/monitor"
 
 
 def baseline_from_candump(text: str) -> dict:
@@ -31,10 +30,10 @@ def baseline_from_candump(text: str) -> dict:
     return fit_baseline(result)._asdict()
 
 
-def record(pi1, pi3, hz: int, seconds: int, log=print) -> str:
+def record(pi1, pi3, hz: int, seconds: int, log=print, cycle: str = "synthetic") -> str:
     pi1.run("pkill -f '[p]lay_profile'; true", check=False)
     pi1.run(f"PYTHONPATH={field.RUNTIME} nohup setsid {field.PY} -m bench.play_profile --channel can0 --hz {hz} "
-            f"> {field.RUNTIME}/profile.log 2>&1 < /dev/null & echo started")
+            f"--cycle {cycle} > {field.RUNTIME}/profile.log 2>&1 < /dev/null & echo started")
     log(f"[baseline] profile at {hz} Hz, recording {seconds} s on Pi3")
     done = pi3.run(f"timeout {seconds} candump -L -tA can0 || true", check=False, timeout=seconds + 60)
     return done.stdout
@@ -46,17 +45,18 @@ def main(argv=None) -> int:
     parser.add_argument("--hz", type=int, required=True)
     parser.add_argument("--seconds", type=int, default=120)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--cycle", default="synthetic", choices=["synthetic", "demo"])
     parser.add_argument("--install", action="store_true")
     args = parser.parse_args(argv)
     sys.stdout.reconfigure(line_buffering=True)
     config = json.loads(args.config.read_text())
     pi1, pi3 = field.Board(config["pi1_ssh"]), field.Board(config["pi3_ssh"])
-    text = record(pi1, pi3, args.hz, args.seconds)
+    text = record(pi1, pi3, args.hz, args.seconds, cycle=args.cycle)
     baseline = baseline_from_candump(text)
     args.output.write_text(json.dumps(baseline, indent=1))
     print(json.dumps(baseline))
     if args.install:
-        remote = f"{REMOTE_DIR}/baseline-{args.hz}hz.json"
+        remote = field.monitor_baseline_for(args.hz, args.cycle)
         pi3.write(remote, json.dumps(baseline), "644")
         print("installed", remote, "(start the monitor with --baseline", shlex.quote(remote) + ")")
     return 0

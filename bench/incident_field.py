@@ -44,11 +44,15 @@ MONITOR_BASELINE = "/home/otauser/ivi-monitor/baseline.json"  # measured at 10 H
 DEFAULT_PROFILE_HZ = 10
 
 
-def monitor_baseline_for(hz):
-    """The monitor compares against a baseline measured at the same frame rate (bench.monitor_baseline makes one)."""
-    if hz == DEFAULT_PROFILE_HZ:
+def monitor_baseline_for(hz, cycle="synthetic"):
+    """The monitor compares against a baseline measured at the same frame rate and on the same drive cycle
+    (the needle moving more repaints more, which changes echo latency). bench.monitor_baseline makes one."""
+    if hz == DEFAULT_PROFILE_HZ and cycle == "synthetic":
         return MONITOR_BASELINE
-    return f"/home/otauser/capstone-incident/monitor/baseline-{hz}hz.json"
+    suffix = "" if cycle == "synthetic" else f"-{cycle}"
+    return f"/home/otauser/capstone-incident/monitor/baseline-{hz}hz{suffix}.json"
+
+
 MAP_FLAG = "/run/capstone-ivi/map_active"
 DROPIN = "/run/systemd/system/{unit}.d/field-cpu.conf"
 PI2_ROOT_TO_PI3 = ["ssh", "-F", "/dev/null", "-i", "/root/.ssh/capstone-source-ed25519", "-o", "IdentitiesOnly=yes",
@@ -173,7 +177,7 @@ def pi3_address(pi3):
     return pi3.run("ip -4 -o addr show wlan0 | awk '{print $4}' | cut -d/ -f1").stdout.strip()
 
 
-def start_real_services(boards, log, hz=DEFAULT_PROFILE_HZ):
+def start_real_services(boards, log, hz=DEFAULT_PROFILE_HZ, cycle="synthetic"):
     """Cluster pinned to core 0, IVI V2, Pi1 drive profile and the Pi3 monitor. Returns what was changed."""
     pi1, pi2, pi3 = boards["pi1"], boards["pi2"], boards["pi3"]
     for name in ("__init__.py", "drive_cycle.py", "play_profile.py"):
@@ -188,12 +192,12 @@ def start_real_services(boards, log, hz=DEFAULT_PROFILE_HZ):
     # Kill in its own call: `pkill -f` would also match the shell whose command line holds the start command.
     pi3.run("pkill -f '[m]onitor.service'; true", check=False)
     pi3.run(f"mkdir -p {MONITOR_DIR} && rm -f {MONITOR_DIR}/monitor.reset; "
-            f"nohup setsid {PY} -m capstone_ota.monitor.service --baseline {monitor_baseline_for(hz)} --out-dir {MONITOR_DIR} "
+            f"nohup setsid {PY} -m capstone_ota.monitor.service --baseline {monitor_baseline_for(hz, cycle)} --out-dir {MONITOR_DIR} "
             f"> {MONITOR_DIR}/monitor.log 2>&1 < /dev/null & echo started")
     pi1.run("pkill -f '[p]lay_profile'; true", check=False)
     # No `cd ... &&` before the `&`: that backgrounds a subshell that keeps the ssh channel open forever.
     pi1.run(f"PYTHONPATH={RUNTIME} nohup setsid {PY} -m bench.play_profile --channel can0 --hz {hz} "
-            f"> {RUNTIME}/profile.log 2>&1 < /dev/null & echo started")
+            f"--cycle {cycle} > {RUNTIME}/profile.log 2>&1 < /dev/null & echo started")
     log("[services] cluster(core 0) + IVI V2 on Pi2, Pi3 monitor, Pi1 drive profile started")
 
 
@@ -540,7 +544,8 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
         if verdict == "forced":
             trial, recheck = forced_failure(25), passing_recheck()
         else:
-            start_real_services(boards, log, hz=int(config.get("profile_hz", DEFAULT_PROFILE_HZ)))
+            start_real_services(boards, log, hz=int(config.get("profile_hz", DEFAULT_PROFILE_HZ)),
+                                cycle=config.get("profile_cycle", "synthetic"))
             pi3_ip = pi3_address(boards["pi3"])
             if screen:
                 start_screen(boards, pi3_ip, log, virtual=virtual_screen, labels=version_labels(config))

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import subprocess
 import sys
 import threading
@@ -23,6 +24,46 @@ from bench import remote_view
 
 MAP_TILE = (1050, 1387)     # the navigation tile in the IVI dock, in virtual-display pixels
 FPS = 5.0
+
+
+BOARD_REC_DIR = "/home/otauser/capstone-incident/rec"
+
+
+def board_record_command(display: str, path: str, fps: int = 15, width: int = 1080) -> str:
+    """Pi2 records its own virtual display in real time (no speed-up). MJPEG (the hardware H.264 encoder stalled under load and
+    left black frames), low priority, off core 0:
+    the cluster runs on core 0 and its echo latency is what the monitor measures, so recording must not steal it."""
+    folder = path.rsplit("/", 1)[0]
+    socket = f"/tmp/.X11-unix/X{display.lstrip(':')}"
+    return (f"mkdir -p {folder}; until [ -S {socket} ]; do sleep 1; done; "
+            f"nice -n 19 taskset -c 1-3 ffmpeg -y -loglevel error -f x11grab -draw_mouse 0 -framerate {fps} "
+            f"-video_size 2160x1440 -i {display} -vf scale={width}:-2:flags=fast_bilinear,format=yuv420p "
+            f"-c:v mjpeg -q:v 5 {path}")
+
+
+def screen_ready(line: str) -> bool:
+    """The run prints this once it has (re)started Xvfb :94 and the cockpit. Start recording only then: a recorder
+    attached to the display before is left on a dead connection when the run recreates it, and films black."""
+    return "[screen]" in line and "virtual display" in line and "started" in line
+
+
+def board_record_stop_command() -> str:
+    return "pkill -INT -x ffmpeg; while pgrep -x ffmpeg >/dev/null; do sleep 1; done; echo stopped"
+
+
+def transcode(raw: Path, output: Path, ffmpeg="ffmpeg") -> Path:
+    """MJPEG from the board -> H.264 mp4 (done on the laptop so Pi2 spends nothing on it)."""
+    subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-i", str(raw), "-c:v", "libx264", "-preset", "veryfast",
+                    "-crf", "23", "-pix_fmt", "yuv420p", str(output)], check=True)
+    return output
+
+
+def fetch_file(pi2, remote: str, local: Path) -> Path:
+    with local.open("wb") as handle:
+        done = subprocess.run([*pi2.ssh, f"cat {remote}"], stdout=handle, stderr=subprocess.PIPE, timeout=1800)
+    if done.returncode or local.stat().st_size == 0:
+        raise RuntimeError(f"could not fetch {remote}: {done.stderr[-300:]!r}")
+    return local
 
 
 class RecordingStore(remote_view.FrameStore):
@@ -66,6 +107,8 @@ def main(argv=None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--vulnerable", action="store_true")
     parser.add_argument("--decision", default="approve", choices=["approve", "reject"])
+    parser.add_argument("--remote-stream", action="store_true",
+                        help="old way: stream frames to the laptop and time-compress (choppy over Wi-Fi); default records on Pi2")
     parser.add_argument("--lead", type=float, default=12.0, help="seconds of V2 screen before the tap")
     args = parser.parse_args(argv)
     sys.stdout.reconfigure(line_buffering=True)
@@ -76,8 +119,21 @@ def main(argv=None) -> int:
     config = json.loads(args.config.read_text())
     pi2 = field.Board(config["pi2_ssh"])
     store = RecordingStore(out / "frames")
-    reader = remote_view.Reader(config["pi2_ssh"], remote_view.grabber_script(fps=FPS, max_width=1440, quality=80), store)
-    reader.start()
+    onboard = not args.remote_stream
+    remote_file = f"{BOARD_REC_DIR}/{out.name}.mkv"
+    recording = {"on": False}
+
+    def start_board_recording():
+        pi2.run(f"nohup setsid sh -c {shlex.quote(board_record_command(field.VDISPLAY, remote_file))} "
+                f"> {BOARD_REC_DIR}.log 2>&1 < /dev/null & echo started", check=False)
+        recording["on"] = True
+        print("[record] on-board recording started", flush=True)
+
+    if onboard:
+        reader = None
+    else:
+        reader = remote_view.Reader(config["pi2_ssh"], remote_view.grabber_script(fps=FPS, max_width=1440, quality=80), store)
+        reader.start()
     command = [sys.executable, "-u", "-m", "bench.incident_field", "run", str(args.config), "--output", str(out / "run"),
                "--verdict", "real", "--virtual-screen", "--map-trigger", "ui", "--decision", args.decision]
     if args.vulnerable:
@@ -94,13 +150,23 @@ def main(argv=None) -> int:
 
     for line in process.stdout:
         log.write(line); log.flush(); print(line, end="")
+        if onboard and not recording["on"] and screen_ready(line):
+            start_board_recording()
         if "waiting_for_map_click" in line and not tapped["done"]:
             threading.Thread(target=tap_later, daemon=True).start()
     process.wait()
     time.sleep(4)            # keep recording the final screen
-    reader.stop()
-    video = build_video(store, out / "video.mp4")
-    print(f"[record] {len(store.times)} frames -> {video} (run exit {process.returncode}, tapped={tapped['done']})")
+    if onboard:
+        if not recording["on"]:
+            raise RuntimeError("the cockpit screen never came up, nothing was recorded")
+        pi2.run(board_record_stop_command(), check=False, timeout=120)
+        raw = fetch_file(pi2, remote_file, out / "video.raw.mkv")
+        video = transcode(raw, out / "video.mp4")
+        print(f"[record] on-board recording -> {video} ({video.stat().st_size} bytes, run exit {process.returncode}, tapped={tapped['done']})")
+    else:
+        reader.stop()
+        video = build_video(store, out / "video.mp4")
+        print(f"[record] {len(store.times)} frames -> {video} (run exit {process.returncode}, tapped={tapped['done']})")
     return process.returncode
 
 

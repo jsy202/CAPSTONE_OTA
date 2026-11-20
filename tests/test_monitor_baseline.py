@@ -39,3 +39,9 @@ def test_an_empty_recording_is_refused_not_turned_into_a_baseline():
 def test_the_monitor_uses_the_baseline_measured_at_its_own_rate():
     assert field.monitor_baseline_for(10) == field.MONITOR_BASELINE
     assert field.monitor_baseline_for(50).endswith("baseline-50hz.json")
+
+
+def test_the_demo_cycle_gets_its_own_baseline_file_and_the_old_one_stays():
+    assert field.monitor_baseline_for(50, "demo").endswith("baseline-50hz-demo.json")
+    assert field.monitor_baseline_for(50, "synthetic").endswith("baseline-50hz.json")
+    assert field.monitor_baseline_for(10, "demo") != field.MONITOR_BASELINE   # 10 Hz file was not measured on it

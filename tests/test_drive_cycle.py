@@ -103,3 +103,31 @@ def test_frames_counter_wraps_and_increments():
     assert counters[:8] == [250, 251, 252, 253, 254, 255, 0, 1]
     assert len(out) == len(rows)
     assert all(m['id'] == 0x200 for m in out)
+
+
+def _longest_stop_seconds(rows, hz):
+    longest = run = 0
+    for r in rows + rows:                      # the loop repeats, so end and start stops join
+        run = run + 1 if r.speed == 0 else 0
+        longest = max(longest, run)
+    return longest / hz
+
+
+def test_demo_cycle_is_a_realistic_80kmh_loop_that_still_stops():
+    rows = dc.build_profile(dc.DEMO_CYCLE, hz=50, shifts=dc.DEMO_SHIFT_KMH)
+    assert rows[0].speed == 0 and rows[-1].speed == 0
+    assert 750 <= max(r.speed for r in rows) <= 950                # peaks near 80-90 km/h
+    assert 2000 <= max(r.rpm for r in rows) <= 3500
+    assert {r.gear for r in rows} == {0, 1, 2, 3, 4, 5}
+    assert 90 <= rows[-1].t <= 150
+    assert sum(r.speed >= 700 for r in rows) / len(rows) >= 0.4    # mostly cruising around 80
+    assert _longest_stop_seconds(rows, 50) >= 12.0                 # one continuous window opens a rollback
+    assert dc.changing_fraction(rows) > 0.45                       # needle keeps moving
+    assert all(abs(b.speed - a.speed) <= 6 for a, b in zip(rows, rows[1:]))
+
+
+def test_named_cycle_selection():
+    assert dc.named_cycle('demo') is dc.DEMO_CYCLE
+    assert dc.named_cycle('synthetic') is dc.SYNTHETIC_CYCLE
+    with pytest.raises(ValueError):
+        dc.named_cycle('nope')
