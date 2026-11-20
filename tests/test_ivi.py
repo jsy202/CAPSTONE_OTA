@@ -26,7 +26,7 @@ def test_payload_layout_and_versions(tmp_path):
     assert CONFIGS['V2'] == {'version': 'V2', 'map_enabled': False, 'map_workers': 0, 'map_priority': 'normal',
                           'vehicle_data': True}
     assert CONFIGS['V3'] == {'version': 'V3', 'map_enabled': True, 'map_workers': 'cores', 'map_priority': 'rr10',
-                          'vehicle_data': True}
+                          'map_duty': 0.75, 'vehicle_data': True}
     assert not (tmp_path / 'V2/map.json').exists() and (tmp_path / 'V3/map.json').exists()
     # V1 is the oldest release (a radio instead of a map): no map payload, and it is what a rollback attack would run.
     assert CONFIGS['V1'] == {'version': 'V1', 'map_enabled': False, 'map_workers': 0, 'map_priority': 'normal',
@@ -288,3 +288,51 @@ def test_v3_nav_keeps_position_fields_and_gains_drive_time(monkeypatch, tmp_path
     nav, status, _ = _run_in_process(monkeypatch, tmp_path, config, [36.0])
     assert {'x', 'y', 'heading', 'speed', 'distance', 'drive_s', 'updated'} == set(nav) and nav['drive_s'] > 0
     assert status['can'] is True and status['route'] is True
+
+
+def test_map_duty_is_an_optional_fraction_above_zero_up_to_one(tmp_path):
+    slot = payload(tmp_path / 's', 'V3')
+    base = {'version': 'V9', 'map_enabled': True, 'map_workers': 2, 'map_priority': 'normal'}
+    for duty in (0.75, 0.01, 1, 1.0):
+        (slot / 'ivi.json').write_text(json.dumps({**base, 'map_duty': duty}))
+        assert run(slot, '--check').returncode == 0, duty
+    for bad in (0, 0.0, -0.5, 1.2, 'x', True, None):
+        (slot / 'ivi.json').write_text(json.dumps({**base, 'map_duty': bad}))
+        assert run(slot, '--check').returncode != 0, bad
+    (slot / 'ivi.json').write_text(json.dumps(base))          # older configs without the key keep working
+    assert run(slot, '--check').returncode == 0
+
+
+def test_duty_cycle_splits_the_period_into_busy_and_rest():
+    from dashboard.ivi.ivi import MAP_PERIOD, duty_cycle
+    busy, rest = duty_cycle(0.75)
+    assert busy == pytest.approx(0.75 * MAP_PERIOD) and rest == pytest.approx(0.25 * MAP_PERIOD)
+    assert duty_cycle(1.0) == (MAP_PERIOD, 0.0)
+
+
+def test_a_worker_with_duty_half_uses_about_half_a_core(tmp_path):
+    slot = payload(tmp_path / 's', 'V3')
+    cfg = {'version': 'V3', 'map_enabled': True, 'map_workers': 1, 'map_priority': 'normal', 'map_duty': 0.5}
+    (slot / 'ivi.json').write_text(json.dumps(cfg))
+    runtime = tmp_path / 'run'
+    runtime.mkdir()
+    app = subprocess.Popen([str(slot / 'bin/app')], env={**os.environ, 'CAPSTONE_IVI_RUN': str(runtime), 'CAPSTONE_IVI_CAN': ''})
+    try:
+        (runtime / 'map_active').touch()
+        deadline = time.time() + 6
+        children = []
+        while time.time() < deadline and not children:
+            children = subprocess.run(['pgrep', '-P', str(app.pid)], capture_output=True, text=True).stdout.split()
+            time.sleep(0.1)
+        assert len(children) == 1
+
+        def cpu_seconds(pid):
+            fields = (os.popen(f'cat /proc/{pid}/stat').read().rsplit(')', 1)[1]).split()
+            return (int(fields[11]) + int(fields[12])) / os.sysconf('SC_CLK_TCK')
+        first, started = cpu_seconds(children[0]), time.monotonic()
+        time.sleep(3.0)
+        used = (cpu_seconds(children[0]) - first) / (time.monotonic() - started)
+        assert 0.3 <= used <= 0.7, used                       # 50% duty, not a full busy loop
+    finally:
+        app.kill()
+        app.wait()

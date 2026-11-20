@@ -281,3 +281,17 @@ def test_profile_command_carries_the_selected_cycle():
     boards = {name: _RecordingBoard() for name in ("pi1", "pi2", "pi3")}
     field.start_real_services(boards, lambda *_: None, hz=50, cycle="demo")
     assert any("play_profile" in c and "--cycle demo" in c and "--hz 50" in c for c in boards["pi1"].commands)
+
+
+def test_demo_pace_is_written_to_the_device_root_when_configured():
+    pi2 = _RecordingBoard()
+    field.apply_demo_pace(pi2, {"demo_pace": {"download": 10, "install": 12}})
+    command = " ".join(pi2.commands)
+    assert f"{field.IVI_ROOT}/demo-pace.json" in command and "sudo" in command
+    assert '"download": 10' in command and '"install": 12' in command
+
+
+def test_demo_pace_file_is_removed_when_not_configured():
+    pi2 = _RecordingBoard()
+    field.apply_demo_pace(pi2, {})
+    assert pi2.commands and "rm -f" in pi2.commands[0] and f"{field.IVI_ROOT}/demo-pace.json" in pi2.commands[0]

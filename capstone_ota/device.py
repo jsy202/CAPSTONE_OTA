@@ -88,6 +88,40 @@ def fetch(url: str, target: Path, limit: int, progress=None) -> bytes:
     return digest.digest()
 
 
+MAX_PACE_SECONDS = 120.0
+
+
+def pace(progress, seconds: float, clock=time.monotonic, sleep=time.sleep):
+    """Demo pacing: wrap progress(done, total) so the whole stage takes about `seconds`.
+
+    The wait happens BEFORE the report, so the bar shows bytes that really were read/written by then. Without a
+    known total or a time it changes nothing."""
+    state = {"start": None}
+
+    def paced(done, total):
+        if state["start"] is None:
+            state["start"] = clock()
+        if total and seconds > 0:
+            wait = state["start"] + seconds * min(done / total, 1.0) - clock()
+            if wait > 0:
+                sleep(wait)
+        progress(done, total)
+    return paced
+
+
+def load_pace(root: Path) -> dict:
+    """Optional demo file `<device root>/demo-pace.json` {"download": s, "install": s}: slow those two stages down so a
+    viewer can watch them. Off when the file is missing; bad values are ignored. It only ever adds delay."""
+    try:
+        data = json.loads((Path(root) / "demo-pace.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {key: float(data[key]) for key in ("download", "install")
+            if type(data.get(key)) in (int, float) and 0 < data[key] <= MAX_PACE_SECONDS}
+
+
 class Device:
     def __init__(self, root: Path, recovery_verification: bool = True):
         self.root = Path(root).absolute()
@@ -143,7 +177,8 @@ class Device:
                 return
             last["at"] = now
             self._progress(stage, work={"kind": kind, "done": done, "total": total})
-        return report
+        seconds = load_pace(self.root).get("install") if kind == "install" else None
+        return pace(report, seconds) if seconds else report
 
     @contextmanager
     def _locked(self):
@@ -372,9 +407,10 @@ class Device:
         self._progress("signature_verified", candidate=release["version"])
         if precheck:
             precheck(release)
+        report = lambda received, total: self._progress("download", received=received, total=total)  # noqa: E731
+        seconds = load_pace(self.root).get("download")
         downloaded_hash = fetch(base + "app.tar.gz", staging / "app.tar.gz", MAX_ARCHIVE,
-                                progress=lambda received, total: self._progress(
-                                    "download", received=received, total=total)).hex()
+                                progress=pace(report, seconds) if seconds else report).hex()
         self._progress("archive_verify")
         if downloaded_hash != release["sha256"]:
             raise ValueError("downloaded archive hash mismatch")

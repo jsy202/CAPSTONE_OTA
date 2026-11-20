@@ -173,6 +173,17 @@ def setup(config, boards):
     return {"deployed": installed, "pi1_key": public.split()[-1], "pi2_host_key_pinned": True}
 
 
+def apply_demo_pace(pi2, config):
+    """Demo pacing: slow the device's download and install stages so a viewer can see the bars fill (config key
+    demo_pace {"download": s, "install": s}). Without the key the file is removed and the stages run at full speed."""
+    path = f"{IVI_ROOT}/demo-pace.json"
+    pace = config.get("demo_pace")
+    if pace:
+        pi2.run(f"printf '%s' {shlex.quote(json.dumps(pace))} | sudo -n tee {path} >/dev/null")
+    else:
+        pi2.run(f"sudo -n rm -f {path}; true", check=False)
+
+
 def pi3_address(pi3):
     return pi3.run("ip -4 -o addr show wlan0 | awk '{print $4}' | cut -d/ -f1").stdout.strip()
 
@@ -546,6 +557,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
         else:
             start_real_services(boards, log, hz=int(config.get("profile_hz", DEFAULT_PROFILE_HZ)),
                                 cycle=config.get("profile_cycle", "synthetic"))
+            apply_demo_pace(pi2, config)
             pi3_ip = pi3_address(boards["pi3"])
             if screen:
                 start_screen(boards, pi3_ip, log, virtual=virtual_screen, labels=version_labels(config))

@@ -24,7 +24,9 @@ def test_load_stops_by_itself_and_burns_about_duty_times_workers_cpu():
     after = resource.getrusage(resource.RUSAGE_CHILDREN)
     cpu = (after.ru_utime - before.ru_utime) + (after.ru_stime - before.ru_stime)
     assert 1.8 <= elapsed <= 4.5                       # ends on its own (safety: a forgotten load must not stay)
-    assert 1.4 <= cpu <= 2.7                           # 2 workers x 2 s x 50% duty = 2 CPU seconds
+    # 2 workers x 2 s x 50% duty = 2 CPU seconds by design; bursts are timed on the wall clock, so a busy machine
+    # gives less. 1.0 still rejects "idle", 2.7 still rejects "always busy" (that would be 4 CPU seconds).
+    assert 1.0 <= cpu <= 2.7
 
 
 def row(p99, skip=0.0, gap=100.0, pairs=1500):

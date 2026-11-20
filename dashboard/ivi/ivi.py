@@ -46,13 +46,21 @@ def load_route():
         return None
 
 
+MAP_PERIOD = 0.4          # seconds: a worker with map_duty < 1 is busy for duty*period, then sleeps the rest
+
+
+def valid_duty(value):
+    return type(value) in (int, float) and 0 < value <= 1
+
+
 def load_config(path=None):
     config = json.loads(Path(path or ROOT / 'ivi.json').read_text())
     workers = config.get('map_workers') if isinstance(config, dict) else None
     base = {'version', 'map_enabled', 'map_workers', 'map_priority'}
-    # vehicle_data is optional so older ivi.json files (without it) keep their exact behaviour.
-    if (not isinstance(config, dict) or set(config) not in (base, base | {'vehicle_data'})
+    # vehicle_data and map_duty are optional so older ivi.json files keep their exact behaviour (duty 1 = always busy).
+    if (not isinstance(config, dict) or not base <= set(config) <= base | {'vehicle_data', 'map_duty'}
             or type(config.get('vehicle_data', False)) is not bool or not isinstance(config['version'], str) or type(config['map_enabled']) is not bool
+            or ('map_duty' in config and not valid_duty(config['map_duty']))
             or config['map_priority'] not in PRIORITIES
             or not (workers == 'cores' or (type(workers) is int and 0 <= workers <= 64))):
         raise ValueError('invalid IVI configuration')
@@ -73,12 +81,22 @@ def set_priority(priority):
     return True
 
 
-def worker(priority):
+def duty_cycle(duty):
+    """(busy seconds, rest seconds) per MAP_PERIOD."""
+    return duty * MAP_PERIOD, (1.0 - duty) * MAP_PERIOD
+
+
+def worker(priority, duty=1.0):
     set_priority(priority)
+    busy, rest = duty_cycle(duty)
     value = 1
     while True:
-        for _ in range(200000):
-            value = (value * 1103515245 + 12345) & 0xFFFFFFFF
+        until = time.monotonic() + busy
+        while time.monotonic() < until:
+            for _ in range(2000):
+                value = (value * 1103515245 + 12345) & 0xFFFFFFFF
+        if rest:
+            time.sleep(rest)
 
 
 def flag_active(path):
@@ -97,7 +115,7 @@ def atomic_json(path, data):
 
 def main(argv):
     if len(argv) >= 3 and argv[1] == '--worker':
-        worker(argv[2])
+        worker(argv[2], float(argv[3]) if len(argv) >= 4 else 1.0)
     config = load_config()
     if '--check' in argv:
         print(json.dumps({'ok': True, 'version': config['version']}))
@@ -118,7 +136,7 @@ def main(argv):
             active = enabled and flag_active(flag)
             workers = [w for w in workers if w.poll() is None]
             if active and len(workers) < wanted:
-                workers += [subprocess.Popen([sys.executable, __file__, '--worker', config['map_priority']])
+                workers += [subprocess.Popen([sys.executable, __file__, '--worker', config['map_priority'], str(config.get('map_duty', 1.0))])
                             for _ in range(wanted - len(workers))]
             elif not active and workers:
                 for w in workers:

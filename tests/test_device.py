@@ -458,3 +458,58 @@ def test_install_and_rollback_report_real_work_progress(device_type, releases, k
     rollback = [w for s, w in calls if s == "recover" and w]
     assert rollback and rollback[-1]["kind"] == "rollback" and rollback[-1]["done"] == rollback[-1]["total"] > 0
     assert "work" not in json.loads((device.root / "progress.json").read_text())   # nothing is left reporting after the end
+
+
+def test_pace_spreads_progress_over_the_requested_time():
+    from capstone_ota.device import pace
+    now, slept, seen = {"t": 0.0}, [], []
+
+    def sleep(seconds):
+        slept.append(seconds)
+        now["t"] += seconds
+    paced = pace(lambda done, total: seen.append((round(now["t"], 3), done, total)), 10.0, clock=lambda: now["t"], sleep=sleep)
+    for done in (0, 20, 50, 100):
+        paced(done, 100)
+    assert seen == [(0.0, 0, 100), (2.0, 20, 100), (5.0, 50, 100), (10.0, 100, 100)]   # the bar is honest: bytes follow time
+
+
+def test_pace_does_nothing_without_a_known_total_or_a_time():
+    from capstone_ota.device import pace
+    slept = []
+    for seconds, total in ((10.0, None), (10.0, 0), (0.0, 100)):
+        paced = pace(lambda *_: None, seconds, clock=lambda: 0.0, sleep=slept.append)
+        paced(50, total)
+    assert slept == []
+
+
+def test_demo_pace_file_is_optional_and_ignores_nonsense(tmp_path):
+    from capstone_ota.device import load_pace
+    assert load_pace(tmp_path) == {}
+    (tmp_path / "demo-pace.json").write_text('{"download": 10, "install": 8.5}')
+    assert load_pace(tmp_path) == {"download": 10.0, "install": 8.5}
+    for bad in ('[]', '{"download": -1}', '{"download": "fast"}', '{"download": 9999}', 'not json', '{"download": true}'):
+        (tmp_path / "demo-pace.json").write_text(bad)
+        assert load_pace(tmp_path) == {}, bad
+
+
+def test_paced_download_and_install_take_the_requested_time_and_report_in_steps(device_type, releases, keys, tmp_path):
+    root = tmp_path / "device"
+    root.mkdir()
+    (root / "demo-pace.json").write_text('{"download": 1.5, "install": 1.5}')
+    device = device_type(root)
+    seen = []
+    original = device._progress
+
+    def spy(stage, **fields):
+        if stage == "install" and fields.get("work"):
+            seen.append((time.monotonic(), fields["work"]["done"], fields["work"]["total"]))
+        return original(stage, **fields)
+    device._progress = spy
+    with serving(releases) as url:
+        started = time.monotonic()
+        assert device.update(url + "/v2", public_key=keys[1])["result"] == "committed"
+        elapsed = time.monotonic() - started
+    assert elapsed >= 2.7                                          # 1.5 s download + 1.5 s install
+    steps = [s for s in seen if s[1] < s[2]]
+    assert len(steps) >= 2 and seen[-1][1] == seen[-1][2]          # in-between steps, then done
+    assert seen[-1][0] - seen[0][0] >= 1.0                         # spread over time, not one jump
