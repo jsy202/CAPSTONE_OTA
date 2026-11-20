@@ -302,3 +302,11 @@ def test_the_recheck_length_the_screen_uses_is_the_one_the_device_waits_for():
     assert command[command.index("--recheck-seconds") + 1] == str(field.RECHECK_SECONDS)
     recheck = field.probation_command("10.0.0.4", probation=field.RECHECK_SECONDS, max_total=120, trace="recheck-trace.jsonl")
     assert recheck[recheck.index("--probation") + 1] == str(field.RECHECK_SECONDS)
+
+
+def test_a_failed_defence_run_holds_the_v1_screen_briefly_and_then_announces_its_end():
+    assert 10 <= field.VULNERABLE_HOLD_SECONDS <= 30        # a 75 s hold left a minute of nothing at the end of every video
+    source = open(field.__file__, encoding="utf-8").read()
+    held = source[source.index('note("vulnerable_outcome"'):]
+    held = held[:held.index("watching[\"on\"] = False")]
+    assert "time.sleep(VULNERABLE_HOLD_SECONDS)" in held and 'note("final"' in held   # the recorder stops on the final line

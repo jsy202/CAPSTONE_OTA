@@ -55,3 +55,27 @@ def test_recording_ends_when_the_run_reaches_its_final_state_before_the_boards_a
     assert record_demo.recording_done('[final] status={\'phase\': \'stable\'}')
     assert not record_demo.recording_done('[vulnerable_outcome] settled=True')
     assert not record_demo.recording_done('[reattack_through_closed_gate] response=ERROR gateway closed')
+
+
+def test_publishing_a_new_video_replaces_the_old_ones_of_that_scenario(tmp_path):
+    folder = tmp_path / "영상"
+    folder.mkdir()
+    for name in ("CAPSTONE_시연_방어실패.mp4", "CAPSTONE_시연_방어실패_원본속도_2.mp4", "CAPSTONE_시연_방어성공.mp4"):
+        (folder / name).write_bytes(b"old")
+    new = tmp_path / "video.mp4"
+    new.write_bytes(b"new video")
+    target = record_demo.publish_video(new, folder, "CAPSTONE_시연_방어실패")
+    assert target == folder / "CAPSTONE_시연_방어실패.mp4" and target.read_bytes() == b"new video"
+    assert sorted(p.name for p in folder.iterdir()) == ["CAPSTONE_시연_방어성공.mp4", "CAPSTONE_시연_방어실패.mp4"]   # other scenario untouched
+
+
+def test_an_empty_new_video_never_deletes_the_old_one(tmp_path):
+    import pytest
+    folder = tmp_path / "영상"
+    folder.mkdir()
+    (folder / "CAPSTONE_시연_방어실패.mp4").write_bytes(b"old")
+    empty = tmp_path / "video.mp4"
+    empty.write_bytes(b"")
+    with pytest.raises(RuntimeError):
+        record_demo.publish_video(empty, folder, "CAPSTONE_시연_방어실패")
+    assert (folder / "CAPSTONE_시연_방어실패.mp4").read_bytes() == b"old"

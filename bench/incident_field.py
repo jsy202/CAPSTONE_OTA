@@ -42,6 +42,7 @@ PY = RUNTIME + "/venv/bin/python"
 MONITOR_DIR = RUNTIME + "/monitor"
 MONITOR_BASELINE = "/home/otauser/ivi-monitor/baseline.json"  # measured at 10 Hz with the cluster pinned to core 0 (2026-11-05, E4)
 DEFAULT_PROFILE_HZ = 10
+VULNERABLE_HOLD_SECONDS = 20   # how long the V1 screen stays up after a failed defence before the run ends (the recording stops then)
 RECHECK_SECONDS = 20       # how long Pi2 watches a restored image after a rollback; the cockpit's "확인" gauge counts against it
 
 
@@ -632,7 +633,8 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
                                             "events": pi2.run(f"sudo grep -c VULNERABLE_MODE_RECOVERY_UNVERIFIED {IVI_ROOT}/events.jsonl 2>/dev/null; true",
                                                               check=False).stdout.strip()}
             note("vulnerable_outcome", settled=bool(settled))
-            time.sleep(75)  # keep the screen up: this is the picture the user sees if the defence fails
+            time.sleep(VULNERABLE_HOLD_SECONDS)  # keep the screen up: this is the picture the user sees if the defence fails
+            note("final", status=pi2_status(pi2))   # the recorder stops here, before the boards are shut down
             watching["on"] = False
             result["verdict_timeline"] = timeline
             return result

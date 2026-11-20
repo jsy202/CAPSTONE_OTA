@@ -41,11 +41,15 @@ Window {
     property var lastShot: null
     property bool _haveSnapshot: false
     property var _transitionState: ({run: null, seen: 0, kinds: {}})
+    // While the white "검증 중" alert is up (verification starts) the cluster and IVI cells go dark; both applications are
+    // really running underneath. It follows the alert itself, so it lasts exactly as long as the alert does.
+    readonly property bool verifyCover: band.shown && band.kind === "verifying"
     property int logSeen: -1
     function logAlerts(rows) {
-        if (logSeen < 0 || rows.length < logSeen) { logSeen = rows.length; return }   // never replay history
-        for (; logSeen < rows.length; logSeen++) {
-            var t = String(rows[logSeen].text || "")
+        var look = Transitions.freshLogRows(rows, logSeen)     // by row number: the feeder keeps only the latest rows
+        logSeen = look.seen
+        for (var i = 0; i < look.rows.length; i++) {
+            var t = String(look.rows[i].text || "")
             if (t.indexOf("디버깅 포트 닫힘") === 0) band.enqueue({kind: "port_closed", text: t})
             else if (t.indexOf("화면 앱 V1 실행") === 0) band.enqueue({kind: "attack_running", text: t})   // the IVI itself reports V1
         }
@@ -117,6 +121,8 @@ Window {
                 source: win.d.cluster ? "file:///run/cockpit/cluster.bmp?rev=" + win.d.cluster.rev : "" }
             Text { visible: !win.d.cluster || clusterImg.status !== Image.Ready; anchors.centerIn: parent; color: win.inkMuted
                 font.family: fSans.name; font.pixelSize: 30; text: "계기판 신호 없음" }
+            Rectangle { z: 5; anchors.fill: parent; color: "#000000"; visible: win.verifyCover
+                Text { anchors.centerIn: parent; color: win.inkMuted; font.family: fSans.name; font.pixelSize: 30; text: "검증 중" } }
         }
 
         // ---------------- OTA / field monitor — flat instrument-panel grid ----------------
@@ -244,8 +250,10 @@ Window {
                 text: win.d.ivi_ui ? "IVI 불러오는 중" : "IVI 설치 안 됨" }
             // The application process is stopped or restarting (its status file stopped updating): cover the
             // last picture instead of showing a frozen screen. Real signal, no timer of its own.
-            Rectangle { id: iviDown; z: 5; anchors.fill: parent; color: "#0a0e15"; visible: !!win.d.ivi_ui && !Transitions.iviResponding(win.d.ivi)
-                Text { anchors.centerIn: parent; color: win.inkMuted; font.family: fSans.name; font.pixelSize: 32; text: "IVI 응답 없음" } }
+            Rectangle { id: iviDown; z: 5; anchors.fill: parent; color: "#0a0e15"
+                visible: win.verifyCover || (!!win.d.ivi_ui && !Transitions.iviResponding(win.d.ivi))
+                Text { anchors.centerIn: parent; color: win.inkMuted; font.family: fSans.name; font.pixelSize: 32
+                    text: win.verifyCover ? "검증 중" : "IVI 응답 없음" } }
         }
 
         // ---------------- alert strip: the top 225 px are reserved for dynamic alerts ----------------
@@ -280,7 +288,8 @@ Window {
                     sub = sub.split(" → ").reverse().join(" → ")
                 // Only these messages ever show on the strip.
                 if (kind === "preparing") { tone = win.accent; headline = "업데이트 시작"; tag = "[ OTA ]" }
-                else if (kind === "installed") { tone = win.success; headline = "업데이트 완료"; tag = "[ OTA ]" }
+                else if (kind === "installed") { tone = win.accent; headline = "설치 완료"; tag = "[ OTA ]" }       // written, not yet checked
+                else if (kind === "accepted") { tone = win.success; headline = "업데이트 완료"; tag = "[ OTA ]" }  // only after the check passed
                 else if (kind === "verifying") { tone = "#f4f7fb"; headline = "검증 중"; tag = "[ OTA ]" }   // installed, not yet accepted: white
                 else if (kind === "rollback") { tone = win.warn; headline = "롤백 준비"; tag = "[ SYS ]" }
                 else if (kind === "restored") { tone = win.success; headline = "롤백 완료"; tag = "[ SYS ]" }

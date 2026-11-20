@@ -38,7 +38,7 @@ def test_payload_layout_and_versions(tmp_path):
     assert CONFIGS['V2'] == {'version': 'V2', 'map_enabled': False, 'map_workers': 0, 'map_priority': 'normal',
                           'vehicle_data': True}
     assert CONFIGS['V3'] == {'version': 'V3', 'map_enabled': True, 'map_workers': 'cores', 'map_priority': 'rr10',
-                          'map_duty': 0.75, 'vehicle_data': True}
+                          'map_duty': 0.4, 'vehicle_data': True}
     assert not (tmp_path / 'V2/map.json').exists() and (tmp_path / 'V3/map.json').exists()
     # V1 is the oldest release (a radio instead of a map): no map payload, and it is what a rollback attack would run.
     assert CONFIGS['V1'] == {'version': 'V1', 'map_enabled': False, 'map_workers': 0, 'map_priority': 'normal',

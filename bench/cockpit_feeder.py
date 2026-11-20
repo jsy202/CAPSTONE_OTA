@@ -51,6 +51,7 @@ class Feeder:
                  recheck_s=0):
         self.out, self.clock = Path(out_dir), clock
         self.cluster, self.pi3, self.ota, self.events, self.ivi, self.ivi_ui = cluster, pi3, ota, events, ivi, ivi_ui
+        self._log_n = 0
         self.recheck_s = recheck_s       # how long the device watches a restored image; the "확인" gauge counts against it
         self.labels = dict(labels or {})   # release version -> product name (display only)
         self.shot, self.tap, self.extra, self._extra_seen = shot, tap, extra, 0
@@ -63,9 +64,15 @@ class Feeder:
         except Exception:                    # a failing source is "unknown", never a made-up value
             return None
 
-    def _add(self, now: float, text: str) -> None:
-        self.log.append({'t': time.strftime('%H:%M:%S', time.localtime(now)), 'text': text})
+    def _push(self, t: str, text: str) -> None:
+        # `n` only ever grows: the list is trimmed to LOG_LIMIT rows, so the screen finds new rows by this number
+        # (counting entries stops working once the list is full, and later alerts were silently lost).
+        self._log_n += 1
+        self.log.append({'n': self._log_n, 't': t, 'text': text})
         del self.log[:-LOG_LIMIT]
+
+    def _add(self, now: float, text: str) -> None:
+        self._push(time.strftime('%H:%M:%S', time.localtime(now)), text)
 
     def collect(self) -> dict:
         now = self.clock()
@@ -83,8 +90,7 @@ class Feeder:
             self._extra_seen = 0
         for row in rows[self._extra_seen:]:
             if isinstance(row, dict) and row.get('text'):
-                self.log.append({'t': str(row.get('t') or time.strftime('%H:%M:%S', time.localtime(now))), 'text': str(row['text'])})
-                del self.log[:-LOG_LIMIT]
+                self._push(str(row.get('t') or time.strftime('%H:%M:%S', time.localtime(now))), str(row['text']))
         self._extra_seen = len(rows)
         state = pi3.get('state') if pi3 else 'lost'
         if state != self._pi3_state:

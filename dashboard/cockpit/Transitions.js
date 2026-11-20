@@ -129,3 +129,16 @@ function check(ota, pi3, recheckS, now) {
     var elapsed = typeof ota.updated === "number" && typeof now === "number" ? Math.max(0, now - ota.updated) : pi3.monitored_s
     return made(Math.min(1, Math.min(pi3.monitored_s, elapsed) / recheckS), "check")
 }
+
+// New rows of the feeder's log. Rows carry an increasing number `n`; the list itself is trimmed, so its length says
+// nothing about what is new. The first look never replays history, and a feeder that restarted (numbers start over)
+// starts again from where it is.
+function freshLogRows(rows, seen) {
+    // a row without a number (a preview, an older feeder) is numbered by its position, so the counter is always a number
+    function number(row, index) { return typeof row.n === "number" ? row.n : index + 1 }
+    var latest = rows.length ? number(rows[rows.length - 1], rows.length - 1) : 0
+    if (seen < 0 || latest < seen) return {rows: [], seen: latest}
+    var fresh = []
+    for (var i = 0; i < rows.length; i++) if (number(rows[i], i) > seen) fresh.push(rows[i])
+    return {rows: fresh, seen: latest}
+}

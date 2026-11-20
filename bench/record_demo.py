@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
+import shutil
 import subprocess
 import sys
 import threading
@@ -61,6 +63,23 @@ def transcode(raw: Path, output: Path, ffmpeg="ffmpeg") -> Path:
     subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-i", str(raw), "-c:v", "libx264", "-preset", "veryfast",
                     "-crf", "23", "-pix_fmt", "yuv420p", str(output)], check=True)
     return output
+
+
+def publish_video(video: Path, folder: Path, name: str) -> Path:
+    """Put the new video in `folder` as `<name>.mp4` and delete the older videos of that scenario (anything starting with
+    `name`). The old ones go only after the new copy exists and is not empty, so a failed recording never costs the
+    previous video. Other scenarios' videos are left alone."""
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    if not Path(video).is_file() or Path(video).stat().st_size == 0:
+        raise RuntimeError(f"{video} is missing or empty: the old videos are kept")
+    target, temporary = folder / f"{name}.mp4", folder / f".{name}.mp4.part"
+    shutil.copyfile(video, temporary)
+    os.replace(temporary, target)
+    for old in folder.glob(f"{name}*"):
+        if old != target and old.is_file():
+            old.unlink()
+    return target
 
 
 def fetch_file(pi2, remote: str, local: Path) -> Path:
@@ -114,6 +133,8 @@ def main(argv=None) -> int:
     parser.add_argument("--decision", default="approve", choices=["approve", "reject"])
     parser.add_argument("--remote-stream", action="store_true",
                         help="old way: stream frames to the laptop and time-compress (choppy over Wi-Fi); default records on Pi2")
+    parser.add_argument("--publish-dir", type=Path, help="copy the finished video here and delete the older videos of the scenario")
+    parser.add_argument("--publish-name", help="file name (without .mp4) the published video gets, e.g. CAPSTONE_시연_방어실패")
     parser.add_argument("--lead", type=float, default=12.0, help="seconds of V2 screen before the tap")
     args = parser.parse_args(argv)
     sys.stdout.reconfigure(line_buffering=True)
@@ -177,6 +198,8 @@ def main(argv=None) -> int:
         reader.stop()
         video = build_video(store, out / "video.mp4")
         print(f"[record] {len(store.times)} frames -> {video} (run exit {process.returncode}, tapped={tapped['done']})")
+    if args.publish_dir and args.publish_name:
+        print(f"[record] published -> {publish_video(video, args.publish_dir, args.publish_name)} (older videos of this scenario deleted)")
     return process.returncode
 
 

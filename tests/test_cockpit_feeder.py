@@ -257,3 +257,15 @@ def test_the_collected_data_carries_the_recheck_length_and_the_progress_clock(tm
     feeder.recheck_s = 20
     data = feeder.collect()
     assert data['recheck_s'] == 20 and data['ota']['updated'] == 990.0
+
+
+def test_log_rows_carry_an_increasing_number_even_after_the_list_is_trimmed(tmp_path):
+    """The screen finds new lines by this number: counting list entries stops working once the list is full."""
+    events = []
+    feeder = make(tmp_path, events=lambda: list(events))
+    for index in range(40):                       # far more than the list keeps
+        events.append({'event': 'trial' if index % 2 else 'recover'})
+        data = feeder.collect()
+    numbers = [row['n'] for row in data['log']]
+    assert len(numbers) <= 14 and numbers == sorted(numbers) and len(set(numbers)) == len(numbers)
+    assert numbers[-1] >= 40                      # still counting after the trim

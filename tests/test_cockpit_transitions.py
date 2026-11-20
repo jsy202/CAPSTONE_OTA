@@ -230,3 +230,127 @@ assert.strictEqual(check({stage: 'recheck'}, null, 20, 100).fraction, 0);       
 assert.strictEqual(check({stage: 'recheck', updated: 90}, pi3(5), 0, 100).fraction, 0);             // unknown length: nothing is claimed
 assert.deepStrictEqual(check({stage: 'rolled_back'}, pi3(0), 20, 100), {label: '확인', fraction: 1, kind: 'done', percent: '100%'});
 """)
+
+
+def test_new_log_rows_are_found_by_their_number_not_by_the_list_length():
+    _node(r"""
+const trimmed = (from, to) => Array.from({length: to - from + 1}, (_, i) => ({n: from + i, text: 'row ' + (from + i)}));
+let r = freshLogRows(trimmed(1, 14), -1);                       // first look: history is never replayed
+assert.deepStrictEqual([r.rows.length, r.seen], [0, 14]);
+r = freshLogRows(trimmed(10, 23), 20);                          // the list is full (14 rows) yet three rows are new
+assert.deepStrictEqual(r.rows.map(x => x.n), [21, 22, 23]);
+assert.strictEqual(r.seen, 23);
+r = freshLogRows(trimmed(10, 23), 23);
+assert.deepStrictEqual([r.rows.length, r.seen], [0, 23]);       // nothing new
+r = freshLogRows(trimmed(1, 3), 50);                            // the feeder restarted and counts from the start again
+assert.deepStrictEqual([r.rows.length, r.seen], [0, 3]);
+r = freshLogRows([], -1);
+assert.deepStrictEqual([r.rows.length, r.seen], [0, 0]);
+""")
+
+
+def test_the_alert_strip_says_installed_then_verifying_and_only_a_passed_check_says_update_complete(tmp_path):
+    """설치 완료 -> 검증 중 -> (검증이 통과하면) 업데이트 완료. Nothing says "update complete" before the check passed."""
+    qmlscene = shutil.which('qmlscene')
+    if not qmlscene:
+        pytest.skip('qmlscene is needed for the alert strip check')
+    cockpit = (Path(__file__).parents[1] / 'dashboard/cockpit/Cockpit.qml').as_uri()
+    harness = tmp_path / 'Headlines.qml'
+    harness.write_text('''import QtQuick 2.15
+Item {
+    property var cockpit
+    property var band
+    function find(item) {
+        if (item.objectName === "otaEventBand") return item
+        for (var i = 0; item.children && i < item.children.length; i++) { var f = find(item.children[i]); if (f) return f }
+        return null
+    }
+    Component.onCompleted: {
+        var component = Qt.createComponent(%s)
+        cockpit = component.createObject(null, {dataUrl: "file:///nonexistent-cockpit-test-data"})
+        if (!cockpit) throw new Error(component.errorString())
+        band = find(cockpit.contentItem)
+    }
+    Timer {
+        interval: 200; running: true; repeat: false
+        onTriggered: {
+            var seen = {}
+            var kinds = ["preparing", "installed", "verifying", "accepted", "rollback"]
+            for (var i = 0; i < kinds.length; i++) {
+                band.pending = [{kind: kinds[i], transition: "V2 \\u2192 V3"}]
+                band.next()
+                seen[kinds[i]] = band.headline
+            }
+            console.log("HEADLINES:" + JSON.stringify(seen))
+            cockpit.close(); Qt.quit()
+        }
+    }
+}
+''' % json.dumps(cockpit))
+    done = subprocess.run([qmlscene, str(harness)], capture_output=True, text=True, timeout=40,
+                          env={**os.environ, 'QT_QPA_PLATFORM': 'offscreen', 'QT_QUICK_BACKEND': 'software', 'QML_XHR_ALLOW_FILE_READ': '1'})
+    assert done.returncode == 0, done.stderr
+    line = [row for row in done.stderr.splitlines() if 'HEADLINES:' in row][0]
+    seen = json.loads(line.split('HEADLINES:', 1)[1])
+    assert seen == {'preparing': '업데이트 시작', 'installed': '설치 완료', 'verifying': '검증 중',
+                    'accepted': '업데이트 완료', 'rollback': '롤백 준비'}, seen
+
+
+def test_cluster_and_ivi_cells_are_covered_only_while_the_verifying_alert_is_shown(tmp_path):
+    """Verification starts: both cells go dark for as long as the white "검증 중" alert is up, and not for any other alert."""
+    qmlscene = shutil.which('qmlscene')
+    if not qmlscene:
+        pytest.skip('qmlscene is needed for the cover check')
+    cockpit = (Path(__file__).parents[1] / 'dashboard/cockpit/Cockpit.qml').as_uri()
+    harness = tmp_path / 'Cover.qml'
+    harness.write_text('''import QtQuick 2.15
+Item {
+    property var cockpit
+    property var band
+    property int step: 0
+    property var seen: ({})
+    function find(item) {
+        if (item.objectName === "otaEventBand") return item
+        for (var i = 0; item.children && i < item.children.length; i++) { var f = find(item.children[i]); if (f) return f }
+        return null
+    }
+    Component.onCompleted: {
+        var component = Qt.createComponent(%s)
+        cockpit = component.createObject(null, {dataUrl: "file:///nonexistent-cockpit-test-data"})
+        if (!cockpit) throw new Error(component.errorString())
+        band = find(cockpit.contentItem)
+    }
+    Timer {
+        interval: 300; running: true; repeat: true
+        onTriggered: {
+            step++
+            if (step === 1) seen.before = cockpit.verifyCover
+            else if (step === 2) band.enqueue({kind: "rollback", transition: "V2 \\\\u2192 V3"})
+            else if (step === 3) { seen.rollbackAlert = cockpit.verifyCover; band.pending = []; }
+            else if (step === 4) { band.pending = [{kind: "verifying", transition: "V2 \\\\u2192 V3"}]; band.next() }
+            else if (step === 5) seen.verifying = cockpit.verifyCover
+            else if (step === 20) { seen.after = cockpit.verifyCover; console.log("COVER:" + JSON.stringify(seen)); cockpit.close(); Qt.quit() }
+        }
+    }
+}
+''' % json.dumps(cockpit))
+    done = subprocess.run([qmlscene, str(harness)], capture_output=True, text=True, timeout=40,
+                          env={**os.environ, 'QT_QPA_PLATFORM': 'offscreen', 'QT_QUICK_BACKEND': 'software', 'QML_XHR_ALLOW_FILE_READ': '1'})
+    assert done.returncode == 0, done.stderr
+    line = [row for row in done.stderr.splitlines() if 'COVER:' in row][0]
+    seen = json.loads(line.split('COVER:', 1)[1])
+    assert seen['before'] is False and seen['rollbackAlert'] is False
+    assert seen['verifying'] is True                      # covered while the verifying alert is up
+    assert seen['after'] is False                         # and uncovered again once it has gone
+
+
+def test_log_rows_without_a_number_still_work_by_their_position():
+    # A preview or an older feeder sends rows without `n`: the screen must never end up with an undefined counter.
+    _node(r"""
+let r = freshLogRows([{text: 'a'}, {text: 'b'}], -1);
+assert.deepStrictEqual([r.rows.length, r.seen], [0, 2]);
+r = freshLogRows([{text: 'a'}, {text: 'b'}, {text: 'c'}], 2);
+assert.deepStrictEqual(r.rows.map(x => x.text), ['c']);
+assert.strictEqual(r.seen, 3);
+assert.strictEqual(typeof freshLogRows([], -1).seen, 'number');
+""")
