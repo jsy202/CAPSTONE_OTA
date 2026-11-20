@@ -358,3 +358,22 @@ assert.deepStrictEqual(r.rows.map(x => x.text), ['c']);
 assert.strictEqual(r.seen, 3);
 assert.strictEqual(typeof freshLogRows([], -1).seen, 'number');
 """)
+
+
+def test_a_rollback_always_reads_newer_to_older_whatever_order_the_device_recorded_the_versions_in():
+    # 2026-11-20: the gauge said "롤백 V2 -> V3" while the alert said "V3 -> V2": the device records version/candidate
+    # differently in different flows, and the repair flow knows its current version only later ("— -> V2").
+    _node(r"""
+const names = {'3.9.0': 'V2', '3.10.0': 'V3'};
+const change = (stage, version, candidate) => versionChange({stage, version, candidate}, names);
+assert.strictEqual(change('recover', '3.9.0', '3.10.0'), 'V3 → V2');
+assert.strictEqual(change('recover', '3.10.0', '3.9.0'), 'V3 → V2');             // fields the other way round
+assert.strictEqual(change('recheck', '3.10.0', '3.9.0'), 'V3 → V2');
+assert.strictEqual(change('rolled_back', '3.10.0', '3.9.0'), 'V3 → V2');
+assert.strictEqual(change('install', '3.9.0', '3.10.0'), 'V2 → V3');             // an update goes older -> newer
+assert.strictEqual(change('download', '3.9.0', '3.10.0'), 'V2 → V3');
+assert.strictEqual(change('download', null, '3.9.0'), 'V2');                      // the repair knows only its target: no "— → V2"
+assert.strictEqual(change('download', '—', '3.9.0'), 'V2');
+assert.strictEqual(change('committed', '3.9.0', null), '');                       // nothing to show at rest
+assert.strictEqual(change('download', '3.9.0', '3.9.0'), '');
+""")

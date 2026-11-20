@@ -16,13 +16,25 @@ function versionText(ota, labels) {
 }
 
 // "V2 → V3" while updating, "V3 → V2" while rolling back, nothing at rest. Same wording as the alert strip.
+// The direction comes from the versions themselves, not from which field the device filled: an update goes from the
+// older to the newer version and a rollback the other way round (the device records version/candidate differently in
+// different flows). A repair knows only its target version at first: then just that one is shown, never "— → V2".
+function versionNumber(version) {
+    var parts = String(version).split("."), n = 0
+    for (var i = 0; i < 3; i++) n = n * 100000 + (parseInt(parts[i], 10) || 0)
+    return n
+}
 function versionChange(ota, labels) {
     if (!ota || !ota.candidate) return "";
-    var from = versionLabel(ota.version || "—", labels), to = versionLabel(ota.candidate, labels);
-    if (from === to) return "";
+    var known = function (v) { return v && v !== "—" }
+    if (!known(ota.version)) return versionLabel(ota.candidate, labels);
+    if (ota.version === ota.candidate) return "";
+    var older = versionNumber(ota.version) <= versionNumber(ota.candidate) ? ota.version : ota.candidate
+    var newer = older === ota.version ? ota.candidate : ota.version
     var back = ota.stage === "recover" || ota.stage === "recovery_verified" || ota.stage === "recheck"
             || ota.stage === "rolled_back" || ota.stage === "recovery_failed" || ota.stage === "verification_failed";
-    return back ? to + " → " + from : from + " → " + to;
+    return back ? versionLabel(newer, labels) + " → " + versionLabel(older, labels)
+                : versionLabel(older, labels) + " → " + versionLabel(newer, labels);
 }
 
 function consume(state, ota, labels) {

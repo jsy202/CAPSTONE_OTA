@@ -164,7 +164,7 @@ Window {
                     // the version change, small, beside the title: the same "V2 → V3" form as on the alert strip
                     Text { visible: gauge.live.label !== ""; anchors.baseline: gaugeTitle.baseline; color: win.inkMuted
                         font.family: fGroteskMed.name; font.pixelSize: 30
-                        text: Transitions.versionChange(win.ota, win.d.version_labels) } }
+                        text: Transitions.versionChange(win.shownOta ? win.shownOta : win.ota, win.d.version_labels) } }   // same record as the title
                 Rectangle { y: 66; width: parent.width; height: 34; color: "#11151b"
                     Rectangle { width: parent.width * gauge.shown; height: parent.height; color: gauge.tone
                         Behavior on color { ColorAnimation { duration: 300 } } } }
