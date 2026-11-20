@@ -47,6 +47,11 @@ def screen_ready(line: str) -> bool:
     return "[screen]" in line and "virtual display" in line and "started" in line
 
 
+def recording_done(line: str) -> bool:
+    """The run prints "[final]" once the drill is over and then shuts the cluster and IVI down; stop filming before that."""
+    return line.startswith("[final]")
+
+
 def board_record_stop_command() -> str:
     return "pkill -INT -x ffmpeg; while pgrep -x ffmpeg >/dev/null; do sleep 1; done; echo stopped"
 
@@ -121,7 +126,7 @@ def main(argv=None) -> int:
     store = RecordingStore(out / "frames")
     onboard = not args.remote_stream
     remote_file = f"{BOARD_REC_DIR}/{out.name}.mkv"
-    recording = {"on": False}
+    recording = {"on": False, "stopped": False}
 
     def start_board_recording():
         pi2.run(f"nohup setsid sh -c {shlex.quote(board_record_command(field.VDISPLAY, remote_file))} "
@@ -152,6 +157,10 @@ def main(argv=None) -> int:
         log.write(line); log.flush(); print(line, end="")
         if onboard and not recording["on"] and screen_ready(line):
             start_board_recording()
+        elif onboard and recording["on"] and not recording["stopped"] and recording_done(line):
+            pi2.run(board_record_stop_command(), check=False, timeout=120)
+            recording["stopped"] = True
+            print("[record] on-board recording stopped at the final state", flush=True)
         if "waiting_for_map_click" in line and not tapped["done"]:
             threading.Thread(target=tap_later, daemon=True).start()
     process.wait()
@@ -159,7 +168,8 @@ def main(argv=None) -> int:
     if onboard:
         if not recording["on"]:
             raise RuntimeError("the cockpit screen never came up, nothing was recorded")
-        pi2.run(board_record_stop_command(), check=False, timeout=120)
+        if not recording["stopped"]:
+            pi2.run(board_record_stop_command(), check=False, timeout=120)
         raw = fetch_file(pi2, remote_file, out / "video.raw.mkv")
         video = transcode(raw, out / "video.mp4")
         print(f"[record] on-board recording -> {video} ({video.stat().st_size} bytes, run exit {process.returncode}, tapped={tapped['done']})")

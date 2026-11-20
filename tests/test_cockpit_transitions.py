@@ -28,6 +28,11 @@ assert.strictEqual(phase({stage: 'recover', work: {kind: 'rollback', done: 1, to
 assert.strictEqual(phase({stage: 'recovery_failed', timeline: [{stage: 'recover'}]}).kind, 'blocked');
 assert.strictEqual(phase({stage: 'recovery_failed', timeline: [{stage: 'recover'}, {stage: 'recovery_verified'}]}).kind, 'failed');
 assert.strictEqual(phase({stage: 'install'}, true).fraction, 1);
+// The stage replay shows each stage briefly: the bars must reach 100% before they go away.
+assert.deepStrictEqual(phase({stage: 'archive_verify'}, true), {label: '다운로드', fraction: 1, kind: 'update', percent: '100%'});
+assert.deepStrictEqual(phase({stage: 'trial'}, true), {label: '설치', fraction: 1, kind: 'update', percent: '100%'});
+assert.strictEqual(phase({stage: 'trial'}).kind, 'idle');            // live: the long trial itself shows no install bar
+assert.strictEqual(phase({stage: 'archive_verify'}).kind, 'idle');
 assert.deepStrictEqual(phase({stage: 'idle', version: '3.5.0'}), {label: '', fraction: 0, kind: 'idle', percent: ''});   // nothing is happening: no gauge
 assert.deepStrictEqual(consume({run: null, seen: 0, kinds: {}}, {stage: 'idle', version: '3.5.0'}), []);
 assert.strictEqual(versionChange({stage: 'install', version: '2.0.0', candidate: '3.0.0'}, names), 'V2 → V3');

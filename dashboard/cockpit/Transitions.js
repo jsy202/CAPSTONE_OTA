@@ -74,6 +74,10 @@ function phase(ota, historical) {
     var stage = ota.stage, work = ota.work || null;
     if (historical && (stage === "download" || stage === "install" || stage === "recover"))
         return made(stage === "download" ? "다운로드" : stage === "install" ? "설치" : "롤백", 1, stage === "recover" ? "rollback" : "update");
+    // Replayed rows of the two stages that follow a progress bar: show that bar full for its moment instead of an empty
+    // gauge, so a viewer sees each bar reach 100% before it goes away. Live, these stages show no bar.
+    if (historical && stage === "archive_verify") return made("다운로드", 1, "update");
+    if (historical && stage === "trial") return made("설치", 1, "update");
     if (stage === "download") {
         var known = ota.total > 0 && ota.received !== undefined && ota.received !== null;
         return known ? made("다운로드", pct(ota.received, ota.total), "update") : {label: "다운로드", fraction: 0, kind: "update", percent: ""};

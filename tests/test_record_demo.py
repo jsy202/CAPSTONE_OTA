@@ -48,3 +48,10 @@ def test_recording_starts_only_after_the_run_has_restarted_the_virtual_display()
     assert not record_demo.screen_ready("[services] cluster(core 0) + IVI V2 on Pi2, Pi3 monitor, Pi1 drive profile started")
     assert not record_demo.screen_ready("[screen] cockpit feeder + fullscreen monitoring screen started on Pi2's HDMI monitor")
 
+
+
+def test_recording_ends_when_the_run_reaches_its_final_state_before_the_boards_are_shut_down():
+    # After "[final]" the run stops the cluster and the IVI: recording on would film a dead screen at the end.
+    assert record_demo.recording_done('[final] status={\'phase\': \'stable\'}')
+    assert not record_demo.recording_done('[vulnerable_outcome] settled=True')
+    assert not record_demo.recording_done('[reattack_through_closed_gate] response=ERROR gateway closed')
