@@ -42,6 +42,7 @@ PY = RUNTIME + "/venv/bin/python"
 MONITOR_DIR = RUNTIME + "/monitor"
 MONITOR_BASELINE = "/home/otauser/ivi-monitor/baseline.json"  # measured at 10 Hz with the cluster pinned to core 0 (2026-11-05, E4)
 DEFAULT_PROFILE_HZ = 10
+RECHECK_SECONDS = 20       # how long Pi2 watches a restored image after a rollback; the cockpit's "확인" gauge counts against it
 
 
 def monitor_baseline_for(hz, cycle="synthetic"):
@@ -236,14 +237,15 @@ def version_labels(config):
     return labels
 
 
-def feeder_command(pi3_address, interval=0.5, ivi_ui=None, labels=None):
+def feeder_command(pi3_address, interval=0.5, ivi_ui=None, labels=None, recheck_s=0):
     """Collects what the cockpit shows (cluster capture, Pi3 verdict, update progress). Display only: it never decides."""
     ssh = [*PI2_ROOT_TO_PI3, f"otauser@{pi3_address}"]
     return ["taskset", "-c", "1-3", "/usr/bin/python3", "-m", "bench.cockpit_feeder",
             "--cluster-socket", "/run/capstone-cluster/model.sock", "--pi3-ssh", json.dumps(ssh),
             "--verdict-path", MONITOR_DIR + "/verdict.json",
             *(["--ivi-ui", str(ivi_ui)] if ivi_ui else []),
-            *(["--version-labels", json.dumps(labels)] if labels else []), "--interval", str(interval)]
+            *(["--version-labels", json.dumps(labels)] if labels else []), *(["--recheck-seconds", str(recheck_s)] if recheck_s else []),
+            "--interval", str(interval)]
 
 
 def map_flag_active(content):
@@ -292,7 +294,7 @@ def start_screen(boards, pi3_ip, log, interval=0.1, ivi_ui=None, virtual=False, 
     pi2.run("sudo systemctl stop field-cockpit-feeder.service 2>/dev/null; sudo rm -f /run/cockpit/extra.jsonl; true", check=False)
     pi2.run("sudo systemd-run --quiet --collect --unit field-cockpit-feeder "
             f"-p WorkingDirectory={SCREEN} -p Environment=PYTHONPATH={SCREEN}:{site} "
-            "-p Environment=XAUTHORITY=/var/lib/capstone-app/Xauthority " + shlex.join(feeder_command(pi3_ip, interval, ivi_ui, labels)))
+            "-p Environment=XAUTHORITY=/var/lib/capstone-app/Xauthority " + shlex.join(feeder_command(pi3_ip, interval, ivi_ui, labels, RECHECK_SECONDS)))
     pi2.run("pkill -f '[q]mlscene.*Cockpit.qml'; true", check=False)
     if virtual:
         pi2.put(f"{SCREEN}/cockpit/Cockpit.qml",
@@ -563,7 +565,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
                 start_screen(boards, pi3_ip, log, virtual=virtual_screen, labels=version_labels(config))
                 show_port(pi2, f"정비 포트 {MAINTENANCE_PORT} 열림 · 이더넷 전용")
             trial = probation_command(pi3_ip)
-            recheck = probation_command(pi3_ip, probation=20, max_total=120, trace="recheck-trace.jsonl")
+            recheck = probation_command(pi3_ip, probation=RECHECK_SECONDS, max_total=120, trace="recheck-trace.jsonl")
             seen = wait_for(lambda: healthy(pi3_verdict(boards["pi3"])), 90, 3.0)
             note("monitor_health", healthy=bool(seen), verdict=pi3_verdict(boards["pi3"]))
             if not seen:

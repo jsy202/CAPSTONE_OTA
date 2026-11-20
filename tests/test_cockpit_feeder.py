@@ -250,3 +250,10 @@ def test_the_running_feeder_reports_an_idle_device_for_progress_left_by_an_earli
         process.wait(timeout=10)
     assert data is not None, 'the feeder never wrote data.json'
     assert data['ota']['stage'] == 'idle' and not data['ota']['timeline_id'] and not data['ota']['work']
+
+
+def test_the_collected_data_carries_the_recheck_length_and_the_progress_clock(tmp_path):
+    feeder = make(tmp_path, ota=lambda: {'stage': 'recheck', 'updated': 990.0})
+    feeder.recheck_s = 20
+    data = feeder.collect()
+    assert data['recheck_s'] == 20 and data['ota']['updated'] == 990.0

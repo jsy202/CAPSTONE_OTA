@@ -44,7 +44,7 @@ function consume(state, ota, labels) {
     for (; state.seen < ota.timeline.length; state.seen++) {
         var row = ota.timeline[state.seen], s = row.stage;
         if (s === "metadata") add("preparing", row);
-        else if (s === "verify" && !state.kinds.rollback) add("installed", row);
+        else if (s === "verify" && !state.kinds.rollback) { add("installed", row); add("verifying", row); }
         else if (s === "recover") add("rollback", row);
         else if (s === "recovery_verified") state.recoveryVerified = true;
         else if (s === "recovery_failed") {
@@ -104,4 +104,28 @@ function iviResponding(ivi) {
     if (!ivi || ivi.alive !== true) return false
     if (typeof ivi.nav_age_s === "number") return ivi.nav_age_s <= 0.9
     return typeof ivi.age_s === "number" && ivi.age_s <= 1.8
+}
+
+// The caption under the delay readout. A confirmed overrun does not roll back at once: the rollback waits for the
+// vehicle to stand still, and says so while it waits; once the rollback itself runs the gauge tells the story.
+function monitorStatus(pstate, stage) {
+    if (pstate === "confirmed") return stage === "trial" || stage === "verify" ? "롤백을 위한 정차 대기 중" : ""
+    if (pstate === "suspect") return "징후 포착 · 관찰 중"
+    if (pstate === "observing") return ""
+    return "모니터 신호 없음"
+}
+
+// The second gauge, "확인": after a rollback the restored image is watched for `recheckS` seconds before the rollback
+// counts as done. Progress = what the Pi3 monitor really watched, never more than the time that has passed since the
+// recheck began (a monitor value left over from the trial cannot fill it early). Unknown length or no reading = 0.
+function check(ota, pi3, recheckS, now) {
+    var none = {label: "", fraction: 0, kind: "idle", percent: ""}
+    if (!ota || !ota.stage) return none
+    function made(fraction, kind) { return {label: "확인", fraction: fraction, kind: kind, percent: Math.round(fraction * 100) + "%"} }
+    if (ota.stage === "rolled_back") return made(1, "done")
+    if (ota.stage === "recovery_verified") return made(0, "check")
+    if (ota.stage !== "recheck") return none
+    if (!(recheckS > 0) || !pi3 || typeof pi3.monitored_s !== "number") return made(0, "check")
+    var elapsed = typeof ota.updated === "number" && typeof now === "number" ? Math.max(0, now - ota.updated) : pi3.monitored_s
+    return made(Math.min(1, Math.min(pi3.monitored_s, elapsed) / recheckS), "check")
 }

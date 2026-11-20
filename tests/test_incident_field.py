@@ -295,3 +295,10 @@ def test_demo_pace_file_is_removed_when_not_configured():
     pi2 = _RecordingBoard()
     field.apply_demo_pace(pi2, {})
     assert pi2.commands and "rm -f" in pi2.commands[0] and f"{field.IVI_ROOT}/demo-pace.json" in pi2.commands[0]
+
+
+def test_the_recheck_length_the_screen_uses_is_the_one_the_device_waits_for():
+    command = field.feeder_command("10.0.0.4", recheck_s=field.RECHECK_SECONDS)
+    assert command[command.index("--recheck-seconds") + 1] == str(field.RECHECK_SECONDS)
+    recheck = field.probation_command("10.0.0.4", probation=field.RECHECK_SECONDS, max_total=120, trace="recheck-trace.jsonl")
+    assert recheck[recheck.index("--probation") + 1] == str(field.RECHECK_SECONDS)

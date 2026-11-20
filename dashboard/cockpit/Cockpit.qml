@@ -163,6 +163,24 @@ Window {
                     Rectangle { width: parent.width * gauge.shown; height: parent.height; color: gauge.tone
                         Behavior on color { ColorAnimation { duration: 300 } } } }
             }
+            // ---- second gauge "확인": after a rollback the restored image is watched for a while; this is that watch ----
+            Item {
+                id: checkGauge
+                x: 32; y: 124; width: panel.width - 64; height: 60
+                readonly property var live: Transitions.check(win.ota, win.pi3, win.d.recheck_s, win.d.now)
+                visible: live.kind !== "idle"
+                property real shown: live.fraction
+                Behavior on shown { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+                Text { id: checkPercent; anchors.right: parent.right; y: 0; text: checkGauge.live.percent; color: win.ink
+                    font.family: fGroteskBold.name; font.pixelSize: 30 }
+                Text { x: 0; y: 0; text: checkGauge.live.label; color: checkGauge.live.kind === "done" ? win.success : win.ink
+                    font.family: fGroteskBold.name; font.pixelSize: 30
+                    Behavior on color { ColorAnimation { duration: 300 } } }
+                Rectangle { y: 40; width: parent.width; height: 18; color: "#11151b"
+                    Rectangle { width: parent.width * checkGauge.shown; height: parent.height
+                        color: checkGauge.live.kind === "done" ? win.success : win.ink
+                        Behavior on color { ColorAnimation { duration: 300 } } } }
+            }
             Rectangle { x: 32; y: 190; width: panel.width - 64; height: 1; color: win.hairline }
 
             // the one big causal visual: live cluster processing delay vs. its limit
@@ -187,14 +205,14 @@ Window {
                 color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28 }
 
             // status: a flat left-edge stripe, not a filled rounded pill
-            Row { x: 32; y: 366; width: panel.width - 64; height: 48; spacing: 16; visible: win.pstate !== "observing"   // normal needs no caption
+            Row { x: 32; y: 366; width: panel.width - 64; height: 48; spacing: 16
+                readonly property string caption: Transitions.monitorStatus(win.pstate, win.ota && win.ota.stage ? win.ota.stage : "")
+                visible: caption !== ""   // normal needs no caption
                 Rectangle { width: 5; height: parent.height; color: win.stateColor
                     Behavior on color { ColorAnimation { duration: 400 } } }
                 Text { anchors.verticalCenter: parent.verticalCenter; color: win.stateColor; font.family: fGroteskMed.name; font.pixelSize: 34
                     Behavior on color { ColorAnimation { duration: 400 } }
-                    text: win.pstate === "confirmed" ? "한계 초과 · 롤백 판단"
-                        : win.pstate === "suspect" ? "징후 포착 · 관찰 중"
-                        : "모니터 신호 없음" } }
+                    text: parent.caption } }
 
             // CAN truth vs. what the cluster shows
             Row { x: 32; y: 432; width: panel.width - 64; height: 106
@@ -263,6 +281,7 @@ Window {
                 // Only these messages ever show on the strip.
                 if (kind === "preparing") { tone = win.accent; headline = "업데이트 시작"; tag = "[ OTA ]" }
                 else if (kind === "installed") { tone = win.success; headline = "업데이트 완료"; tag = "[ OTA ]" }
+                else if (kind === "verifying") { tone = "#f4f7fb"; headline = "검증 중"; tag = "[ OTA ]" }   // installed, not yet accepted: white
                 else if (kind === "rollback") { tone = win.warn; headline = "롤백 준비"; tag = "[ SYS ]" }
                 else if (kind === "restored") { tone = win.success; headline = "롤백 완료"; tag = "[ SYS ]" }
                 // Here the image a rollback would run is the attacker's V1, so a refused rollback is the DEFENCE working.
