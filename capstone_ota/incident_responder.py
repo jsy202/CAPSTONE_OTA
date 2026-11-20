@@ -44,10 +44,19 @@ class IncidentResponder:
 
     # --- public -----------------------------------------------------------------------------
     def handle(self, result: dict) -> dict:
-        """React to a Pi2 result. Only `recovery_failed` starts an incident."""
+        """React to a Pi2 result. Only `recovery_failed` starts an incident.
+
+        The attacker-facing gateway stays open while the incident is handled and is closed when it is over
+        (restored, rejected, timed out or failed): the restore does not use that port (it goes over Pi1's
+        restricted SSH key), and the close is in `finally` so no outcome can leave it open."""
         if result.get("result") != "recovery_failed":
             return {"action": "none"}
-        self.gateway.close("device reported recovery_failed")
+        try:
+            return self._handle_incident(result)
+        finally:
+            self.gateway.close("incident handled; the diagnostic port is closed after the restore")
+
+    def _handle_incident(self, result: dict) -> dict:
         nonce = secrets.token_hex(16)
         report = self._report(result, nonce)
         if report is None:
@@ -107,26 +116,19 @@ class IncidentResponder:
         except (OSError, HTTPException):
             pass  # The report is best effort; the device state is the record.
 
-    def _pi2_file(self, name: str):
-        try:
-            return json.loads((Path(self.target["root"]) / name).read_text())
-        except (OSError, ValueError, KeyError):
-            return None  # Pi2's files are only readable here when it shares this machine.
-
     def _report(self, result: dict, nonce: str):
-        state, progress = self._pi2_file("state.json") or {}, self._pi2_file("progress.json") or {}
-        committed = state.get("committed") or {}
-        version = result.get("version") or (committed.get("release") or {}).get("version")
+        # Everything about Pi2 comes from Pi2's own answer: on a real vehicle Pi1 cannot read its files.
+        version = result.get("version")
         if not version:
             return None
         source = next((entry.get("source") for entry in reversed(self.gateway.log_tail(100))
                        if entry.get("event") == "request" and entry.get("forwarded")), None)
         return {"vehicle": self.vehicle, "nonce": nonce, "time": time.time(), "type": "recovery_slot_tamper",
-                "slot": committed.get("slot"), "committed_version": version,
-                "committed_svn": (committed.get("release") or {}).get("svn", result.get("min_svn")),
-                "expected_tree_sha256": progress.get("expected_tree_sha256"),
-                "observed_tree_sha256": progress.get("observed_tree_sha256"),
-                "detail": result.get("error") or progress.get("detail"), "source": source,
+                "slot": result.get("checked_slot") or result.get("active_slot"), "committed_version": version,
+                "committed_svn": result.get("min_svn"),
+                "expected_tree_sha256": result.get("expected_tree_sha256"),
+                "observed_tree_sha256": result.get("observed_tree_sha256"),
+                "detail": result.get("error"), "source": source,
                 "gateway_state": "open" if self.gateway.is_open else "closed",
                 "gateway_log_tail": self.gateway.log_tail(10), "cluster": "unaffected"}
 
@@ -154,6 +156,9 @@ class IncidentResponder:
                 skip = True  # repair uses the key pinned on the device
             elif argument != "--systemd":
                 command.append(argument)
+        if "repair_check_command" in self.target:
+            # The update's check judges a trial; the re-check after a restore is a different command.
+            command[command.index("--check-command") + 1] = json.dumps(self.target["repair_check_command"])
         remote = "cd " + shlex.quote(self.target["checkout"]) + " && " + shlex.join([*command, relay_url])
         return ["ssh", "-oBatchMode=yes", "-oStrictHostKeyChecking=yes", "-oConnectTimeout=5",
                 self.target["host"], remote]

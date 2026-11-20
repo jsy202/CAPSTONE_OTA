@@ -52,10 +52,11 @@ def main(argv=None) -> int:
     parser.add_argument('--unit', default='kmh', choices=['kmh', 'mph'])
     parser.add_argument('--loops', type=int, default=0, help='0 = until stopped')
     parser.add_argument('--hz', type=int, default=10)
+    parser.add_argument('--cycle', default='synthetic', choices=['synthetic', 'demo'])
     args = parser.parse_args(argv)
     samples = (drive_cycle.load_speed_samples(args.cycle_file, args.unit) if args.cycle_file
-               else drive_cycle.SYNTHETIC_CYCLE)
-    rows = drive_cycle.build_profile(samples, args.hz)
+               else drive_cycle.named_cycle(args.cycle))
+    rows = drive_cycle.build_profile(samples, args.hz, shifts=drive_cycle.DEMO_SHIFT_KMH if args.cycle == 'demo' else drive_cycle.UP_SHIFT_KMH)
     stop = {'now': False}
     for name in (signal.SIGTERM, signal.SIGINT):
         signal.signal(name, lambda *_: stop.update(now=True))

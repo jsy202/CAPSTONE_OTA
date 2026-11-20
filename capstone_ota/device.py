@@ -88,6 +88,40 @@ def fetch(url: str, target: Path, limit: int, progress=None) -> bytes:
     return digest.digest()
 
 
+MAX_PACE_SECONDS = 120.0
+
+
+def pace(progress, seconds: float, clock=time.monotonic, sleep=time.sleep):
+    """Demo pacing: wrap progress(done, total) so the whole stage takes about `seconds`.
+
+    The wait happens BEFORE the report, so the bar shows bytes that really were read/written by then. Without a
+    known total or a time it changes nothing."""
+    state = {"start": None}
+
+    def paced(done, total):
+        if state["start"] is None:
+            state["start"] = clock()
+        if total and seconds > 0:
+            wait = state["start"] + seconds * min(done / total, 1.0) - clock()
+            if wait > 0:
+                sleep(wait)
+        progress(done, total)
+    return paced
+
+
+def load_pace(root: Path) -> dict:
+    """Optional demo file `<device root>/demo-pace.json` {"download": s, "install": s}: slow those two stages down so a
+    viewer can watch them. Off when the file is missing; bad values are ignored. It only ever adds delay."""
+    try:
+        data = json.loads((Path(root) / "demo-pace.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {key: float(data[key]) for key in ("download", "install")
+            if type(data.get(key)) in (int, float) and 0 < data[key] <= MAX_PACE_SECONDS}
+
+
 class Device:
     def __init__(self, root: Path, recovery_verification: bool = True):
         self.root = Path(root).absolute()
@@ -99,6 +133,8 @@ class Device:
 
     def _progress(self, stage: str, **fields) -> None:
         """Best-effort display telemetry, never an input to security decisions."""
+        if "work" not in fields and stage not in ("install", "recover"):
+            self._progress_data.pop("work", None)   # a finished install/rollback does not keep reporting
         self._progress_data.update(fields, stage=stage, updated=time.time(), pid=os.getpid())
         try:
             # Preserve brief transitions between display polls; telemetry never authorizes execution.
@@ -130,6 +166,19 @@ class Device:
             raise
         except OSError:
             pass
+
+    def _work_progress(self, stage: str, kind: str):
+        """Display-only callback: how much of an install/rollback is done, written at most every 50 ms (and at the end)."""
+        last = {"at": 0.0}
+
+        def report(done: int, total: int) -> None:
+            now = time.monotonic()
+            if done < total and now - last["at"] < 0.05:
+                return
+            last["at"] = now
+            self._progress(stage, work={"kind": kind, "done": done, "total": total})
+        seconds = load_pace(self.root).get("install") if kind == "install" else None
+        return pace(report, seconds) if seconds else report
 
     @contextmanager
     def _locked(self):
@@ -231,6 +280,14 @@ class Device:
                 "min_svn": state["min_svn"], "result": state["result"],
                 "trial_version": state["pending"]["release"]["version"] if state["pending"] else None}
 
+    def recovery_evidence(self) -> dict:
+        """What the last recovery check compared: the committed tree hash and the one found on disk.
+
+        Pi2 reports this in its own answer so a remote gateway never has to read Pi2's files."""
+        return {"expected_tree_sha256": self._progress_data.get("expected_tree_sha256"),
+                "observed_tree_sha256": self._progress_data.get("observed_tree_sha256"),
+                "checked_slot": self._progress_data.get("checked_slot")}
+
     def _select(self, slot: str | None) -> None:
         self._selected()  # Never replace an unexpected regular file or selector.
         current = self.root / "current"
@@ -280,7 +337,7 @@ class Device:
                 if not self._service("is-active"):
                     raise ValueError("Central service did not stay active")
 
-    def _verify_record(self, record: dict, floor: int) -> None:
+    def _verify_record(self, record: dict, floor: int, progress=None) -> None:
         slot = self._slot(record["slot"])
         if not self.recovery_verification:
             self._event("VULNERABLE_MODE_RECOVERY_UNVERIFIED")
@@ -288,11 +345,12 @@ class Device:
         if record["release"]["svn"] < floor:
             raise ValueError("recovery security version is below the floor")
         try:
-            observed = tree_hash(slot)
+            observed = tree_hash(slot, progress)
         except OSError:
             observed = None
         # Display/incident telemetry only; the comparison below is the security decision.
-        self._progress_data.update(expected_tree_sha256=record["tree_sha256"], observed_tree_sha256=observed)
+        self._progress_data.update(expected_tree_sha256=record["tree_sha256"], observed_tree_sha256=observed,
+                                   checked_slot=record["slot"])
         if observed != record["tree_sha256"]:
             raise ValueError("recovery application tree hash mismatch")
 
@@ -310,7 +368,7 @@ class Device:
         try:
             previous = state["committed"]
             if previous:
-                self._verify_record(previous, state["min_svn"])
+                self._verify_record(previous, state["min_svn"], self._work_progress("recover", "rollback"))
                 self._progress("recovery_verified")
                 self._activate(previous["slot"], state)
             else:
@@ -326,6 +384,13 @@ class Device:
             self._save(state)
             self._progress("recovery_failed", detail=str(exc))
             self._event("recovery_failed")
+            try:
+                if state["systemd"] and self._service("stop"):
+                    # The candidate just failed its trial and nothing safe can replace it yet: do not leave it
+                    # running (it may be what is starving other applications) while an operator decides.
+                    self._event("service_stopped_after_recovery_failure")
+            except (OSError, subprocess.SubprocessError):
+                pass  # Best effort: never hide the recovery failure itself behind a systemctl problem.
             raise ValueError("recovery failed; no successful recovery is claimed") from exc
 
     def _download_release(self, url: str, public_key: Path, staging: Path, precheck=None) -> dict:
@@ -342,9 +407,10 @@ class Device:
         self._progress("signature_verified", candidate=release["version"])
         if precheck:
             precheck(release)
+        report = lambda received, total: self._progress("download", received=received, total=total)  # noqa: E731
+        seconds = load_pace(self.root).get("download")
         downloaded_hash = fetch(base + "app.tar.gz", staging / "app.tar.gz", MAX_ARCHIVE,
-                                progress=lambda received, total: self._progress(
-                                    "download", received=received, total=total)).hex()
+                                progress=pace(report, seconds) if seconds else report).hex()
         self._progress("archive_verify")
         if downloaded_hash != release["sha256"]:
             raise ValueError("downloaded archive hash mismatch")
@@ -433,7 +499,7 @@ class Device:
                 release = self._download_release(url, public_key, staging, precheck)
                 previous = state["committed"]
                 self._progress("install")
-                extract(staging / "app.tar.gz", staging / "payload")
+                extract(staging / "app.tar.gz", staging / "payload", self._work_progress("install", "install"))
                 slot = "B" if previous and previous["slot"] == "A" else "A"
                 target = self._slot(slot)
                 # Establish the empty journal/key before touching a first slot:

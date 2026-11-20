@@ -8,4 +8,5 @@ from .cluster import ClusterDevice
 
 class IviDevice(ClusterDevice):
     service_name = "capstone-ivi.service"
+    companion_services = ("capstone-cluster.service",)   # the image carries the cluster application too
     verifier_timeout = 3600

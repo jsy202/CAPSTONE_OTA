@@ -75,7 +75,7 @@ def main(argv=None) -> int:
                 result = device.status()
                 if result["result"] != "recovery_failed":
                     raise
-                result.update(passed=False, error=str(exc.__cause__ or exc))
+                result.update(passed=False, error=str(exc.__cause__ or exc), **device.recovery_evidence())
             result.update(validation="external" if checker else "initialization_only", verification=device.reports)
         elif args.command in ("cluster-repair", "ivi-repair"):
             checker = check_command(json.loads(args.check_command)) if args.check_command is not None else None

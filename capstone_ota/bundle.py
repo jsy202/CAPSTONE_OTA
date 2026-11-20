@@ -98,8 +98,10 @@ def pack(payload: Path, output: Path, version: str, svn: int, key: Path) -> dict
     return metadata
 
 
-def extract(archive: Path, destination: Path) -> None:
-    """Reject traversal, links and special files; never use tar.extractall()."""
+def extract(archive: Path, destination: Path, progress=None) -> None:
+    """Reject traversal, links and special files; never use tar.extractall().
+
+    `progress(done_bytes, total_bytes)` is display telemetry only (bytes written so far of the whole archive)."""
     try:
         with tarfile.open(archive, "r:gz") as source:
             members = source.getmembers()
@@ -115,6 +117,10 @@ def extract(archive: Path, destination: Path) -> None:
                 seen.add(member.name)
             destination.mkdir(parents=True, exist_ok=False)
             destination.chmod(0o755)
+            total = sum(m.size for m in members if m.isfile())
+            done = 0
+            if progress:
+                progress(0, total)
             for member in members:
                 target = destination / member.name
                 if member.isdir():
@@ -125,6 +131,9 @@ def extract(archive: Path, destination: Path) -> None:
                     with source.extractfile(member) as data, target.open("xb") as out:
                         while chunk := data.read(65536):
                             out.write(chunk)
+                            done += len(chunk)
+                            if progress:
+                                progress(done, total)
                         out.flush()
                         os.fsync(out.fileno())
                     target.chmod(0o755 if member.mode & 0o111 else 0o644)
@@ -133,10 +142,16 @@ def extract(archive: Path, destination: Path) -> None:
     app_check(destination)
 
 
-def tree_hash(root: Path) -> str:
-    """Bind recovery to the actual installed files, paths and execute bits."""
+def tree_hash(root: Path, progress=None) -> str:
+    """Bind recovery to the actual installed files, paths and execute bits.
+
+    `progress(done_bytes, total_bytes)` is display telemetry only (file bytes hashed so far)."""
     app_check(root)
     digest = hashlib.sha256()
+    total = sum(p.stat().st_size for p in root.rglob("*") if p.is_file() and not p.is_symlink()) if progress else 0
+    done = 0
+    if progress:
+        progress(0, total)
     for path in sorted(root.rglob("*")):
         mode = path.lstat().st_mode
         if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
@@ -149,4 +164,7 @@ def tree_hash(root: Path) -> str:
             with path.open("rb") as stream:
                 while chunk := stream.read(65536):
                     digest.update(chunk)
+                    done += len(chunk)
+                    if progress:
+                        progress(done, total)
     return digest.hexdigest()

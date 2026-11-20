@@ -130,3 +130,18 @@ def test_extracted_app_root_is_traversable_under_restrictive_umask(bundle, keys,
     finally:
         os.umask(previous)
     assert destination.stat().st_mode & 0o005 == 0o005
+
+
+def test_extract_and_tree_hash_report_real_byte_progress(bundle, keys, payload, tmp_path):
+    release = tmp_path / "release"
+    bundle.pack(payload, release, "1.0.0", 1, keys[0])
+    seen = []
+    bundle.extract(release / "app.tar.gz", tmp_path / "out", progress=lambda done, total: seen.append((done, total)))
+    totals = {total for _, total in seen}
+    assert totals == {len(b"#!/bin/sh\nexit 0\n") + len('{"period_ms":100}')}
+    assert seen[0][0] == 0 and seen[-1][0] == seen[-1][1]
+    assert [d for d, _ in seen] == sorted(d for d, _ in seen)
+    hashed = []
+    digest = bundle.tree_hash(tmp_path / "out", progress=lambda done, total: hashed.append((done, total)))
+    assert hashed[-1][0] == hashed[-1][1] == seen[-1][1]
+    assert digest == bundle.tree_hash(tmp_path / "out")           # reporting does not change the hash

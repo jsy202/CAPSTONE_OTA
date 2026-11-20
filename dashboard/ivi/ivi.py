@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mock IVI head unit used to study cross-function interference on a shared Cockpit board.
 
-While the map screen is open (flag file), tile-decode workers burn CPU. The release configuration
+While the map screen is open (flag file exists and is not "0"; the head unit UI writes it when the map tile is tapped), tile-decode workers burn CPU. The release configuration
 decides how many workers run and at which scheduling priority. This is a test application: the
 'decode' is a busy loop standing in for CPU-bound tile decoding/rendering, not a real IVI.
 """
@@ -46,11 +46,21 @@ def load_route():
         return None
 
 
+MAP_PERIOD = 0.4          # seconds: a worker with map_duty < 1 is busy for duty*period, then sleeps the rest
+
+
+def valid_duty(value):
+    return type(value) in (int, float) and 0 < value <= 1
+
+
 def load_config(path=None):
     config = json.loads(Path(path or ROOT / 'ivi.json').read_text())
     workers = config.get('map_workers') if isinstance(config, dict) else None
-    if (not isinstance(config, dict) or set(config) != {'version', 'map_enabled', 'map_workers', 'map_priority'}
-            or not isinstance(config['version'], str) or type(config['map_enabled']) is not bool
+    base = {'version', 'map_enabled', 'map_workers', 'map_priority'}
+    # vehicle_data and map_duty are optional so older ivi.json files keep their exact behaviour (duty 1 = always busy).
+    if (not isinstance(config, dict) or not base <= set(config) <= base | {'vehicle_data', 'map_duty'}
+            or type(config.get('vehicle_data', False)) is not bool or not isinstance(config['version'], str) or type(config['map_enabled']) is not bool
+            or ('map_duty' in config and not valid_duty(config['map_duty']))
             or config['map_priority'] not in PRIORITIES
             or not (workers == 'cores' or (type(workers) is int and 0 <= workers <= 64))):
         raise ValueError('invalid IVI configuration')
@@ -71,12 +81,30 @@ def set_priority(priority):
     return True
 
 
-def worker(priority):
+def duty_cycle(duty):
+    """(busy seconds, rest seconds) per MAP_PERIOD."""
+    return duty * MAP_PERIOD, (1.0 - duty) * MAP_PERIOD
+
+
+def worker(priority, duty=1.0):
     set_priority(priority)
+    busy, rest = duty_cycle(duty)
     value = 1
     while True:
-        for _ in range(200000):
-            value = (value * 1103515245 + 12345) & 0xFFFFFFFF
+        until = time.monotonic() + busy
+        while time.monotonic() < until:
+            for _ in range(2000):
+                value = (value * 1103515245 + 12345) & 0xFFFFFFFF
+        if rest:
+            time.sleep(rest)
+
+
+def flag_active(path):
+    """The map is open when the flag file exists and does not say "0" (an empty file, as from `touch`, means open)."""
+    try:
+        return path.read_text().strip() != '0'
+    except OSError:
+        return False
 
 
 def atomic_json(path, data):
@@ -87,7 +115,7 @@ def atomic_json(path, data):
 
 def main(argv):
     if len(argv) >= 3 and argv[1] == '--worker':
-        worker(argv[2])
+        worker(argv[2], float(argv[3]) if len(argv) >= 4 else 1.0)
     config = load_config()
     if '--check' in argv:
         print(json.dumps({'ok': True, 'version': config['version']}))
@@ -99,15 +127,16 @@ def main(argv):
         signal.signal(name, lambda *_: stopping.update(now=True))
     enabled = config['map_enabled']          # V2 ships without a map: the flag does nothing there
     route = load_route() if enabled else None
-    bus = open_can(os.environ.get('CAPSTONE_IVI_CAN', 'can0')) if enabled else None
+    vehicle_data = enabled or config.get('vehicle_data', False)   # read CAN speed (V2: trip info only, no map)
+    bus = open_can(os.environ.get('CAPSTONE_IVI_CAN', 'can0')) if vehicle_data else None
     workers, wanted, last, last_loop = [], worker_count(config), 0.0, time.monotonic()
-    speed_kmh, distance = 0.0, 0.0
+    speed_kmh, distance, drive_s = 0.0, 0.0, 0.0
     try:
         while not stopping['now']:
-            active = enabled and flag.exists()
+            active = enabled and flag_active(flag)
             workers = [w for w in workers if w.poll() is None]
             if active and len(workers) < wanted:
-                workers += [subprocess.Popen([sys.executable, __file__, '--worker', config['map_priority']])
+                workers += [subprocess.Popen([sys.executable, __file__, '--worker', config['map_priority'], str(config.get('map_duty', 1.0))])
                             for _ in range(wanted - len(workers))]
             elif not active and workers:
                 for w in workers:
@@ -125,11 +154,16 @@ def main(argv):
                         speed_kmh = int.from_bytes(data[0:2], 'big') / 10.0
             now = time.monotonic()
             distance += speed_kmh / 3.6 * (now - last_loop)
+            drive_s += (now - last_loop) if speed_kmh > 0.5 else 0.0
             last_loop = now
             if route is not None:
                 x, y, heading = position(route, distance)
                 atomic_json(nav_file, {'x': round(x, 1), 'y': round(y, 1), 'heading': round(heading, 1),
-                                       'speed': speed_kmh, 'distance': round(distance, 1), 'updated': time.time()})
+                                       'speed': speed_kmh, 'distance': round(distance, 1), 'drive_s': round(drive_s, 1),
+                                       'updated': time.time()})
+            elif bus is not None:   # no map (V2): trip info only, no position/route fields
+                atomic_json(nav_file, {'speed': speed_kmh, 'distance': round(distance, 1),
+                                       'drive_s': round(drive_s, 1), 'updated': time.time()})
             if time.monotonic() - last >= 1:
                 last = time.monotonic()
                 atomic_json(status, {'version': config['version'], 'map_active': active, 'workers': len(workers),

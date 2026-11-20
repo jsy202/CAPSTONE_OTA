@@ -131,3 +131,45 @@ def test_slow_drip_upload_hits_the_total_deadline(tmp_path):
         for server in (gateway, upstream):
             server.shutdown()
             server.server_close()
+
+
+def test_an_upstream_that_answers_and_closes_early_is_not_reported_as_a_transport_error(monkeypatch):
+    """Regression for a CI flake: Pi2 answers 'ERROR slot must be A or B' and closes while the body is still being
+    sent; shutdown() on the already-closed upstream raises ENOTCONN (Errno 107), which must not hide that answer."""
+    import errno
+    import io
+    import time
+    from types import SimpleNamespace
+
+    from capstone_ota import gateway as gw
+
+    class Upstream:
+        def __init__(self):
+            self.replied = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def sendall(self, data):
+            pass
+
+        def shutdown(self, how):
+            raise OSError(errno.ENOTCONN, "Transport endpoint is not connected")
+
+        def recv(self, size):
+            if self.replied:
+                return b""
+            self.replied = True
+            return b"ERROR slot must be A or B\n"
+
+    monkeypatch.setattr(gw.socket, "create_connection", lambda *args, **kwargs: Upstream())
+    handler = gw._Handler.__new__(gw._Handler)
+    handler.rfile = io.BytesIO(b"x" * 10)
+    handler.server = SimpleNamespace(upstream=("127.0.0.1", 1), connection_timeout=1.0, is_open=True)
+    handler.deadline = time.monotonic() + 30
+    handler.forwarded = False
+    assert handler._forward("C", 10) == "ERROR slot must be A or B"
+    assert handler.forwarded is False   # a refused upload was never delivered

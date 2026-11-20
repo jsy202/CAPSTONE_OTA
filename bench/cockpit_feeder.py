@@ -17,25 +17,43 @@ import time
 from pathlib import Path
 
 EVENT_TEXT = {
-    'download_and_verify': 'Update: downloading and verifying the signed release',
-    'trial': 'Trial: new version installed, running under probation',
-    'committed': 'Commit: release accepted (installed version is now final)',
-    'recover': 'Rollback: restoring the previous version',
-    'recovery_verified': 'Rollback: previous version checked against its recorded hash',
-    'recovery_failed': 'Rollback FAILED: needs manual repair',
+    'download_and_verify': '업데이트: 서명된 릴리스를 내려받는 중',
+    'trial': '시운전: 새 버전 설치, 시험 중',
+    'committed': '확정: 새 버전 최종 승인',
+    'recover': '롤백: 이전 버전으로 되돌리는 중',
+    'recovery_verified': '롤백: 이전 버전 검사 통과',
+    'recovery_failed': '롤백 실패: 수동 점검 필요',
+    'service_stopped_after_recovery_failure': '보호: 실패한 앱을 중지함',
+    'repair_started': '복원: 승인된 릴리스를 다시 설치하는 중',
+    'repair_installed': '복원: 설치 완료',
+    'repair_rejected': '복원: 거부됨',
 }
+CLASS_TEXT = {'freeze': '응답 멈춤', 'delay': '응답 지연', 'input_anomaly': '입력 이상', 'normal': '정상'}
+MONITOR_TEXT = {'lost': '신호 끊김', 'observing': '정상 관측', 'suspect': '징후 포착', 'confirmed': '한계 초과 확정'}
 LOG_LIMIT = 14
 
 
+def resolve_ivi_ui(current_slot, preview_ui=None):
+    """The IVI screen the cockpit shows: the installed slot's own UI, or (preview only) a directory given on the command line."""
+    if preview_ui is not None:
+        qml = Path(preview_ui) / 'Ivi.qml'
+        return 'file://' + str(qml) if qml.exists() else None
+    slot = Path(os.path.realpath(current_slot))
+    return ('file://' + str(slot / 'ui/Ivi.qml')) if (slot / 'ui/Ivi.qml').exists() else None
+
+
 def describe_event(name: str) -> str:
-    return EVENT_TEXT.get(name, 'Device: ' + name)
+    return EVENT_TEXT.get(name, '장치: ' + name)
 
 
 class Feeder:
-    def __init__(self, out_dir, cluster, pi3, ota, events, ivi, ivi_ui, clock=time.time, shot=None, tap=None):
+    def __init__(self, out_dir, cluster, pi3, ota, events, ivi, ivi_ui, clock=time.time, shot=None, tap=None, extra=None, labels=None,
+                 recheck_s=0):
         self.out, self.clock = Path(out_dir), clock
         self.cluster, self.pi3, self.ota, self.events, self.ivi, self.ivi_ui = cluster, pi3, ota, events, ivi, ivi_ui
-        self.shot, self.tap = shot, tap
+        self.recheck_s = recheck_s       # how long the device watches a restored image; the "확인" gauge counts against it
+        self.labels = dict(labels or {})   # release version -> product name (display only)
+        self.shot, self.tap, self.extra, self._extra_seen = shot, tap, extra, 0
         self.log, self._seen, self._pi3_state, self._ivi_version = [], 0, None, None
 
     @staticmethod
@@ -58,18 +76,30 @@ class Feeder:
         for event in events[self._seen:]:
             self._add(now, describe_event(event.get('event', '?')))
         self._seen = len(events)
+        # Lines another component of the vehicle reported (e.g. the diagnostic port opening/closing). Shown
+        # with their own time; display only.
+        rows = (self._call(self.extra) if self.extra else None) or []
+        if len(rows) < self._extra_seen:
+            self._extra_seen = 0
+        for row in rows[self._extra_seen:]:
+            if isinstance(row, dict) and row.get('text'):
+                self.log.append({'t': str(row.get('t') or time.strftime('%H:%M:%S', time.localtime(now))), 'text': str(row['text'])})
+                del self.log[:-LOG_LIMIT]
+        self._extra_seen = len(rows)
         state = pi3.get('state') if pi3 else 'lost'
         if state != self._pi3_state:
-            detail = '' if state in ('lost', 'observing') or not pi3.get('cls') else f" ({pi3['cls']})"
-            self._add(now, f'Pi3 monitor: {"signal lost" if state == "lost" else state}{detail}')
+            detail = '' if state in ('lost', 'observing') or not pi3.get('cls') else f" ({CLASS_TEXT.get(pi3['cls'], '알 수 없음')})"
+            label = MONITOR_TEXT.get(state, state)
+            self._add(now, f'모니터: {label}{detail}')
             self._pi3_state = state
         version = ivi.get('version') if ivi else None
         if version and version != self._ivi_version:
-            self._add(now, f'IVI running {version}')
+            self._add(now, f'화면 앱 {version} 실행 중')
             self._ivi_version = version
         return {'now': now, 'cluster': cluster, 'pi3': pi3, 'ota': ota, 'ivi': ivi, 'ivi_ui': self._call(self.ivi_ui),
                 'shot': self._call(self.shot) if self.shot else None,
-                'tap': self._call(self.tap) if self.tap else None, 'log': list(self.log)}
+                'tap': self._call(self.tap) if self.tap else None, 'log': list(self.log),
+                'version_labels': self.labels, 'recheck_s': self.recheck_s}
 
     def write(self) -> None:
         self.out.mkdir(parents=True, exist_ok=True)
@@ -81,6 +111,31 @@ class Feeder:
 
 def read_json(path):
     return json.loads(Path(path).read_text())
+
+
+def read_ivi_status(path, now=None):
+    """The IVI's status.json plus signs of life: the files outlive the process, so also report how old they are,
+    how old its 0.2 s nav.json is (when it has one) and whether its process still exists."""
+    path = Path(path)
+    moment = time.time() if now is None else now
+    data = read_json(path)
+    data['age_s'] = round(moment - path.stat().st_mtime, 2)
+    nav = path.with_name('nav.json')
+    if nav.exists():
+        data['nav_age_s'] = round(moment - nav.stat().st_mtime, 2)
+    pid = data.get('pid')
+    if isinstance(pid, int):
+        data['alive'] = os.path.exists(f'/proc/{pid}')
+    return data
+
+
+def session_view(progress, started, slack=1.0):
+    """The device keeps its last progress on disk, so a fresh screen would draw the previous drill's finished rollback as
+    if it were happening now. Progress written before this screen started is history: keep the version and slots but
+    report an idle device, stage 'idle' (no gauge, no replayed alerts; 'committed' would draw a finished install)."""
+    if (progress.get('updated') or 0.0) >= started - slack:
+        return progress
+    return {'stage': 'idle', 'version': progress.get('version'), 'slot_view': progress.get('slot_view')}
 
 
 def capture_cluster(socket_path, display, out_dir, revision):
@@ -104,8 +159,12 @@ def main(argv=None) -> int:
     parser.add_argument('--cluster-display', default=':93', help='Private cluster X11 display; requires Pillow/XCB')
     parser.add_argument('--device-root', type=Path, default=Path('/opt/capstone-ivi/device'))
     parser.add_argument('--ivi-run', type=Path, default=Path('/run/capstone-ivi'))
+    parser.add_argument('--recheck-seconds', type=float, default=0.0, help='length of the post-rollback watch, for the "확인" gauge')
     parser.add_argument('--pi3-ssh', required=True, help='JSON argv list for ssh to the Verifier board')
     parser.add_argument('--verdict-path', required=True)
+    parser.add_argument('--ivi-ui', type=Path, help='PREVIEW ONLY: show this ui directory instead of the installed slot')
+    parser.add_argument('--version-labels', default='{}', help='JSON {release version: name} shown instead of version numbers')
+    parser.add_argument('--interval', type=float, default=0.5, help='seconds between data.json writes (and cluster captures)')
     parser.add_argument('--channel', default='can0', help='CAN channel for the fast local delay tap')
     args = parser.parse_args(argv)
     ssh = json.loads(args.pi3_ssh)
@@ -134,17 +193,18 @@ def main(argv=None) -> int:
     def pi3():
         return latest['verdict'] if time.time() - latest['at'] < 5 else None
 
+    session_start = time.time()      # not `started`: the loop below reuses that name for its own timer
+
     def ota():
-        progress = read_json(args.device_root / 'progress.json')
+        progress = session_view(read_json(args.device_root / 'progress.json'), session_start)
         return {k: progress.get(k) for k in ('stage', 'version', 'candidate', 'slot_view', 'detail',
-                                           'timeline_id', 'timeline')}
+                                           'timeline_id', 'timeline', 'received', 'total', 'work', 'updated')}
 
     def events():
         return [json.loads(line) for line in (args.device_root / 'events.jsonl').read_text().splitlines() if line]
 
     def ivi_ui():
-        slot = Path(os.path.realpath(args.device_root / 'current'))
-        return ('file://' + str(slot / 'ui/Ivi.qml')) if (slot / 'ui/Ivi.qml').exists() else None
+        return resolve_ivi_ui(args.device_root / 'current', args.ivi_ui)
 
     def shot():                              # touching /run/cockpit/shot.request asks the display to save a screenshot
         request = args.out_dir / 'shot.request'
@@ -154,12 +214,16 @@ def main(argv=None) -> int:
     tap = DelayTap()
     threading.Thread(target=run_tap, args=(args.channel, tap, lambda: running['now']), daemon=True).start()
 
-    feeder = Feeder(args.out_dir, cluster, pi3, ota, events, lambda: read_json(args.ivi_run / 'status.json'), ivi_ui,
-                    shot=shot, tap=lambda: tap.snapshot(time.time()))
+    def extra():
+        path = args.out_dir / 'extra.jsonl'
+        return [json.loads(line) for line in path.read_text().splitlines() if line] if path.exists() else []
+
+    feeder = Feeder(args.out_dir, cluster, pi3, ota, events, lambda: read_ivi_status(args.ivi_run / 'status.json'), ivi_ui, labels=json.loads(args.version_labels), recheck_s=args.recheck_seconds,
+                    shot=shot, tap=lambda: tap.snapshot(time.time()), extra=extra)
     while running['now']:
         started = time.monotonic()
         feeder.write()
-        time.sleep(max(0.05, 0.5 - (time.monotonic() - started)))
+        time.sleep(max(0.05, args.interval - (time.monotonic() - started)))
     return 0
 
 
