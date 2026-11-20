@@ -13,24 +13,45 @@ import socket
 import struct
 import sys
 import time
+from pathlib import Path
+
+from capstone_ota.qt_source import frame
 
 from . import drive_cycle
 
 
+def file_hold(path):
+    """A hold that is on while `path` exists (the orchestrator touches/removes it on Pi1)."""
+    path = Path(path)
+    return lambda: path.exists()
+
+
 def play(rows, send, clock=time.monotonic, sleep=time.sleep, loops: int = 1, hz: int = 10,
-         should_stop=None, start_counter: int = 0) -> int:
-    """Send `loops` passes of `rows` (0 = until should_stop). send(message, actual_time)."""
+         should_stop=None, start_counter: int = 0, hold=None) -> int:
+    """Send `loops` passes of `rows` (0 = until should_stop). send(message, actual_time).
+
+    While `hold()` is true the vehicle stands still: speed 0 in neutral, the profile does not advance and the counter
+    keeps running, so the bus stays alive. When the hold ends the profile goes on exactly where it stopped. (During a
+    rollback the cluster is off for a minute; without this the car would have reached 80 km/h by the time it is back.)"""
     start, sent = clock(), 0
     passes = itertools.count() if loops == 0 else range(loops)
+
+    def emit(message):
+        nonlocal sent
+        while (remaining := start + sent / hz - clock()) > 0:
+            sleep(remaining)
+        send(message, clock())
+        sent += 1
+
     for _ in passes:
-        for message in drive_cycle.frames(rows, start_counter=(start_counter + sent) % 256):
+        for row in rows:
+            while hold is not None and hold():
+                if should_stop and should_stop():
+                    return sent
+                emit(frame(0, (start_counter + sent) % 256, rpm=drive_cycle.IDLE_RPM, gear=0))
             if should_stop and should_stop():
                 return sent
-            target = start + sent / hz
-            while (remaining := target - clock()) > 0:
-                sleep(remaining)
-            send(message, clock())
-            sent += 1
+            emit(frame(row.speed, (start_counter + sent) % 256, rpm=row.rpm, gear=row.gear))
     return sent
 
 
@@ -53,6 +74,7 @@ def main(argv=None) -> int:
     parser.add_argument('--loops', type=int, default=0, help='0 = until stopped')
     parser.add_argument('--hz', type=int, default=10)
     parser.add_argument('--cycle', default='synthetic', choices=['synthetic', 'demo'])
+    parser.add_argument('--hold-file', type=Path, help='while this file exists the vehicle stands still (speed 0) and the profile waits')
     args = parser.parse_args(argv)
     samples = (drive_cycle.load_speed_samples(args.cycle_file, args.unit) if args.cycle_file
                else drive_cycle.named_cycle(args.cycle))
@@ -62,7 +84,8 @@ def main(argv=None) -> int:
         signal.signal(name, lambda *_: stop.update(now=True))
     send, close = can_sender(args.channel)
     try:
-        count = play(rows, send, loops=args.loops, hz=args.hz, should_stop=lambda: stop['now'])
+        count = play(rows, send, loops=args.loops, hz=args.hz, should_stop=lambda: stop['now'],
+                     hold=file_hold(args.hold_file) if args.hold_file else None)
     finally:
         close()
     print(json.dumps({'sent': count, 'rows_per_loop': len(rows), 'hz': args.hz}))

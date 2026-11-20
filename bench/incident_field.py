@@ -191,6 +191,63 @@ def pi3_address(pi3):
     return pi3.run("ip -4 -o addr show wlan0 | awk '{print $4}' | cut -d/ -f1").stdout.strip()
 
 
+PROFILE_HOLD = RUNTIME + "/profile.hold"       # while this file exists on Pi1 the simulated vehicle stands still
+HOLD_AFTER_STOPPED_S = 6.0                     # confirmed overrun and standing still this long: the rollback is imminent
+HOLD_MAX_S = 300.0                             # the car is never held longer than this, whatever happens
+RESTORED_STAGES = ("recheck", "rolled_back", "committed")   # the restored image runs: the cluster is back
+
+
+class ProfileHold:
+    """Keeps the simulated car standing still from the moment a rollback becomes certain until the cluster is back.
+
+    The rollback and a refused recovery's repair take about a minute with the cluster off. If the drive profile kept
+    going the car would be at 80 km/h when the cluster returns; held, it comes back at 0 and drives off from there.
+    One hold per run: the monitor may keep saying "confirmed" for a while after the restore."""
+
+    def __init__(self, set_hold, clear_hold, clock=time.time, max_s=HOLD_MAX_S):
+        self._set, self._clear, self._clock, self._max_s = set_hold, clear_hold, clock, max_s
+        self.holding, self.done, self._since = False, False, 0.0
+
+    def step(self, verdict, stage):
+        if self.done:
+            return
+        if not self.holding:
+            if verdict and verdict.get("state") == "confirmed" and (verdict.get("bus_stopped_s") or 0) >= HOLD_AFTER_STOPPED_S:
+                self._set()
+                self.holding, self._since = True, self._clock()
+            return
+        if stage in RESTORED_STAGES or self._clock() - self._since > self._max_s:
+            self.finish()
+
+    def finish(self):
+        if self.holding:
+            self._clear()
+            self.holding = False
+        self.done = True
+
+
+def pi2_stage(pi2):
+    """The device's current stage (display and pacing only), or None when it cannot be read."""
+    try:
+        done = pi2.run(f"sudo -n cat {IVI_ROOT}/progress.json", check=False, timeout=20)
+        return json.loads(done.stdout).get("stage") if done.returncode == 0 else None
+    except (ValueError, OSError, subprocess.SubprocessError):
+        return None
+
+
+def run_profile_hold(boards, stop):
+    """Thread body: watch the Pi3 verdict and the device stage and hold/release the car on Pi1 accordingly."""
+    pi1, pi2, pi3 = boards["pi1"], boards["pi2"], boards["pi3"]
+    hold = ProfileHold(lambda: pi1.run(f"touch {PROFILE_HOLD}", check=False),
+                       lambda: pi1.run(f"rm -f {PROFILE_HOLD}", check=False))
+    try:
+        while not stop.is_set():
+            hold.step(pi3_verdict(pi3), pi2_stage(pi2) if hold.holding else None)
+            stop.wait(1.5)
+    finally:
+        hold.finish()
+
+
 def start_real_services(boards, log, hz=DEFAULT_PROFILE_HZ, cycle="synthetic"):
     """Cluster pinned to core 0, IVI V2, Pi1 drive profile and the Pi3 monitor. Returns what was changed."""
     pi1, pi2, pi3 = boards["pi1"], boards["pi2"], boards["pi3"]
@@ -209,9 +266,10 @@ def start_real_services(boards, log, hz=DEFAULT_PROFILE_HZ, cycle="synthetic"):
             f"nohup setsid {PY} -m capstone_ota.monitor.service --baseline {monitor_baseline_for(hz, cycle)} --out-dir {MONITOR_DIR} "
             f"> {MONITOR_DIR}/monitor.log 2>&1 < /dev/null & echo started")
     pi1.run("pkill -f '[p]lay_profile'; true", check=False)
+    pi1.run(f"rm -f {PROFILE_HOLD}", check=False)                      # a stale hold would start the car standing still
     # No `cd ... &&` before the `&`: that backgrounds a subshell that keeps the ssh channel open forever.
     pi1.run(f"PYTHONPATH={RUNTIME} nohup setsid {PY} -m bench.play_profile --channel can0 --hz {hz} "
-            f"--cycle {cycle} > {RUNTIME}/profile.log 2>&1 < /dev/null & echo started")
+            f"--cycle {cycle} --hold-file {PROFILE_HOLD} > {RUNTIME}/profile.log 2>&1 < /dev/null & echo started")
     log("[services] cluster(core 0) + IVI V2 on Pi2, Pi3 monitor, Pi1 drive profile started")
 
 
@@ -550,6 +608,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
     note("control_centre", url=server_url)
 
     gateway_stop = threading.Event()
+    hold_stop = threading.Event()        # ends the thread that holds the simulated car still during a rollback
     result = {"verdict_mode": verdict, "forced_verdict": verdict == "forced", "steps": steps}
     try:
         # Pi2: maintenance service on the Pi1 link only; gate pinned for exactly this run.
@@ -562,6 +621,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
             start_real_services(boards, log, hz=int(config.get("profile_hz", DEFAULT_PROFILE_HZ)),
                                 cycle=config.get("profile_cycle", "synthetic"))
             apply_demo_pace(pi2, config)
+            threading.Thread(target=run_profile_hold, args=(boards, hold_stop), daemon=True).start()
             pi3_ip = pi3_address(boards["pi3"])
             if screen:
                 start_screen(boards, pi3_ip, log, virtual=virtual_screen, labels=version_labels(config))
@@ -678,6 +738,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
             time.sleep(2.5)  # let the watcher pass on the last gateway entries (the refused re-attack) first
         pi1.run("pkill -f '[c]apstone_ota.central_incident'; true", check=False)
         gateway_stop.set()
+        hold_stop.set()                  # the thread frees the car on its way out
         if screen and verdict == "real":
             show_port(pi2, gateway_final_line())
             show_port(pi2, f"정비 포트 {MAINTENANCE_PORT} 닫힘")

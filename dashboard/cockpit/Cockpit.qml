@@ -51,8 +51,12 @@ Window {
             else if (t.indexOf("화면 앱 V1 실행") === 0) band.enqueue({kind: "attack_running", text: t})   // the IVI itself reports V1
         }
     }
+    property string _rollbackRun: ""
     onDChanged: {
         if (d.log) logAlerts(d.log)
+        // 롤백 준비 comes with the decision (the monitor confirmed the overrun), not with the switch back to V2
+        var notice = win._haveSnapshot ? Transitions.rollbackNotice(d.pi3 ? d.pi3.state : "lost", d.ota, d.version_labels, win._rollbackRun) : null
+        if (notice) { win._rollbackRun = notice.run; band.enqueue({kind: notice.kind, transition: notice.transition}) }
         if (d.shot && d.shot !== lastShot) {
             lastShot = d.shot
             stage_.grabToImage(function (r) { r.saveToFile("/tmp/cockpit-shot.png") })

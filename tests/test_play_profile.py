@@ -64,3 +64,44 @@ def test_stop_flag_ends_playback_early():
 
     count = pp.play(rows, send, clock=fake.clock, sleep=fake.sleep, should_stop=lambda: flag['stop'])
     assert count == 5
+
+
+def _speeds(sent):
+    return [int.from_bytes(bytes.fromhex(m['data'])[0:2], 'big') for _, m in sent]
+
+
+def test_while_held_the_vehicle_stands_still_and_the_profile_resumes_where_it_stopped():
+    """During a rollback the car stays stopped (the cluster is off for a minute); when it comes back the profile goes on
+    from the standstill instead of showing the speed it would have reached meanwhile."""
+    rows = [dc.Row(i * 0.1, speed, 2000, 3) for i, speed in enumerate([0, 0, 300, 600, 900, 1200])]
+    state = {'ticks': 0}
+
+    def hold():
+        state['ticks'] += 1
+        return 2 <= state['ticks'] <= 5            # four ticks held, starting at the third tick
+    fake, sent, count = play(rows, hold=hold)
+    assert _speeds(sent)[:1] == [0]                       # row 0
+    assert _speeds(sent)[1:5] == [0, 0, 0, 0]             # four held frames: the profile did not move
+    assert _speeds(sent)[5:] == [0, 300, 600, 900, 1200]  # resumed exactly where it stopped (row 1 next, then the climb)
+    counters = [bytes.fromhex(m['data'])[6] for _, m in sent]
+    assert counters == list(range(len(sent)))             # one continuous counter: the bus never looks silent
+    held_gears = [bytes.fromhex(m['data'])[4] for _, m in sent[1:5]]
+    assert held_gears == [0, 0, 0, 0]                     # neutral while held
+    assert bytes.fromhex(sent[5][1]['data'])[4] == 3      # and the profile's own gear again afterwards
+
+
+def test_without_a_hold_nothing_changes():
+    rows = dc.build_profile(dc.SYNTHETIC_CYCLE)[:30]
+    _, plain, _ = play(rows)
+    _, held, _ = play(rows, hold=lambda: False)
+    assert [m for _, m in plain] == [m for _, m in held]
+
+
+def test_a_hold_file_is_a_hold_while_it_exists(tmp_path):
+    marker = tmp_path / 'profile.hold'
+    hold = pp.file_hold(marker)
+    assert hold() is False
+    marker.write_text('')
+    assert hold() is True
+    marker.unlink()
+    assert hold() is False

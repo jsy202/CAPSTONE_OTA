@@ -47,7 +47,7 @@ const stages = ['metadata', 'signature_verified', 'download', 'install', 'trial'
 const ota = {timeline_id: 'one', timeline: stages.map(stage =>
     ({stage, version: '2.0.0', candidate: '3.0.0'}))};
 const events = consume(state, ota);
-assert.deepStrictEqual(events.map(e => e.kind), ['preparing', 'installed', 'updated', 'rollback', 'rejected']);
+assert.deepStrictEqual(events.map(e => e.kind), ['preparing', 'installed', 'updated', 'rejected']);
 assert(events[1].transition.includes('2.0.0') && events[1].transition.includes('3.0.0'));
 assert.deepStrictEqual(consume(state, ota), []);
 ota.timeline.push({stage: 'committed', version: '3.0.0'});
@@ -58,15 +58,15 @@ assert.deepStrictEqual(normal.map(e => e.kind), ['preparing', 'installed', 'upda
 const rollback = consume(state, {timeline_id: 'three', timeline: stages.slice(0, -1).concat(
     ['recovery_verified', 'recheck', 'rolled_back']).map(stage =>
     ({stage, version: '2.0.0', candidate: '3.0.0'}))});
-assert.deepStrictEqual(rollback.map(e => e.kind), ['preparing', 'installed', 'updated', 'rollback', 'restored']);
+assert.deepStrictEqual(rollback.map(e => e.kind), ['preparing', 'installed', 'updated', 'restored']);
 const failure = consume(state, {timeline_id: 'four', timeline: ['recover', 'recovery_verified',
     'recovery_failed'].map(stage => ({stage}))});
-assert.deepStrictEqual(failure.map(e => e.kind), ['rollback', 'recovery_error']);
+assert.deepStrictEqual(failure.map(e => e.kind), ['recovery_error']);
 console.log(JSON.stringify(events));
 '''
     result = subprocess.run([node, '-e', script, str(helper)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert len(json.loads(result.stdout)) == 5
+    assert len(json.loads(result.stdout)) == 4
 
 
 def test_real_qml_animations_show_all_the_bands_in_order(tmp_path):
@@ -103,7 +103,7 @@ Item {
         interval: 50; running: true; repeat: true
         onTriggered: {
             if (observed[observed.length - 1] !== band.kind) observed.push(band.kind)
-            if (observed.length === 5) {
+            if (observed.length === 4) {
                 console.log("BAND_ORDER:" + JSON.stringify(observed))
                 cockpit.close(); Qt.quit()
             }
@@ -115,7 +115,7 @@ Item {
                           env={**os.environ, 'QT_QPA_PLATFORM': 'offscreen',
                                'QT_QUICK_BACKEND': 'software', 'QML_XHR_ALLOW_FILE_READ': '1'})
     assert done.returncode == 0, done.stderr
-    assert 'BAND_ORDER:["preparing","installed","updated","rollback","rejected"]' in done.stderr, done.stderr
+    assert 'BAND_ORDER:["preparing","installed","updated","rejected"]' in done.stderr, done.stderr
     assert 'Error:' not in done.stderr, done.stderr
 
 
@@ -364,3 +364,73 @@ assert.strictEqual(change('download', '—', '3.9.0'), 'V2');
 assert.strictEqual(change('committed', '3.9.0', null), '');                       // nothing to show at rest
 assert.strictEqual(change('download', '3.9.0', '3.9.0'), '');
 """)
+
+
+def test_the_rollback_notice_comes_with_the_decision_not_with_the_switch_to_the_old_version():
+    # 롤백 준비 used to pop up when the device began the rollback, just before it went to V2. The decision is made earlier:
+    # the monitor confirms the overrun and the rollback waits for a standstill. The notice belongs there, once per run.
+    _node(r"""
+const names = {'3.9.0': 'V2', '3.10.0': 'V3'};
+const ota = (stage, id = 'run1') => ({stage, version: '3.9.0', candidate: '3.10.0', timeline_id: id});
+const notice = (p, o, done = '') => rollbackNotice(p, o, names, done);
+assert.strictEqual(notice('observing', ota('verify')), null);
+assert.strictEqual(notice('suspect', ota('verify')), null);
+assert.deepStrictEqual(notice('confirmed', ota('verify')), {kind: 'rollback', transition: 'V2 → V3', run: 'run1'});
+assert.deepStrictEqual(notice('confirmed', ota('trial')), {kind: 'rollback', transition: 'V2 → V3', run: 'run1'});
+assert.strictEqual(notice('confirmed', ota('verify'), 'run1'), null);            // once per run
+assert.notStrictEqual(notice('confirmed', ota('verify', 'run2'), 'run1'), null); // a new run may announce again
+assert.strictEqual(notice('confirmed', ota('recover')), null);                   // too late: the rollback itself is running
+assert.strictEqual(notice('confirmed', ota('rolled_back')), null);
+assert.strictEqual(notice('confirmed', null), null);
+assert.strictEqual(notice('confirmed', {stage: 'verify'}), null);                // no run id: nothing to key it on
+""")
+
+
+def test_the_rollback_notice_pops_up_when_the_monitor_confirms_and_only_once(tmp_path):
+    qmlscene = shutil.which('qmlscene')
+    if not qmlscene:
+        pytest.skip('qmlscene is needed for the notice check')
+    cockpit = (Path(__file__).parents[1] / 'dashboard/cockpit/Cockpit.qml').as_uri()
+    harness = tmp_path / 'Notice.qml'
+    harness.write_text('''import QtQuick 2.15
+Item {
+    property var cockpit
+    property var band
+    property int step: 0
+    property var seen: ({})
+    function find(item) {
+        if (item.objectName === "otaEventBand") return item
+        for (var i = 0; item.children && i < item.children.length; i++) { var f = find(item.children[i]); if (f) return f }
+        return null
+    }
+    function feed(state, stage) {
+        return {now: 1, version_labels: {"3.9.0": "V2", "3.10.0": "V3"}, tap: null, cluster: null, ivi_ui: "", log: [],
+                pi3: {state: state, latency_limit_ms: 100}, ota: {stage: stage, version: "3.9.0", candidate: "3.10.0", timeline_id: "run1",
+                timeline: [{stage: "metadata"}, {stage: "trial"}, {stage: "verify"}]}}
+    }
+    Component.onCompleted: {
+        var component = Qt.createComponent(%s)
+        cockpit = component.createObject(null, {dataUrl: "file:///nonexistent-cockpit-test-data"})
+        if (!cockpit) throw new Error(component.errorString())
+        band = find(cockpit.contentItem)
+        cockpit.d = feed("observing", "verify")
+    }
+    Timer {
+        interval: 250; running: true; repeat: true
+        onTriggered: {
+            step++
+            if (step === 1) { band.pending = []; cockpit.d = feed("confirmed", "verify") }
+            else if (step === 2) { seen.kind = band.kind; seen.headline = band.headline; seen.sub = band.sub; cockpit.d = feed("confirmed", "verify") }
+            else if (step === 3) { seen.queued_again = band.pending.length }
+            else if (step === 4) { console.log("NOTICE:" + JSON.stringify(seen)); cockpit.close(); Qt.quit() }
+        }
+    }
+}
+''' % json.dumps(cockpit))
+    done = subprocess.run([qmlscene, str(harness)], capture_output=True, text=True, timeout=40,
+                          env={**os.environ, 'QT_QPA_PLATFORM': 'offscreen', 'QT_QUICK_BACKEND': 'software', 'QML_XHR_ALLOW_FILE_READ': '1'})
+    assert done.returncode == 0, done.stderr
+    line = [row for row in done.stderr.splitlines() if 'NOTICE:' in row][0]
+    seen = json.loads(line.split('NOTICE:', 1)[1])
+    assert seen['kind'] == 'rollback' and seen['headline'] == '롤백 준비' and seen['sub'] == 'V3 → V2'
+    assert seen['queued_again'] == 0

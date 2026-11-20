@@ -60,7 +60,7 @@ function consume(state, ota, labels) {
         // delay monitoring that starts there is supervision of the running update, shown by the fixed gauge, not an alert.
         else if (s === "trial" && !state.kinds.rollback) add("installed", row);
         else if (s === "verify" && !state.kinds.rollback) { add("installed", row); add("updated", row); }
-        else if (s === "recover") add("rollback", row);
+        // no alert for "recover": 롤백 준비 belongs to the decision (see rollbackNotice), not to the switch back
         else if (s === "recovery_verified") state.recoveryVerified = true;
         else if (s === "recovery_failed") {
             add(state.recoveryVerified ? "recovery_error" : "rejected", row);
@@ -185,4 +185,15 @@ function freshLogRows(rows, seen) {
     var fresh = []
     for (var i = 0; i < rows.length; i++) if (number(rows[i], i) > seen) fresh.push(rows[i])
     return {rows: fresh, seen: latest}
+}
+
+// 롤백 준비: shown when the rollback is DECIDED, i.e. when the Pi3 monitor confirms the overrun of the running update and
+// the rollback starts waiting for a standstill. It used to come with the device's "recover" stage, right before the
+// switch back to the old version. Once per run, and never once the rollback itself is running.
+function rollbackNotice(pstate, ota, labels, announcedRun) {
+    if (pstate !== "confirmed" || !ota || !ota.timeline_id) return null
+    if (ota.stage !== "trial" && ota.stage !== "verify") return null
+    if (announcedRun === ota.timeline_id) return null
+    return {kind: "rollback", run: ota.timeline_id,
+            transition: versionLabel(ota.version || "—", labels) + " → " + versionLabel(ota.candidate || "—", labels)}
 }

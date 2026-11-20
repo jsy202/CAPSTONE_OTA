@@ -320,3 +320,68 @@ def test_the_trial_is_long_enough_for_the_monitor_to_confirm_an_overrun_before_i
     command = field.probation_command("10.0.0.4")
     assert command[command.index("--probation") + 1] == str(field.TRIAL_SECONDS)
     assert float(command[command.index("--max-total") + 1]) >= field.TRIAL_SECONDS * 2
+
+
+class _Clock:
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
+def _hold(**kw):
+    calls = []
+    clock = _Clock()
+    hold = field.ProfileHold(lambda: calls.append("hold"), lambda: calls.append("release"), clock=clock, **kw)
+    return hold, calls, clock
+
+
+def _verdict(state, stopped):
+    return {"state": state, "bus_stopped_s": stopped}
+
+
+def test_the_car_is_held_once_the_overrun_is_confirmed_and_it_has_stood_still_a_while():
+    hold, calls, _ = _hold()
+    hold.step(_verdict("observing", 20), None)
+    hold.step(_verdict("confirmed", 3), None)        # confirmed but still moving / just stopped: not yet
+    assert calls == []
+    hold.step(_verdict("confirmed", 7), None)
+    assert calls == ["hold"] and hold.holding
+    hold.step(_verdict("confirmed", 12), "recover")  # stays held through the whole rollback and a refused recovery
+    hold.step(_verdict("confirmed", 40), "recovery_failed")
+    assert calls == ["hold"]
+
+
+def test_the_car_is_released_when_the_cluster_is_back_and_never_held_again_in_that_run():
+    hold, calls, _ = _hold()
+    hold.step(_verdict("confirmed", 7), None)
+    hold.step(_verdict("confirmed", 20), "recheck")  # restored image runs: drive on, from standstill
+    assert calls == ["hold", "release"] and not hold.holding
+    hold.step(_verdict("confirmed", 30), None)       # the monitor may still say confirmed for a while
+    assert calls == ["hold", "release"]
+
+
+def test_a_hold_never_lasts_longer_than_the_safety_limit():
+    hold, calls, clock = _hold(max_s=100)
+    hold.step(_verdict("confirmed", 7), None)
+    clock.now += 101
+    hold.step(_verdict("confirmed", 90), "recovery_failed")
+    assert calls == ["hold", "release"]
+
+
+def test_finishing_always_frees_the_car():
+    hold, calls, _ = _hold()
+    hold.step(_verdict("confirmed", 7), None)
+    hold.finish()
+    assert calls == ["hold", "release"]
+    hold.finish()
+    assert calls == ["hold", "release"]              # nothing to free twice
+
+
+def test_the_profile_on_pi1_is_started_with_the_hold_file_and_a_stale_hold_is_cleared():
+    boards = {name: _RecordingBoard() for name in ("pi1", "pi2", "pi3")}
+    field.start_real_services(boards, lambda *_: None, hz=50, cycle="demo")
+    commands = boards["pi1"].commands
+    assert any("play_profile" in c and f"--hold-file {field.PROFILE_HOLD}" in c for c in commands)
+    assert any(c.startswith(f"rm -f {field.PROFILE_HOLD}") for c in commands)
