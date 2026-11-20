@@ -44,7 +44,11 @@ function consume(state, ota, labels) {
     for (; state.seen < ota.timeline.length; state.seen++) {
         var row = ota.timeline[state.seen], s = row.stage;
         if (s === "metadata") add("preparing", row);
-        else if (s === "verify" && !state.kinds.rollback) { add("installed", row); add("verifying", row); }
+        // "trial" = the new image is written and being switched in: services restart and the image is checked ("검증 중",
+        // genuine and the right image, not a CPU check). "verify" = it passed and runs; the delay monitoring that starts
+        // there is ordinary supervision of the running update, not another verification step.
+        else if (s === "trial" && !state.kinds.rollback) { add("installed", row); add("verifying", row); }
+        else if (s === "verify" && !state.kinds.rollback) { add("installed", row); add("verifying", row); add("updated", row); }
         else if (s === "recover") add("rollback", row);
         else if (s === "recovery_verified") state.recoveryVerified = true;
         else if (s === "recovery_failed") {
@@ -54,7 +58,8 @@ function consume(state, ota, labels) {
         else if (s === "rolled_back") { add("restored", row); state.terminal = true; }
         else if (s === "committed") {
             add("installed", row);
-            add("accepted", row);
+            add("verifying", row);
+            add("updated", row);
             state.terminal = true;
         }
     }

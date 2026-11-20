@@ -39,7 +39,7 @@ assert.strictEqual(versionChange({stage: 'install', version: '2.0.0', candidate:
 assert.strictEqual(versionChange({stage: 'recover', version: '2.0.0', candidate: '3.0.0'}, names), 'V3 → V2');
 const labelled = consume({run: null, seen: 0, kinds: {}}, {timeline_id: 'n', timeline: [
     {stage: 'metadata', version: '2.0.0', candidate: '3.0.0'}, {stage: 'verify', version: '2.0.0', candidate: '3.0.0'}]}, names);
-assert.deepStrictEqual(labelled.map(e => e.transition), ['V2 → V3', 'V2 → V3', 'V2 → V3']);
+assert.deepStrictEqual(labelled.map(e => e.transition), ['V2 → V3', 'V2 → V3', 'V2 → V3', 'V2 → V3']);   // verify alone still yields the whole sequence
 const state = {run: null, seen: 0, kinds: {}};
 assert.deepStrictEqual(consume(state, {stage: 'committed', version: '2.0.0'}), []);
 const stages = ['metadata', 'signature_verified', 'download', 'install', 'trial',
@@ -47,18 +47,18 @@ const stages = ['metadata', 'signature_verified', 'download', 'install', 'trial'
 const ota = {timeline_id: 'one', timeline: stages.map(stage =>
     ({stage, version: '2.0.0', candidate: '3.0.0'}))};
 const events = consume(state, ota);
-assert.deepStrictEqual(events.map(e => e.kind), ['preparing', 'installed', 'verifying', 'rollback', 'rejected']);
+assert.deepStrictEqual(events.map(e => e.kind), ['preparing', 'installed', 'verifying', 'updated', 'rollback', 'rejected']);
 assert(events[1].transition.includes('2.0.0') && events[1].transition.includes('3.0.0'));
 assert.deepStrictEqual(consume(state, ota), []);
 ota.timeline.push({stage: 'committed', version: '3.0.0'});
 assert.deepStrictEqual(consume(state, ota), []); // a terminal rejection cannot become success
 const normal = consume(state, {timeline_id: 'two', timeline: stages.slice(0, 6).concat(
     ['committed']).map(stage => ({stage, version: '2.0.0', candidate: '3.0.0'}))});
-assert.deepStrictEqual(normal.map(e => e.kind), ['preparing', 'installed', 'verifying', 'accepted']);
+assert.deepStrictEqual(normal.map(e => e.kind), ['preparing', 'installed', 'verifying', 'updated']);
 const rollback = consume(state, {timeline_id: 'three', timeline: stages.slice(0, -1).concat(
     ['recovery_verified', 'recheck', 'rolled_back']).map(stage =>
     ({stage, version: '2.0.0', candidate: '3.0.0'}))});
-assert.deepStrictEqual(rollback.map(e => e.kind), ['preparing', 'installed', 'verifying', 'rollback', 'restored']);
+assert.deepStrictEqual(rollback.map(e => e.kind), ['preparing', 'installed', 'verifying', 'updated', 'rollback', 'restored']);
 const failure = consume(state, {timeline_id: 'four', timeline: ['recover', 'recovery_verified',
     'recovery_failed'].map(stage => ({stage}))});
 assert.deepStrictEqual(failure.map(e => e.kind), ['rollback', 'recovery_error']);
@@ -66,7 +66,7 @@ console.log(JSON.stringify(events));
 '''
     result = subprocess.run([node, '-e', script, str(helper)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert len(json.loads(result.stdout)) == 5
+    assert len(json.loads(result.stdout)) == 6
 
 
 def test_real_qml_animations_show_all_the_bands_in_order(tmp_path):
@@ -103,7 +103,7 @@ Item {
         interval: 50; running: true; repeat: true
         onTriggered: {
             if (observed[observed.length - 1] !== band.kind) observed.push(band.kind)
-            if (observed.length === 5) {
+            if (observed.length === 6) {
                 console.log("BAND_ORDER:" + JSON.stringify(observed))
                 cockpit.close(); Qt.quit()
             }
@@ -115,7 +115,7 @@ Item {
                           env={**os.environ, 'QT_QPA_PLATFORM': 'offscreen',
                                'QT_QUICK_BACKEND': 'software', 'QML_XHR_ALLOW_FILE_READ': '1'})
     assert done.returncode == 0, done.stderr
-    assert 'BAND_ORDER:["preparing","installed","verifying","rollback","rejected"]' in done.stderr, done.stderr
+    assert 'BAND_ORDER:["preparing","installed","verifying","updated","rollback","rejected"]' in done.stderr, done.stderr
     assert 'Error:' not in done.stderr, done.stderr
 
 
@@ -192,14 +192,18 @@ def _node(script):
     assert result.returncode == 0, result.stderr
 
 
-def test_verifying_follows_installed_as_its_own_event_and_only_once():
+def test_installed_and_verifying_come_with_the_switch_and_updated_when_the_new_image_runs():
+    """설치 완료 + 검증 중 = the switch and the image check (stage trial); 업데이트 완료 = the new image runs (stage verify).
+    The delay monitoring that follows is not a verification step."""
     _node(r"""
 const state = {run: null, seen: 0, kinds: {}};
 const rows = s => ({timeline_id: 'v', timeline: s.map(stage => ({stage, version: '2.0.0', candidate: '3.0.0'}))});
-const first = consume(state, rows(['metadata', 'install', 'trial', 'verify']));
+let first = consume(state, rows(['metadata', 'install', 'trial']));
 assert.deepStrictEqual(first.map(e => e.kind), ['preparing', 'installed', 'verifying']);
 assert.strictEqual(first[2].transition, '2.0.0 → 3.0.0');
-assert.deepStrictEqual(consume(state, rows(['metadata', 'install', 'trial', 'verify', 'verify'])), []);   // not repeated
+let next = consume(state, rows(['metadata', 'install', 'trial', 'verify']));
+assert.deepStrictEqual(next.map(e => e.kind), ['updated']);                      // the check passed, the image runs
+assert.deepStrictEqual(consume(state, rows(['metadata', 'install', 'trial', 'verify', 'verify'])), []);   // never repeated
 """)
 
 
@@ -275,7 +279,7 @@ Item {
         interval: 200; running: true; repeat: false
         onTriggered: {
             var seen = {}
-            var kinds = ["preparing", "installed", "verifying", "accepted", "rollback"]
+            var kinds = ["preparing", "installed", "verifying", "updated", "rollback"]
             for (var i = 0; i < kinds.length; i++) {
                 band.pending = [{kind: kinds[i], transition: "V2 \\u2192 V3"}]
                 band.next()
@@ -293,7 +297,7 @@ Item {
     line = [row for row in done.stderr.splitlines() if 'HEADLINES:' in row][0]
     seen = json.loads(line.split('HEADLINES:', 1)[1])
     assert seen == {'preparing': '업데이트 시작', 'installed': '설치 완료', 'verifying': '검증 중',
-                    'accepted': '업데이트 완료', 'rollback': '롤백 준비'}, seen
+                    'updated': '업데이트 완료', 'rollback': '롤백 준비'}, seen
 
 
 def test_cluster_and_ivi_cells_are_covered_only_while_the_verifying_alert_is_shown(tmp_path):

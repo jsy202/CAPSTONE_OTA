@@ -289,8 +289,8 @@ Window {
                 // Only these messages ever show on the strip.
                 if (kind === "preparing") { tone = win.accent; headline = "업데이트 시작"; tag = "[ OTA ]" }
                 else if (kind === "installed") { tone = win.accent; headline = "설치 완료"; tag = "[ OTA ]" }       // written, not yet checked
-                else if (kind === "accepted") { tone = win.success; headline = "업데이트 완료"; tag = "[ OTA ]" }  // only after the check passed
-                else if (kind === "verifying") { tone = "#f4f7fb"; headline = "검증 중"; tag = "[ OTA ]" }   // installed, not yet accepted: white
+                else if (kind === "updated") { tone = win.success; headline = "업데이트 완료"; tag = "[ OTA ]" }   // the checked image runs
+                else if (kind === "verifying") { tone = "#f4f7fb"; headline = "검증 중"; tag = "[ OTA ]" }   // the switch and image check: white
                 else if (kind === "rollback") { tone = win.warn; headline = "롤백 준비"; tag = "[ SYS ]" }
                 else if (kind === "restored") { tone = win.success; headline = "롤백 완료"; tag = "[ SYS ]" }
                 // Here the image a rollback would run is the attacker's V1, so a refused rollback is the DEFENCE working.
