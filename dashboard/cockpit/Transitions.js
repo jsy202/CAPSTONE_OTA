@@ -130,21 +130,41 @@ function monitorStatus(pstate, stage) {
     return "모니터 신호 없음"
 }
 
-// The fixed gauge under the download/install/rollback gauge, "검증": how far the supervision of the CURRENT image has
-// come. During the trial of a new image that is the Pi3 monitor's watch of the running update (`trialS` seconds); after a
-// rollback it is the watch of the restored image (`recheckS` seconds). Progress = what the monitor really watched, never
-// more than the time that has passed since the stage began (a monitor value left over from an earlier watch cannot fill it
-// early). Unknown length or no reading = 0, nothing is claimed. At rest the gauge stays, with an empty bar.
-function verification(ota, pi3, trialS, recheckS, now) {
-    function made(fraction, kind) { return {label: "검증", fraction: fraction, kind: kind, percent: kind === "idle" ? "" : Math.round(fraction * 100) + "%"} }
-    if (!ota || !ota.stage) return made(0, "idle")
-    if (ota.stage === "rolled_back" || ota.stage === "committed") return made(1, "done")
+// The fixed gauge under the download/install/rollback gauge, "검증": the signature and image check, nothing else. It is
+// empty until that check has passed and then simply full (no progress, no delay monitoring). Within a run the LATEST
+// verification wins: the update's image check ("archive_verify" = the downloaded image matched its signed hash), then a
+// rollback starts a new check ("recover") that passes with "recovery_verified" and never does when the recovery image is
+// refused (the gauge is empty again: that refusal is the defence working). Without a timeline the stage says it.
+function verified(ota) {
+    function made(passed) { return {label: "검증", fraction: passed ? 1 : 0, kind: passed ? "done" : "idle", percent: passed ? "100%" : ""} }
+    if (!ota || !ota.stage) return made(false)
+    var rows = ota.timeline
+    if (rows && rows.length) {
+        var passed = false
+        for (var i = 0; i < rows.length; i++) {
+            var stage = rows[i].stage
+            if (stage === "archive_verify" || stage === "recovery_verified") passed = true
+            else if (stage === "recover") passed = false
+        }
+        return made(passed)
+    }
+    var checked = ["install", "trial", "verify", "committed", "recovery_verified", "recheck", "rolled_back"]
+    return made(checked.indexOf(ota.stage) >= 0)
+}
+
+// The "확인" gauge, shown only after a rollback: the restored image is watched for `recheckS` seconds before the rollback
+// counts as done. Progress = what the Pi3 monitor really watched, never more than the time that has passed since the
+// recheck began (a monitor value left over from an earlier watch cannot fill it early). Unknown length or no reading = 0.
+function watch(ota, pi3, recheckS, now) {
+    var none = {label: "확인", fraction: 0, kind: "idle", percent: ""}
+    if (!ota || !ota.stage) return none
+    function made(fraction, kind) { return {label: "확인", fraction: fraction, kind: kind, percent: Math.round(fraction * 100) + "%"} }
+    if (ota.stage === "rolled_back") return made(1, "done")
     if (ota.stage === "recovery_verified") return made(0, "check")
-    if (ota.stage !== "recheck" && ota.stage !== "verify") return made(0, "idle")
-    var seconds = ota.stage === "verify" ? trialS : recheckS
-    if (!(seconds > 0) || !pi3 || typeof pi3.monitored_s !== "number") return made(0, "check")
+    if (ota.stage !== "recheck") return none
+    if (!(recheckS > 0) || !pi3 || typeof pi3.monitored_s !== "number") return made(0, "check")
     var elapsed = typeof ota.updated === "number" && typeof now === "number" ? Math.max(0, now - ota.updated) : pi3.monitored_s
-    return made(Math.min(1, Math.min(pi3.monitored_s, elapsed) / seconds), "check")
+    return made(Math.min(1, Math.min(pi3.monitored_s, elapsed) / recheckS), "check")
 }
 
 // The delay readout. While the cluster does not answer the socket (a restart: its cell says "no signal") there is no

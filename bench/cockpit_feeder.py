@@ -48,11 +48,10 @@ def describe_event(name: str) -> str:
 
 class Feeder:
     def __init__(self, out_dir, cluster, pi3, ota, events, ivi, ivi_ui, clock=time.time, shot=None, tap=None, extra=None, labels=None,
-                 recheck_s=0, trial_s=0):
+                 recheck_s=0):
         self.out, self.clock = Path(out_dir), clock
         self.cluster, self.pi3, self.ota, self.events, self.ivi, self.ivi_ui = cluster, pi3, ota, events, ivi, ivi_ui
         self._log_n = 0
-        self.trial_s = trial_s           # how long a new image is supervised before it may pass; the "검증" gauge counts against it
         self.recheck_s = recheck_s       # how long the device watches a restored image; the "확인" gauge counts against it
         self.labels = dict(labels or {})   # release version -> product name (display only)
         self.shot, self.tap, self.extra, self._extra_seen = shot, tap, extra, 0
@@ -106,7 +105,7 @@ class Feeder:
         return {'now': now, 'cluster': cluster, 'pi3': pi3, 'ota': ota, 'ivi': ivi, 'ivi_ui': self._call(self.ivi_ui),
                 'shot': self._call(self.shot) if self.shot else None,
                 'tap': self._call(self.tap) if self.tap else None, 'log': list(self.log),
-                'version_labels': self.labels, 'recheck_s': self.recheck_s, 'trial_s': self.trial_s}
+                'version_labels': self.labels, 'recheck_s': self.recheck_s}
 
     def write(self) -> None:
         self.out.mkdir(parents=True, exist_ok=True)
@@ -166,7 +165,6 @@ def main(argv=None) -> int:
     parser.add_argument('--cluster-display', default=':93', help='Private cluster X11 display; requires Pillow/XCB')
     parser.add_argument('--device-root', type=Path, default=Path('/opt/capstone-ivi/device'))
     parser.add_argument('--ivi-run', type=Path, default=Path('/run/capstone-ivi'))
-    parser.add_argument('--trial-seconds', type=float, default=0.0, help='length of the supervision of a new image, for the "검증" gauge')
     parser.add_argument('--recheck-seconds', type=float, default=0.0, help='length of the post-rollback watch, for the "확인" gauge')
     parser.add_argument('--pi3-ssh', required=True, help='JSON argv list for ssh to the Verifier board')
     parser.add_argument('--verdict-path', required=True)
@@ -226,7 +224,7 @@ def main(argv=None) -> int:
         path = args.out_dir / 'extra.jsonl'
         return [json.loads(line) for line in path.read_text().splitlines() if line] if path.exists() else []
 
-    feeder = Feeder(args.out_dir, cluster, pi3, ota, events, lambda: read_ivi_status(args.ivi_run / 'status.json'), ivi_ui, labels=json.loads(args.version_labels), recheck_s=args.recheck_seconds, trial_s=args.trial_seconds,
+    feeder = Feeder(args.out_dir, cluster, pi3, ota, events, lambda: read_ivi_status(args.ivi_run / 'status.json'), ivi_ui, labels=json.loads(args.version_labels), recheck_s=args.recheck_seconds,
                     shot=shot, tap=lambda: tap.snapshot(time.time()), extra=extra)
     while running['now']:
         started = time.monotonic()

@@ -219,27 +219,43 @@ assert.strictEqual(monitorStatus('blind', ''), '모니터 신호 없음');
 """)
 
 
-def test_the_fixed_verification_gauge_follows_the_real_monitored_time_in_the_trial_and_after_a_rollback():
+def test_the_fixed_verification_gauge_fills_at_once_when_the_key_and_image_check_passes():
+    """검증 = the signature and image check only. It is empty until that check passes and then simply full. It is NOT a
+    progress of the delay monitoring. The latest verification of a run wins: an update's check, then a rollback's check."""
+    _node(r"""
+const rows = (...stages) => ({stage: stages[stages.length - 1], timeline: stages.map(stage => ({stage}))});
+const empty = {label: '검증', fraction: 0, kind: 'idle', percent: ''};
+const full = {label: '검증', fraction: 1, kind: 'done', percent: '100%'};
+assert.deepStrictEqual(verified(null), empty);
+assert.deepStrictEqual(verified({stage: 'download'}), empty);
+assert.deepStrictEqual(verified(rows('metadata', 'signature', 'signature_verified', 'download')), empty);   // not checked yet
+assert.deepStrictEqual(verified(rows('metadata', 'download', 'archive_verify')), full);                    // the image matched
+assert.deepStrictEqual(verified(rows('metadata', 'download', 'archive_verify', 'install', 'trial', 'verify')), full);
+// a refused rollback: the recovery image check did not pass, so the gauge is empty again (the defence held)
+assert.deepStrictEqual(verified(rows('metadata', 'download', 'archive_verify', 'install', 'trial', 'verify', 'recover', 'recovery_failed')), empty);
+// a rollback whose image check passed
+assert.deepStrictEqual(verified(rows('metadata', 'download', 'archive_verify', 'trial', 'verify', 'recover', 'recovery_verified', 'recheck')), full);
+assert.deepStrictEqual(verified(rows('recover')), empty);                                                    // a repair run: its own check first
+assert.deepStrictEqual(verified({stage: 'install'}), full);                                                // no timeline: the stage says it
+assert.deepStrictEqual(verified({stage: 'recovery_verified'}), full);
+// the delay monitoring has nothing to do with it
+assert.deepStrictEqual(verified({stage: 'verify', work: null, timeline: [{stage: 'download'}]}), empty);
+""")
+
+
+def test_the_watch_gauge_after_a_rollback_follows_the_real_monitored_time():
     _node(r"""
 const pi3 = s => ({monitored_s: s});
-const idle = {label: '검증', fraction: 0, kind: 'idle', percent: ''};     // always there: an empty bar at rest
-assert.deepStrictEqual(verification({stage: 'download'}, pi3(5), 120, 20, 100), idle);
-assert.deepStrictEqual(verification(null, null, 120, 20, 100), idle);
-assert.deepStrictEqual(verification({stage: 'recover'}, pi3(5), 120, 20, 100), idle);
-// the trial: supervision of the running update, TRIAL seconds long
-assert.strictEqual(verification({stage: 'verify', updated: 40}, pi3(30), 120, 20, 100).fraction, 0.25);   // 30 s of 120 s
-assert.strictEqual(verification({stage: 'verify', updated: 90}, pi3(80), 120, 20, 100).fraction, 10 / 120);   // only 10 s have passed
-assert.strictEqual(verification({stage: 'verify', updated: 0}, pi3(500), 120, 20, 100).fraction, 100 / 120);   // capped by the 100 s that passed
-assert.strictEqual(verification({stage: 'verify', updated: -50}, pi3(500), 120, 20, 100).fraction, 1);          // 150 s passed: full
-assert.strictEqual(verification({stage: 'verify', updated: 90}, null, 120, 20, 100).fraction, 0);         // no reading: nothing claimed
-assert.strictEqual(verification({stage: 'verify', updated: 90}, pi3(5), 0, 20, 100).fraction, 0);         // unknown length: nothing claimed
-// after a rollback: the restored image is watched RECHECK seconds
-assert.deepStrictEqual(verification({stage: 'recovery_verified'}, pi3(5), 120, 20, 100), {label: '검증', fraction: 0, kind: 'check', percent: '0%'});
-assert.strictEqual(verification({stage: 'recheck', updated: 90}, pi3(5), 120, 20, 100).fraction, 0.25);
-assert.strictEqual(verification({stage: 'recheck', updated: 90}, pi3(500), 120, 20, 100).fraction, 0.5);
-// finished
-assert.deepStrictEqual(verification({stage: 'rolled_back'}, pi3(0), 120, 20, 100), {label: '검증', fraction: 1, kind: 'done', percent: '100%'});
-assert.deepStrictEqual(verification({stage: 'committed'}, pi3(0), 120, 20, 100), {label: '검증', fraction: 1, kind: 'done', percent: '100%'});
+const idle = {label: '확인', fraction: 0, kind: 'idle', percent: ''};
+assert.deepStrictEqual(watch({stage: 'verify'}, pi3(5), 20, 100), idle);
+assert.deepStrictEqual(watch({stage: 'recover'}, pi3(5), 20, 100), idle);
+assert.deepStrictEqual(watch({stage: 'recovery_verified'}, pi3(5), 20, 100), {label: '확인', fraction: 0, kind: 'check', percent: '0%'});
+assert.strictEqual(watch({stage: 'recheck', updated: 90}, pi3(5), 20, 100).fraction, 0.25);        // 5 s of 20 s watched
+assert.strictEqual(watch({stage: 'recheck', updated: 90}, pi3(500), 20, 100).fraction, 0.5);       // a stale big value cannot beat the 10 s that passed
+assert.strictEqual(watch({stage: 'recheck', updated: 70}, pi3(30), 20, 100).fraction, 1);
+assert.strictEqual(watch({stage: 'recheck'}, null, 20, 100).fraction, 0);                           // no monitor reading: nothing is claimed
+assert.strictEqual(watch({stage: 'recheck', updated: 90}, pi3(5), 0, 100).fraction, 0);             // unknown length: nothing is claimed
+assert.deepStrictEqual(watch({stage: 'rolled_back'}, pi3(0), 20, 100), {label: '확인', fraction: 1, kind: 'done', percent: '100%'});
 """)
 
 

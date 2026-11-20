@@ -239,14 +239,14 @@ def version_labels(config):
     return labels
 
 
-def feeder_command(pi3_address, interval=0.5, ivi_ui=None, labels=None, recheck_s=0, trial_s=0):
+def feeder_command(pi3_address, interval=0.5, ivi_ui=None, labels=None, recheck_s=0):
     """Collects what the cockpit shows (cluster capture, Pi3 verdict, update progress). Display only: it never decides."""
     ssh = [*PI2_ROOT_TO_PI3, f"otauser@{pi3_address}"]
     return ["taskset", "-c", "1-3", "/usr/bin/python3", "-m", "bench.cockpit_feeder",
             "--cluster-socket", "/run/capstone-cluster/model.sock", "--pi3-ssh", json.dumps(ssh),
             "--verdict-path", MONITOR_DIR + "/verdict.json",
             *(["--ivi-ui", str(ivi_ui)] if ivi_ui else []),
-            *(["--version-labels", json.dumps(labels)] if labels else []), *(["--recheck-seconds", str(recheck_s)] if recheck_s else []), *(["--trial-seconds", str(trial_s)] if trial_s else []),
+            *(["--version-labels", json.dumps(labels)] if labels else []), *(["--recheck-seconds", str(recheck_s)] if recheck_s else []),
             "--interval", str(interval)]
 
 
@@ -296,7 +296,7 @@ def start_screen(boards, pi3_ip, log, interval=0.1, ivi_ui=None, virtual=False, 
     pi2.run("sudo systemctl stop field-cockpit-feeder.service 2>/dev/null; sudo rm -f /run/cockpit/extra.jsonl; true", check=False)
     pi2.run("sudo systemd-run --quiet --collect --unit field-cockpit-feeder "
             f"-p WorkingDirectory={SCREEN} -p Environment=PYTHONPATH={SCREEN}:{site} "
-            "-p Environment=XAUTHORITY=/var/lib/capstone-app/Xauthority " + shlex.join(feeder_command(pi3_ip, interval, ivi_ui, labels, RECHECK_SECONDS, TRIAL_SECONDS)))
+            "-p Environment=XAUTHORITY=/var/lib/capstone-app/Xauthority " + shlex.join(feeder_command(pi3_ip, interval, ivi_ui, labels, RECHECK_SECONDS)))
     pi2.run("pkill -f '[q]mlscene.*Cockpit.qml'; true", check=False)
     if virtual:
         pi2.put(f"{SCREEN}/cockpit/Cockpit.qml",
