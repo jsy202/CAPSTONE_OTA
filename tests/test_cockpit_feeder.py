@@ -198,3 +198,55 @@ def test_ivi_status_tells_whether_the_application_is_alive_and_how_fresh_its_dat
     assert read_ivi_status(status, now=1000.0)['alive'] is False
     nav.unlink()                                                      # an IVI without a CAN feed writes no nav.json
     assert 'nav_age_s' not in read_ivi_status(status, now=1000.0)
+
+
+OLD_PROGRESS = {'stage': 'rolled_back', 'version': '3.5.0', 'candidate': '3.7.0', 'detail': 'x',
+                'slot_view': {'A': {'version': None, 'role': 'retained'}, 'B': {'version': '3.5.0', 'role': 'committed'}},
+                'timeline_id': 'earlier', 'timeline': [{'stage': 'recover'}], 'received': 5, 'total': 5,
+                'work': {'kind': 'rollback', 'done': 5, 'total': 5}, 'updated': 900.0}
+
+
+def test_progress_left_by_an_earlier_session_is_shown_as_idle_not_as_a_live_rollback():
+    from bench.cockpit_feeder import session_view
+    view = session_view(dict(OLD_PROGRESS), started=1000.0)
+    assert view['stage'] == 'idle' and view['version'] == '3.5.0' and view['slot_view'] == OLD_PROGRESS['slot_view']
+    for key in ('timeline', 'timeline_id', 'work', 'candidate', 'received', 'total'):
+        assert not view.get(key), key          # no gauge, no replayed alerts from the last drill
+
+
+def test_progress_written_during_this_session_is_shown_as_it_is():
+    from bench.cockpit_feeder import session_view
+    current = {**OLD_PROGRESS, 'updated': 1001.0}
+    assert session_view(dict(current), started=1000.0) == current
+    just_before = {**OLD_PROGRESS, 'updated': 999.5}          # an update that began a moment before the screen came up
+    assert session_view(dict(just_before), started=1000.0) == just_before
+
+
+def test_the_running_feeder_reports_an_idle_device_for_progress_left_by_an_earlier_session(tmp_path):
+    """Runs the real feeder process: the unit tests above passed while main() overwrote the session start (same name
+    as a loop timer), so the previous drill's finished rollback was still drawn on the real boards."""
+    import signal
+    import subprocess
+    import sys
+    import time
+    device, out, run = tmp_path / 'device', tmp_path / 'out', tmp_path / 'run'
+    for directory in (device, run):
+        directory.mkdir()
+    (device / 'progress.json').write_text(json.dumps({**OLD_PROGRESS, 'updated': time.time() - 600}))
+    (device / 'events.jsonl').write_text('')
+    process = subprocess.Popen([sys.executable, '-m', 'bench.cockpit_feeder', '--out-dir', str(out), '--device-root', str(device),
+                                '--ivi-run', str(run), '--cluster-socket', str(tmp_path / 'none.sock'),
+                                '--pi3-ssh', '["false"]', '--verdict-path', '/none', '--channel', 'nonexistent0', '--interval', '0.1'],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        data, deadline = None, time.time() + 15
+        while time.time() < deadline and data is None:
+            try:
+                data = json.loads((out / 'data.json').read_text())
+            except (OSError, ValueError):
+                time.sleep(0.2)
+    finally:
+        process.send_signal(signal.SIGTERM)
+        process.wait(timeout=10)
+    assert data is not None, 'the feeder never wrote data.json'
+    assert data['ota']['stage'] == 'idle' and not data['ota']['timeline_id'] and not data['ota']['work']

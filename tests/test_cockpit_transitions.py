@@ -28,6 +28,8 @@ assert.strictEqual(phase({stage: 'recover', work: {kind: 'rollback', done: 1, to
 assert.strictEqual(phase({stage: 'recovery_failed', timeline: [{stage: 'recover'}]}).kind, 'blocked');
 assert.strictEqual(phase({stage: 'recovery_failed', timeline: [{stage: 'recover'}, {stage: 'recovery_verified'}]}).kind, 'failed');
 assert.strictEqual(phase({stage: 'install'}, true).fraction, 1);
+assert.deepStrictEqual(phase({stage: 'idle', version: '3.5.0'}), {label: '', fraction: 0, kind: 'idle', percent: ''});   // nothing is happening: no gauge
+assert.deepStrictEqual(consume({run: null, seen: 0, kinds: {}}, {stage: 'idle', version: '3.5.0'}), []);
 assert.strictEqual(versionChange({stage: 'install', version: '2.0.0', candidate: '3.0.0'}, names), 'V2 → V3');
 assert.strictEqual(versionChange({stage: 'recover', version: '2.0.0', candidate: '3.0.0'}, names), 'V3 → V2');
 const labelled = consume({run: null, seen: 0, kinds: {}}, {timeline_id: 'n', timeline: [

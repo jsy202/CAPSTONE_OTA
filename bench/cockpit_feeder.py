@@ -127,6 +127,15 @@ def read_ivi_status(path, now=None):
     return data
 
 
+def session_view(progress, started, slack=1.0):
+    """The device keeps its last progress on disk, so a fresh screen would draw the previous drill's finished rollback as
+    if it were happening now. Progress written before this screen started is history: keep the version and slots but
+    report an idle device, stage 'idle' (no gauge, no replayed alerts; 'committed' would draw a finished install)."""
+    if (progress.get('updated') or 0.0) >= started - slack:
+        return progress
+    return {'stage': 'idle', 'version': progress.get('version'), 'slot_view': progress.get('slot_view')}
+
+
 def capture_cluster(socket_path, display, out_dir, revision):
     from PIL import ImageGrab
     from capstone_ota.qt_verify import socket_request
@@ -181,8 +190,10 @@ def main(argv=None) -> int:
     def pi3():
         return latest['verdict'] if time.time() - latest['at'] < 5 else None
 
+    session_start = time.time()      # not `started`: the loop below reuses that name for its own timer
+
     def ota():
-        progress = read_json(args.device_root / 'progress.json')
+        progress = session_view(read_json(args.device_root / 'progress.json'), session_start)
         return {k: progress.get(k) for k in ('stage', 'version', 'candidate', 'slot_view', 'detail',
                                            'timeline_id', 'timeline', 'received', 'total', 'work')}
 
