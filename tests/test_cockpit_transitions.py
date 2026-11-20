@@ -39,7 +39,7 @@ assert.strictEqual(versionChange({stage: 'install', version: '2.0.0', candidate:
 assert.strictEqual(versionChange({stage: 'recover', version: '2.0.0', candidate: '3.0.0'}, names), 'V3 → V2');
 const labelled = consume({run: null, seen: 0, kinds: {}}, {timeline_id: 'n', timeline: [
     {stage: 'metadata', version: '2.0.0', candidate: '3.0.0'}, {stage: 'verify', version: '2.0.0', candidate: '3.0.0'}]}, names);
-assert.deepStrictEqual(labelled.map(e => e.transition), ['V2 → V3', 'V2 → V3', 'V2 → V3', 'V2 → V3']);   // verify alone still yields the whole sequence
+assert.deepStrictEqual(labelled.map(e => e.transition), ['V2 → V3', 'V2 → V3', 'V2 → V3']);   // verify alone still yields the whole sequence
 const state = {run: null, seen: 0, kinds: {}};
 assert.deepStrictEqual(consume(state, {stage: 'committed', version: '2.0.0'}), []);
 const stages = ['metadata', 'signature_verified', 'download', 'install', 'trial',
@@ -47,18 +47,18 @@ const stages = ['metadata', 'signature_verified', 'download', 'install', 'trial'
 const ota = {timeline_id: 'one', timeline: stages.map(stage =>
     ({stage, version: '2.0.0', candidate: '3.0.0'}))};
 const events = consume(state, ota);
-assert.deepStrictEqual(events.map(e => e.kind), ['preparing', 'installed', 'verifying', 'updated', 'rollback', 'rejected']);
+assert.deepStrictEqual(events.map(e => e.kind), ['preparing', 'installed', 'updated', 'rollback', 'rejected']);
 assert(events[1].transition.includes('2.0.0') && events[1].transition.includes('3.0.0'));
 assert.deepStrictEqual(consume(state, ota), []);
 ota.timeline.push({stage: 'committed', version: '3.0.0'});
 assert.deepStrictEqual(consume(state, ota), []); // a terminal rejection cannot become success
 const normal = consume(state, {timeline_id: 'two', timeline: stages.slice(0, 6).concat(
     ['committed']).map(stage => ({stage, version: '2.0.0', candidate: '3.0.0'}))});
-assert.deepStrictEqual(normal.map(e => e.kind), ['preparing', 'installed', 'verifying', 'updated']);
+assert.deepStrictEqual(normal.map(e => e.kind), ['preparing', 'installed', 'updated']);
 const rollback = consume(state, {timeline_id: 'three', timeline: stages.slice(0, -1).concat(
     ['recovery_verified', 'recheck', 'rolled_back']).map(stage =>
     ({stage, version: '2.0.0', candidate: '3.0.0'}))});
-assert.deepStrictEqual(rollback.map(e => e.kind), ['preparing', 'installed', 'verifying', 'updated', 'rollback', 'restored']);
+assert.deepStrictEqual(rollback.map(e => e.kind), ['preparing', 'installed', 'updated', 'rollback', 'restored']);
 const failure = consume(state, {timeline_id: 'four', timeline: ['recover', 'recovery_verified',
     'recovery_failed'].map(stage => ({stage}))});
 assert.deepStrictEqual(failure.map(e => e.kind), ['rollback', 'recovery_error']);
@@ -66,7 +66,7 @@ console.log(JSON.stringify(events));
 '''
     result = subprocess.run([node, '-e', script, str(helper)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert len(json.loads(result.stdout)) == 6
+    assert len(json.loads(result.stdout)) == 5
 
 
 def test_real_qml_animations_show_all_the_bands_in_order(tmp_path):
@@ -103,7 +103,7 @@ Item {
         interval: 50; running: true; repeat: true
         onTriggered: {
             if (observed[observed.length - 1] !== band.kind) observed.push(band.kind)
-            if (observed.length === 6) {
+            if (observed.length === 5) {
                 console.log("BAND_ORDER:" + JSON.stringify(observed))
                 cockpit.close(); Qt.quit()
             }
@@ -115,7 +115,7 @@ Item {
                           env={**os.environ, 'QT_QPA_PLATFORM': 'offscreen',
                                'QT_QUICK_BACKEND': 'software', 'QML_XHR_ALLOW_FILE_READ': '1'})
     assert done.returncode == 0, done.stderr
-    assert 'BAND_ORDER:["preparing","installed","verifying","updated","rollback","rejected"]' in done.stderr, done.stderr
+    assert 'BAND_ORDER:["preparing","installed","updated","rollback","rejected"]' in done.stderr, done.stderr
     assert 'Error:' not in done.stderr, done.stderr
 
 
@@ -192,17 +192,16 @@ def _node(script):
     assert result.returncode == 0, result.stderr
 
 
-def test_installed_and_verifying_come_with_the_switch_and_updated_when_the_new_image_runs():
-    """설치 완료 + 검증 중 = the switch and the image check (stage trial); 업데이트 완료 = the new image runs (stage verify).
-    The delay monitoring that follows is not a verification step."""
+def test_installed_comes_with_the_switch_and_updated_when_the_new_image_runs_and_nothing_says_verifying():
+    """설치 완료 = the new image is switched in (stage trial); 업데이트 완료 = it runs (stage verify). There is no 검증 중
+    alert: the delay monitoring that follows is supervision of the running update, shown by the fixed gauge instead."""
     _node(r"""
 const state = {run: null, seen: 0, kinds: {}};
 const rows = s => ({timeline_id: 'v', timeline: s.map(stage => ({stage, version: '2.0.0', candidate: '3.0.0'}))});
 let first = consume(state, rows(['metadata', 'install', 'trial']));
-assert.deepStrictEqual(first.map(e => e.kind), ['preparing', 'installed', 'verifying']);
-assert.strictEqual(first[2].transition, '2.0.0 → 3.0.0');
+assert.deepStrictEqual(first.map(e => e.kind), ['preparing', 'installed']);
 let next = consume(state, rows(['metadata', 'install', 'trial', 'verify']));
-assert.deepStrictEqual(next.map(e => e.kind), ['updated']);                      // the check passed, the image runs
+assert.deepStrictEqual(next.map(e => e.kind), ['updated']);
 assert.deepStrictEqual(consume(state, rows(['metadata', 'install', 'trial', 'verify', 'verify'])), []);   // never repeated
 """)
 
@@ -220,19 +219,38 @@ assert.strictEqual(monitorStatus('blind', ''), '모니터 신호 없음');
 """)
 
 
-def test_the_check_gauge_follows_the_real_monitored_time_after_a_rollback():
+def test_the_fixed_verification_gauge_follows_the_real_monitored_time_in_the_trial_and_after_a_rollback():
     _node(r"""
 const pi3 = s => ({monitored_s: s});
-const idle = {label: '', fraction: 0, kind: 'idle', percent: ''};
-assert.deepStrictEqual(check({stage: 'verify'}, pi3(5), 20, 100), idle);
-assert.deepStrictEqual(check({stage: 'recover'}, pi3(5), 20, 100), idle);
-assert.deepStrictEqual(check({stage: 'recovery_verified'}, pi3(5), 20, 100), {label: '확인', fraction: 0, kind: 'check', percent: '0%'});
-assert.strictEqual(check({stage: 'recheck', updated: 90}, pi3(5), 20, 100).fraction, 0.25);        // 5 s of 20 s watched
-assert.strictEqual(check({stage: 'recheck', updated: 90}, pi3(500), 20, 100).fraction, 0.5);       // a stale big value cannot beat the 10 s that passed
-assert.strictEqual(check({stage: 'recheck', updated: 70}, pi3(30), 20, 100).fraction, 1);
-assert.strictEqual(check({stage: 'recheck'}, null, 20, 100).fraction, 0);                           // no monitor reading: nothing is claimed
-assert.strictEqual(check({stage: 'recheck', updated: 90}, pi3(5), 0, 100).fraction, 0);             // unknown length: nothing is claimed
-assert.deepStrictEqual(check({stage: 'rolled_back'}, pi3(0), 20, 100), {label: '확인', fraction: 1, kind: 'done', percent: '100%'});
+const idle = {label: '검증', fraction: 0, kind: 'idle', percent: ''};     // always there: an empty bar at rest
+assert.deepStrictEqual(verification({stage: 'download'}, pi3(5), 120, 20, 100), idle);
+assert.deepStrictEqual(verification(null, null, 120, 20, 100), idle);
+assert.deepStrictEqual(verification({stage: 'recover'}, pi3(5), 120, 20, 100), idle);
+// the trial: supervision of the running update, TRIAL seconds long
+assert.strictEqual(verification({stage: 'verify', updated: 40}, pi3(30), 120, 20, 100).fraction, 0.25);   // 30 s of 120 s
+assert.strictEqual(verification({stage: 'verify', updated: 90}, pi3(80), 120, 20, 100).fraction, 10 / 120);   // only 10 s have passed
+assert.strictEqual(verification({stage: 'verify', updated: 0}, pi3(500), 120, 20, 100).fraction, 100 / 120);   // capped by the 100 s that passed
+assert.strictEqual(verification({stage: 'verify', updated: -50}, pi3(500), 120, 20, 100).fraction, 1);          // 150 s passed: full
+assert.strictEqual(verification({stage: 'verify', updated: 90}, null, 120, 20, 100).fraction, 0);         // no reading: nothing claimed
+assert.strictEqual(verification({stage: 'verify', updated: 90}, pi3(5), 0, 20, 100).fraction, 0);         // unknown length: nothing claimed
+// after a rollback: the restored image is watched RECHECK seconds
+assert.deepStrictEqual(verification({stage: 'recovery_verified'}, pi3(5), 120, 20, 100), {label: '검증', fraction: 0, kind: 'check', percent: '0%'});
+assert.strictEqual(verification({stage: 'recheck', updated: 90}, pi3(5), 120, 20, 100).fraction, 0.25);
+assert.strictEqual(verification({stage: 'recheck', updated: 90}, pi3(500), 120, 20, 100).fraction, 0.5);
+// finished
+assert.deepStrictEqual(verification({stage: 'rolled_back'}, pi3(0), 120, 20, 100), {label: '검증', fraction: 1, kind: 'done', percent: '100%'});
+assert.deepStrictEqual(verification({stage: 'committed'}, pi3(0), 120, 20, 100), {label: '검증', fraction: 1, kind: 'done', percent: '100%'});
+""")
+
+
+def test_the_delay_readout_is_unknown_while_the_cluster_does_not_answer():
+    # The cluster is off for a restart (the cell says "no signal"): a count of how long its frames wait is not a delay.
+    _node(r"""
+assert.strictEqual(delayReading(null, 2900), null);
+assert.strictEqual(delayReading(undefined, 2900), null);
+assert.strictEqual(delayReading({valid: true}, 180), 180);
+assert.strictEqual(delayReading({valid: true}, null), null);
+assert.strictEqual(delayReading({valid: true}, undefined), null);
 """)
 
 
@@ -253,8 +271,8 @@ assert.deepStrictEqual([r.rows.length, r.seen], [0, 0]);
 """)
 
 
-def test_the_alert_strip_says_installed_then_verifying_and_only_a_passed_check_says_update_complete(tmp_path):
-    """설치 완료 -> 검증 중 -> (검증이 통과하면) 업데이트 완료. Nothing says "update complete" before the check passed."""
+def test_the_alert_strip_says_installed_then_update_complete(tmp_path):
+    """설치 완료 (switched in) -> 업데이트 완료 (the new image runs); there is no 검증 중 alert."""
     qmlscene = shutil.which('qmlscene')
     if not qmlscene:
         pytest.skip('qmlscene is needed for the alert strip check')
@@ -279,7 +297,7 @@ Item {
         interval: 200; running: true; repeat: false
         onTriggered: {
             var seen = {}
-            var kinds = ["preparing", "installed", "verifying", "updated", "rollback"]
+            var kinds = ["preparing", "installed", "updated", "rollback", "rejected", "port_closed"]
             for (var i = 0; i < kinds.length; i++) {
                 band.pending = [{kind: kinds[i], transition: "V2 \\u2192 V3"}]
                 band.next()
@@ -296,56 +314,9 @@ Item {
     assert done.returncode == 0, done.stderr
     line = [row for row in done.stderr.splitlines() if 'HEADLINES:' in row][0]
     seen = json.loads(line.split('HEADLINES:', 1)[1])
-    assert seen == {'preparing': '업데이트 시작', 'installed': '설치 완료', 'verifying': '검증 중',
-                    'updated': '업데이트 완료', 'rollback': '롤백 준비'}, seen
+    assert seen == {'preparing': '업데이트 시작', 'installed': '설치 완료',
+                    'updated': '업데이트 완료', 'rollback': '롤백 준비', 'rejected': '롤백 차단', 'port_closed': '디버깅 포트 차단'}, seen
 
-
-def test_cluster_and_ivi_cells_are_covered_only_while_the_verifying_alert_is_shown(tmp_path):
-    """Verification starts: both cells go dark for as long as the white "검증 중" alert is up, and not for any other alert."""
-    qmlscene = shutil.which('qmlscene')
-    if not qmlscene:
-        pytest.skip('qmlscene is needed for the cover check')
-    cockpit = (Path(__file__).parents[1] / 'dashboard/cockpit/Cockpit.qml').as_uri()
-    harness = tmp_path / 'Cover.qml'
-    harness.write_text('''import QtQuick 2.15
-Item {
-    property var cockpit
-    property var band
-    property int step: 0
-    property var seen: ({})
-    function find(item) {
-        if (item.objectName === "otaEventBand") return item
-        for (var i = 0; item.children && i < item.children.length; i++) { var f = find(item.children[i]); if (f) return f }
-        return null
-    }
-    Component.onCompleted: {
-        var component = Qt.createComponent(%s)
-        cockpit = component.createObject(null, {dataUrl: "file:///nonexistent-cockpit-test-data"})
-        if (!cockpit) throw new Error(component.errorString())
-        band = find(cockpit.contentItem)
-    }
-    Timer {
-        interval: 300; running: true; repeat: true
-        onTriggered: {
-            step++
-            if (step === 1) seen.before = cockpit.verifyCover
-            else if (step === 2) band.enqueue({kind: "rollback", transition: "V2 \\\\u2192 V3"})
-            else if (step === 3) { seen.rollbackAlert = cockpit.verifyCover; band.pending = []; }
-            else if (step === 4) { band.pending = [{kind: "verifying", transition: "V2 \\\\u2192 V3"}]; band.next() }
-            else if (step === 5) seen.verifying = cockpit.verifyCover
-            else if (step === 20) { seen.after = cockpit.verifyCover; console.log("COVER:" + JSON.stringify(seen)); cockpit.close(); Qt.quit() }
-        }
-    }
-}
-''' % json.dumps(cockpit))
-    done = subprocess.run([qmlscene, str(harness)], capture_output=True, text=True, timeout=40,
-                          env={**os.environ, 'QT_QPA_PLATFORM': 'offscreen', 'QT_QUICK_BACKEND': 'software', 'QML_XHR_ALLOW_FILE_READ': '1'})
-    assert done.returncode == 0, done.stderr
-    line = [row for row in done.stderr.splitlines() if 'COVER:' in row][0]
-    seen = json.loads(line.split('COVER:', 1)[1])
-    assert seen['before'] is False and seen['rollbackAlert'] is False
-    assert seen['verifying'] is True                      # covered while the verifying alert is up
-    assert seen['after'] is False                         # and uncovered again once it has gone
 
 
 def test_log_rows_without_a_number_still_work_by_their_position():

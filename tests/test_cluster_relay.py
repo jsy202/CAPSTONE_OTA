@@ -411,12 +411,20 @@ def test_ivi_switch_restarts_the_cluster_service_too(tmp_path, monkeypatch):
     assert ('is-active', 'capstone-cluster.service') in calls            # the cluster must stay up after the switch
 
 
-def test_stopping_the_ivi_after_a_failed_recovery_never_stops_the_cluster(tmp_path, monkeypatch):
-    """Outside an activation only the IVI service is touched: the gauge must not die with a stopped head unit."""
+def test_the_ivi_and_the_cluster_stop_together_whenever_the_ivi_is_stopped(tmp_path, monkeypatch):
+    """They are one body: a stopped head unit (for example after a refused recovery) takes the cluster down with it."""
     from capstone_ota.ivi import IviDevice
     calls = _record_systemctl(monkeypatch)
     IviDevice(tmp_path / 'device')._service('stop')
-    assert calls == [('stop', 'capstone-ivi.service')]
+    assert sorted(calls) == [('stop', 'capstone-cluster.service'), ('stop', 'capstone-ivi.service')]
+
+
+def test_only_activation_restarts_and_checks_the_companion(tmp_path, monkeypatch):
+    from capstone_ota.ivi import IviDevice
+    calls = _record_systemctl(monkeypatch)
+    device = IviDevice(tmp_path / 'device')
+    device._service('restart')
+    assert calls == [('restart', 'capstone-ivi.service')]      # outside an activation nothing else is restarted
 
 
 def test_a_cluster_device_has_no_companion_services(tmp_path, monkeypatch):

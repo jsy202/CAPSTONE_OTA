@@ -56,11 +56,10 @@ function consume(state, ota, labels) {
     for (; state.seen < ota.timeline.length; state.seen++) {
         var row = ota.timeline[state.seen], s = row.stage;
         if (s === "metadata") add("preparing", row);
-        // "trial" = the new image is written and being switched in: services restart and the image is checked ("검증 중",
-        // genuine and the right image, not a CPU check). "verify" = it passed and runs; the delay monitoring that starts
-        // there is ordinary supervision of the running update, not another verification step.
-        else if (s === "trial" && !state.kinds.rollback) { add("installed", row); add("verifying", row); }
-        else if (s === "verify" && !state.kinds.rollback) { add("installed", row); add("verifying", row); add("updated", row); }
+        // "trial" = the new image is written and switched in ("설치 완료"); "verify" = it runs ("업데이트 완료"). The
+        // delay monitoring that starts there is supervision of the running update, shown by the fixed gauge, not an alert.
+        else if (s === "trial" && !state.kinds.rollback) add("installed", row);
+        else if (s === "verify" && !state.kinds.rollback) { add("installed", row); add("updated", row); }
         else if (s === "recover") add("rollback", row);
         else if (s === "recovery_verified") state.recoveryVerified = true;
         else if (s === "recovery_failed") {
@@ -70,7 +69,6 @@ function consume(state, ota, labels) {
         else if (s === "rolled_back") { add("restored", row); state.terminal = true; }
         else if (s === "committed") {
             add("installed", row);
-            add("verifying", row);
             add("updated", row);
             state.terminal = true;
         }
@@ -132,19 +130,28 @@ function monitorStatus(pstate, stage) {
     return "모니터 신호 없음"
 }
 
-// The second gauge, "확인": after a rollback the restored image is watched for `recheckS` seconds before the rollback
-// counts as done. Progress = what the Pi3 monitor really watched, never more than the time that has passed since the
-// recheck began (a monitor value left over from the trial cannot fill it early). Unknown length or no reading = 0.
-function check(ota, pi3, recheckS, now) {
-    var none = {label: "", fraction: 0, kind: "idle", percent: ""}
-    if (!ota || !ota.stage) return none
-    function made(fraction, kind) { return {label: "확인", fraction: fraction, kind: kind, percent: Math.round(fraction * 100) + "%"} }
-    if (ota.stage === "rolled_back") return made(1, "done")
+// The fixed gauge under the download/install/rollback gauge, "검증": how far the supervision of the CURRENT image has
+// come. During the trial of a new image that is the Pi3 monitor's watch of the running update (`trialS` seconds); after a
+// rollback it is the watch of the restored image (`recheckS` seconds). Progress = what the monitor really watched, never
+// more than the time that has passed since the stage began (a monitor value left over from an earlier watch cannot fill it
+// early). Unknown length or no reading = 0, nothing is claimed. At rest the gauge stays, with an empty bar.
+function verification(ota, pi3, trialS, recheckS, now) {
+    function made(fraction, kind) { return {label: "검증", fraction: fraction, kind: kind, percent: kind === "idle" ? "" : Math.round(fraction * 100) + "%"} }
+    if (!ota || !ota.stage) return made(0, "idle")
+    if (ota.stage === "rolled_back" || ota.stage === "committed") return made(1, "done")
     if (ota.stage === "recovery_verified") return made(0, "check")
-    if (ota.stage !== "recheck") return none
-    if (!(recheckS > 0) || !pi3 || typeof pi3.monitored_s !== "number") return made(0, "check")
+    if (ota.stage !== "recheck" && ota.stage !== "verify") return made(0, "idle")
+    var seconds = ota.stage === "verify" ? trialS : recheckS
+    if (!(seconds > 0) || !pi3 || typeof pi3.monitored_s !== "number") return made(0, "check")
     var elapsed = typeof ota.updated === "number" && typeof now === "number" ? Math.max(0, now - ota.updated) : pi3.monitored_s
-    return made(Math.min(1, Math.min(pi3.monitored_s, elapsed) / recheckS), "check")
+    return made(Math.min(1, Math.min(pi3.monitored_s, elapsed) / seconds), "check")
+}
+
+// The delay readout. While the cluster does not answer the socket (a restart: its cell says "no signal") there is no
+// delay to read: how long unanswered frames have waited is not a delay of anything.
+function delayReading(cluster, delayMs) {
+    if (!cluster || delayMs === null || delayMs === undefined) return null
+    return delayMs
 }
 
 // New rows of the feeder's log. Rows carry an increasing number `n`; the list itself is trimmed, so its length says

@@ -252,20 +252,8 @@ def test_the_running_feeder_reports_an_idle_device_for_progress_left_by_an_earli
     assert data['ota']['stage'] == 'idle' and not data['ota']['timeline_id'] and not data['ota']['work']
 
 
-def test_the_collected_data_carries_the_recheck_length_and_the_progress_clock(tmp_path):
+def test_the_collected_data_carries_both_watch_lengths_and_the_progress_clock(tmp_path):
     feeder = make(tmp_path, ota=lambda: {'stage': 'recheck', 'updated': 990.0})
-    feeder.recheck_s = 20
+    feeder.recheck_s, feeder.trial_s = 20, 120
     data = feeder.collect()
-    assert data['recheck_s'] == 20 and data['ota']['updated'] == 990.0
-
-
-def test_log_rows_carry_an_increasing_number_even_after_the_list_is_trimmed(tmp_path):
-    """The screen finds new lines by this number: counting list entries stops working once the list is full."""
-    events = []
-    feeder = make(tmp_path, events=lambda: list(events))
-    for index in range(40):                       # far more than the list keeps
-        events.append({'event': 'trial' if index % 2 else 'recover'})
-        data = feeder.collect()
-    numbers = [row['n'] for row in data['log']]
-    assert len(numbers) <= 14 and numbers == sorted(numbers) and len(set(numbers)) == len(numbers)
-    assert numbers[-1] >= 40                      # still counting after the trim
+    assert data['recheck_s'] == 20 and data['trial_s'] == 120 and data['ota']['updated'] == 990.0

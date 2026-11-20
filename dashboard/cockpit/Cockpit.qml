@@ -41,9 +41,6 @@ Window {
     property var lastShot: null
     property bool _haveSnapshot: false
     property var _transitionState: ({run: null, seen: 0, kinds: {}})
-    // While the white "검증 중" alert is up (verification starts) the cluster and IVI cells go dark; both applications are
-    // really running underneath. It follows the alert itself, so it lasts exactly as long as the alert does.
-    readonly property bool verifyCover: band.shown && band.kind === "verifying"
     property int logSeen: -1
     function logAlerts(rows) {
         var look = Transitions.freshLogRows(rows, logSeen)     // by row number: the feeder keeps only the latest rows
@@ -121,17 +118,14 @@ Window {
                 source: win.d.cluster ? "file:///run/cockpit/cluster.bmp?rev=" + win.d.cluster.rev : "" }
             Text { visible: !win.d.cluster || clusterImg.status !== Image.Ready; anchors.centerIn: parent; color: win.inkMuted
                 font.family: fSans.name; font.pixelSize: 30; text: "계기판 신호 없음" }
-            Rectangle { z: 5; anchors.fill: parent; color: "#000000"; visible: win.verifyCover
-                Text { anchors.centerIn: parent; color: win.inkMuted; font.family: fSans.name; font.pixelSize: 30; text: "검증 중" } }
         }
 
         // ---------------- OTA / field monitor — flat instrument-panel grid ----------------
         Rectangle { id: panel; x: 1440; y: 225; width: 720; height: 540; color: "#070a0f"
             Rectangle { width: 1; height: parent.height; color: win.hairline }   // left hairline seam vs. cluster
-            readonly property var can: win.d.tap ? win.d.tap.can : null
-            readonly property var shown: win.d.tap ? win.d.tap.cluster : null
             readonly property real limitMs: win.pi3 && win.pi3.latency_limit_ms ? win.pi3.latency_limit_ms : 100
-            readonly property var rawDelay: win.d.tap ? win.d.tap.delay_ms : null
+            // unknown (the "--" readout) while the cluster does not answer: a restart is not a delay
+            readonly property var rawDelay: Transitions.delayReading(win.d.cluster, win.d.tap ? win.d.tap.delay_ms : null)
             readonly property bool over: panel.rawDelay !== null && panel.rawDelay !== undefined && panel.rawDelay > panel.limitMs
             property real displayDelay: panel.rawDelay === null || panel.rawDelay === undefined ? 0 : panel.rawDelay
             Behavior on displayDelay { NumberAnimation { duration: 650; easing.type: Easing.OutCubic } }
@@ -143,7 +137,7 @@ Window {
             // download/verify/install in well under a second and would otherwise never be seen.
             Item {
                 id: gauge
-                x: 32; y: 16; width: panel.width - 64; height: 160
+                x: 32; y: 16; width: panel.width - 64; height: 100
                 readonly property var live: {
                     var o = win.shownOta ? win.shownOta : win.ota
                     var current = win.ota && o && o.stage === win.ota.stage && (o.stage === "download" || o.stage === "install" || o.stage === "recover")
@@ -169,49 +163,49 @@ Window {
                     Rectangle { width: parent.width * gauge.shown; height: parent.height; color: gauge.tone
                         Behavior on color { ColorAnimation { duration: 300 } } } }
             }
-            // ---- second gauge "확인": after a rollback the restored image is watched for a while; this is that watch ----
+            // ---- fixed gauge "검증" under the main gauge: how far the supervision of the current image has come ----
+            // (the trial of a new image, or the watch of the restored image after a rollback). Always there, empty at rest.
             Item {
                 id: checkGauge
-                x: 32; y: 124; width: panel.width - 64; height: 60
-                readonly property var live: Transitions.check(win.ota, win.pi3, win.d.recheck_s, win.d.now)
-                visible: live.kind !== "idle"
+                x: 32; y: 152; width: panel.width - 64; height: 68
+                readonly property var live: Transitions.verification(win.ota, win.pi3, win.d.trial_s, win.d.recheck_s, win.d.now)
                 property real shown: live.fraction
                 Behavior on shown { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
                 Text { id: checkPercent; anchors.right: parent.right; y: 0; text: checkGauge.live.percent; color: win.ink
                     font.family: fGroteskBold.name; font.pixelSize: 30 }
-                Text { x: 0; y: 0; text: checkGauge.live.label; color: checkGauge.live.kind === "done" ? win.success : win.ink
-                    font.family: fGroteskBold.name; font.pixelSize: 30
+                Text { x: 0; y: 0; text: checkGauge.live.label; font.family: fGroteskBold.name; font.pixelSize: 30
+                    color: checkGauge.live.kind === "done" ? win.success : checkGauge.live.kind === "check" ? win.ink : win.inkMuted
                     Behavior on color { ColorAnimation { duration: 300 } } }
-                Rectangle { y: 40; width: parent.width; height: 18; color: "#11151b"
+                Rectangle { y: 46; width: parent.width; height: 22; color: "#11151b"
                     Rectangle { width: parent.width * checkGauge.shown; height: parent.height
                         color: checkGauge.live.kind === "done" ? win.success : win.ink
                         Behavior on color { ColorAnimation { duration: 300 } } } }
             }
-            Rectangle { x: 32; y: 190; width: panel.width - 64; height: 1; color: win.hairline }
+            Rectangle { x: 32; y: 256; width: panel.width - 64; height: 1; color: win.hairline }
 
             // the one big causal visual: live cluster processing delay vs. its limit
             // fixed line heights keep every box inside its row (measured natural heights: 28px=42, 58px=75, 92px=118)
-            Text { x: 32; y: 200; text: "계기판 처리 지연"; color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28
+            Text { x: 32; y: 280; text: "계기판 처리 지연"; color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28
                 lineHeightMode: Text.FixedHeight; lineHeight: 34 }
-            Row { x: 32; y: 232; spacing: 14; height: 110
+            Row { x: 32; y: 314; spacing: 14; height: 110
                 Text { text: panel.rawDelay === null || panel.rawDelay === undefined ? "--" : Math.round(panel.displayDelay)
                     color: panel.tone; font.family: fGroteskBold.name; font.pixelSize: 92
                     lineHeightMode: Text.FixedHeight; lineHeight: 108
                     Behavior on color { ColorAnimation { duration: 450 } } }
                 Text { text: "ms"; color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 34
                     anchors.bottom: parent.bottom; anchors.bottomMargin: 8 } }
-            Rectangle { x: 32; y: 342; width: panel.width - 64; height: 12; color: "#11151b"
+            Rectangle { x: 32; y: 432; width: panel.width - 64; height: 12; color: "#11151b"
                 Rectangle { width: parent.width * Math.min(1, panel.ratio * 0.62); height: parent.height
                     color: panel.tone
                     Behavior on width { NumberAnimation { duration: 650; easing.type: Easing.OutCubic } }
                     Behavior on color { ColorAnimation { duration: 450 } } }
                 Rectangle { x: parent.width * 0.62 - 1; width: 3; height: parent.height; color: win.ink; opacity: 0.6 } }
             // limit label beside the marker, right-aligned so it never touches the delay number
-            Text { x: panel.width - 32 - width; y: 342 - 34 - 2; lineHeightMode: Text.FixedHeight; lineHeight: 34; text: Math.round(panel.limitMs) + " ms"
+            Text { x: panel.width - 32 - width; y: 432 - 34 - 2; lineHeightMode: Text.FixedHeight; lineHeight: 34; text: Math.round(panel.limitMs) + " ms"
                 color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28 }
 
             // status: a flat left-edge stripe, not a filled rounded pill
-            Row { x: 32; y: 366; width: panel.width - 64; height: 48; spacing: 16
+            Row { x: 32; y: 462; width: panel.width - 64; height: 48; spacing: 16
                 readonly property string caption: Transitions.monitorStatus(win.pstate, win.ota && win.ota.stage ? win.ota.stage : "")
                 visible: caption !== ""   // normal needs no caption
                 Rectangle { width: 5; height: parent.height; color: win.stateColor
@@ -219,21 +213,6 @@ Window {
                 Text { anchors.verticalCenter: parent.verticalCenter; color: win.stateColor; font.family: fGroteskMed.name; font.pixelSize: 34
                     Behavior on color { ColorAnimation { duration: 400 } }
                     text: parent.caption } }
-
-            // CAN truth vs. what the cluster shows
-            Row { x: 32; y: 432; width: panel.width - 64; height: 106
-                readonly property bool lagging: panel.shown !== null && panel.shown !== undefined && panel.shown.behind_frames >= 3
-                Column { width: parent.width / 2; spacing: 0
-                    Text { color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28; text: "차량 속도 (CAN)"; lineHeightMode: Text.FixedHeight; lineHeight: 34 }
-                    Row { spacing: 8
-                        Text { color: win.accent; font.family: fGroteskBold.name; font.pixelSize: 58; lineHeightMode: Text.FixedHeight; lineHeight: 70; text: panel.can ? Math.round(panel.can.speed) : "--" }
-                        Text { color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28; anchors.bottom: parent.bottom; anchors.bottomMargin: 10; text: "km/h" } } }
-                Column { x: parent.width / 2 + 24; width: parent.width / 2 - 24; spacing: 0
-                    Text { color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28; text: "계기판 표시"; lineHeightMode: Text.FixedHeight; lineHeight: 34 }
-                    Row { spacing: 8
-                        Text { color: parent.parent.parent.lagging ? win.critical : win.ink; font.family: fGroteskBold.name; font.pixelSize: 58; lineHeightMode: Text.FixedHeight; lineHeight: 70
-                            text: panel.shown ? Math.round(panel.shown.speed) : "--" }
-                        Text { color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28; anchors.bottom: parent.bottom; anchors.bottomMargin: 10; text: "km/h" } } } }
         }
 
         // ---------------- section dividers: cluster | monitor over IVI (all three read as separate zones) ----------------
@@ -250,10 +229,8 @@ Window {
                 text: win.d.ivi_ui ? "IVI 불러오는 중" : "IVI 설치 안 됨" }
             // The application process is stopped or restarting (its status file stopped updating): cover the
             // last picture instead of showing a frozen screen. Real signal, no timer of its own.
-            Rectangle { id: iviDown; z: 5; anchors.fill: parent; color: "#0a0e15"
-                visible: win.verifyCover || (!!win.d.ivi_ui && !Transitions.iviResponding(win.d.ivi))
-                Text { anchors.centerIn: parent; color: win.inkMuted; font.family: fSans.name; font.pixelSize: 32
-                    text: win.verifyCover ? "검증 중" : "IVI 응답 없음" } }
+            Rectangle { id: iviDown; z: 5; anchors.fill: parent; color: "#0a0e15"; visible: !!win.d.ivi_ui && !Transitions.iviResponding(win.d.ivi)
+                Text { anchors.centerIn: parent; color: win.inkMuted; font.family: fSans.name; font.pixelSize: 32; text: "IVI 응답 없음" } }
         }
 
         // ---------------- alert strip: the top 225 px are reserved for dynamic alerts ----------------
@@ -290,14 +267,13 @@ Window {
                 if (kind === "preparing") { tone = win.accent; headline = "업데이트 시작"; tag = "[ OTA ]" }
                 else if (kind === "installed") { tone = win.accent; headline = "설치 완료"; tag = "[ OTA ]" }       // written, not yet checked
                 else if (kind === "updated") { tone = win.success; headline = "업데이트 완료"; tag = "[ OTA ]" }   // the checked image runs
-                else if (kind === "verifying") { tone = "#f4f7fb"; headline = "검증 중"; tag = "[ OTA ]" }   // the switch and image check: white
                 else if (kind === "rollback") { tone = win.warn; headline = "롤백 준비"; tag = "[ SYS ]" }
                 else if (kind === "restored") { tone = win.success; headline = "롤백 완료"; tag = "[ SYS ]" }
                 // Here the image a rollback would run is the attacker's V1, so a refused rollback is the DEFENCE working.
                 else if (kind === "rejected") { tone = win.success; headline = "롤백 차단"; tag = "[ SEC ]"; sub = "변조 이미지" }
                 else if (kind === "recovery_error") { tone = win.critical; headline = "롤백 실패"; tag = "[ SYS ]" }
                 else if (kind === "attack_running") { tone = win.critical; headline = "공격 이미지 실행 중"; tag = "[ SEC ]"; sub = "V1" }
-                else if (kind === "port_closed") { tone = win.success; headline = "디버깅 포트 닫힘"; tag = "[ NET ]" }
+                else if (kind === "port_closed") { tone = win.success; headline = "디버깅 포트 차단"; tag = "[ NET ]" }
                 else { pending.length ? next() : 0; return }   // anything else (e.g. the final commit) is not announced
                 seq.start()
             }

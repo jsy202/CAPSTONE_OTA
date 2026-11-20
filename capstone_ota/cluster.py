@@ -38,9 +38,11 @@ class ClusterDevice(Device):
         return super()._check_arguments(app)
 
     def _service(self, action):
-        # While an image is being switched in, its other applications go down and come up with it; at any
-        # other time (e.g. stopping the head unit after a failed recovery) only this device's own service is touched.
-        names = [self.service_name, *(self.companion_services if self._switching else ())]
+        # The applications of one image are one body: whenever this service is stopped (a switch, or the head unit
+        # stopping after a refused recovery) the others stop with it. They are restarted and checked only during an
+        # activation (which a repair also goes through), so a stopped image comes back together.
+        together = action == "stop" or self._switching
+        names = [self.service_name, *(self.companion_services if together else ())]
         results = [subprocess.run(["systemctl", action, name], timeout=10,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0 for name in names]
         return all(results)

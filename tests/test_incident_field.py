@@ -297,11 +297,13 @@ def test_demo_pace_file_is_removed_when_not_configured():
     assert pi2.commands and "rm -f" in pi2.commands[0] and f"{field.IVI_ROOT}/demo-pace.json" in pi2.commands[0]
 
 
-def test_the_recheck_length_the_screen_uses_is_the_one_the_device_waits_for():
-    command = field.feeder_command("10.0.0.4", recheck_s=field.RECHECK_SECONDS)
+def test_the_watch_lengths_the_screen_uses_are_the_ones_the_device_waits_for():
+    command = field.feeder_command("10.0.0.4", recheck_s=field.RECHECK_SECONDS, trial_s=field.TRIAL_SECONDS)
     assert command[command.index("--recheck-seconds") + 1] == str(field.RECHECK_SECONDS)
+    assert command[command.index("--trial-seconds") + 1] == str(field.TRIAL_SECONDS)
     recheck = field.probation_command("10.0.0.4", probation=field.RECHECK_SECONDS, max_total=120, trace="recheck-trace.jsonl")
     assert recheck[recheck.index("--probation") + 1] == str(field.RECHECK_SECONDS)
+    assert field.probation_command("10.0.0.4")[field.probation_command("10.0.0.4").index("--probation") + 1] == str(field.TRIAL_SECONDS)
 
 
 def test_a_failed_defence_run_holds_the_v1_screen_briefly_and_then_announces_its_end():
