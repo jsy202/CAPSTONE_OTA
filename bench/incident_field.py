@@ -43,6 +43,7 @@ MONITOR_DIR = RUNTIME + "/monitor"
 MONITOR_BASELINE = "/home/otauser/ivi-monitor/baseline.json"  # measured at 10 Hz with the cluster pinned to core 0 (2026-11-05, E4)
 DEFAULT_PROFILE_HZ = 10
 VULNERABLE_HOLD_SECONDS = 20   # how long the V1 screen stays up after a failed defence before the run ends (the recording stops then)
+TRIAL_SECONDS = 120        # how long Pi3 must watch a new image before it may pass: the overrun has to be CONFIRMED well inside this
 RECHECK_SECONDS = 20       # how long Pi2 watches a restored image after a rollback; the cockpit's "확인" gauge counts against it
 
 
@@ -123,7 +124,7 @@ def forced_failure(seconds):
     return [PY, "-c", f"import json,time;time.sleep({seconds});print(json.dumps({{'passed': False, 'error': 'forced field verdict'}}))"]
 
 
-def probation_command(pi3_address, probation=45, max_total=400, trace="probation-trace.jsonl"):
+def probation_command(pi3_address, probation=TRIAL_SECONDS, max_total=TRIAL_SECONDS * 4, trace="probation-trace.jsonl"):
     """The real verifier: Pi2's probation supervisor reads the Pi3 monitor's verdict over SSH.
 
     Pinned to cores 1-3 (the cluster owns core 0), as in the 2026-11-05 field run, so the measurement does

@@ -310,3 +310,12 @@ def test_a_failed_defence_run_holds_the_v1_screen_briefly_and_then_announces_its
     held = source[source.index('note("vulnerable_outcome"'):]
     held = held[:held.index("watching[\"on\"] = False")]
     assert "time.sleep(VULNERABLE_HOLD_SECONDS)" in held and 'note("final"' in held   # the recorder stops on the final line
+
+
+def test_the_trial_is_long_enough_for_the_monitor_to_confirm_an_overrun_before_it_can_pass():
+    """On 2026-11-20 a 45 s trial passed with the overrun still unconfirmed and V3 was committed for good (min_svn 10).
+    The map opens ~25 s into the trial and confirming needs three 10 s windows, so the trial must be far longer."""
+    assert field.TRIAL_SECONDS >= 100
+    command = field.probation_command("10.0.0.4")
+    assert command[command.index("--probation") + 1] == str(field.TRIAL_SECONDS)
+    assert float(command[command.index("--max-total") + 1]) >= field.TRIAL_SECONDS * 2
