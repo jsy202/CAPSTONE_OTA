@@ -224,6 +224,10 @@ Window {
                 onLoaded: if (item && item.hasOwnProperty("runDir")) item.runDir = "file:///run/capstone-ivi/" }
             Text { visible: iviLoader.status !== Loader.Ready; anchors.centerIn: parent; color: win.inkMuted; font.family: fSans.name; font.pixelSize: 32
                 text: win.d.ivi_ui ? "IVI 불러오는 중" : "IVI 설치 안 됨" }
+            // The application process is stopped or restarting (its status file stopped updating): cover the
+            // last picture instead of showing a frozen screen. Real signal, no timer of its own.
+            Rectangle { id: iviDown; z: 5; anchors.fill: parent; color: "#0a0e15"; visible: !!win.d.ivi_ui && !Transitions.iviResponding(win.d.ivi)
+                Text { anchors.centerIn: parent; color: win.inkMuted; font.family: fSans.name; font.pixelSize: 32; text: "IVI 응답 없음" } }
         }
 
         // ---------------- alert strip: the top 225 px are reserved for dynamic alerts ----------------

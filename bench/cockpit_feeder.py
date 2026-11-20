@@ -111,6 +111,22 @@ def read_json(path):
     return json.loads(Path(path).read_text())
 
 
+def read_ivi_status(path, now=None):
+    """The IVI's status.json plus signs of life: the files outlive the process, so also report how old they are,
+    how old its 0.2 s nav.json is (when it has one) and whether its process still exists."""
+    path = Path(path)
+    moment = time.time() if now is None else now
+    data = read_json(path)
+    data['age_s'] = round(moment - path.stat().st_mtime, 2)
+    nav = path.with_name('nav.json')
+    if nav.exists():
+        data['nav_age_s'] = round(moment - nav.stat().st_mtime, 2)
+    pid = data.get('pid')
+    if isinstance(pid, int):
+        data['alive'] = os.path.exists(f'/proc/{pid}')
+    return data
+
+
 def capture_cluster(socket_path, display, out_dir, revision):
     from PIL import ImageGrab
     from capstone_ota.qt_verify import socket_request
@@ -188,7 +204,7 @@ def main(argv=None) -> int:
         path = args.out_dir / 'extra.jsonl'
         return [json.loads(line) for line in path.read_text().splitlines() if line] if path.exists() else []
 
-    feeder = Feeder(args.out_dir, cluster, pi3, ota, events, lambda: read_json(args.ivi_run / 'status.json'), ivi_ui, labels=json.loads(args.version_labels),
+    feeder = Feeder(args.out_dir, cluster, pi3, ota, events, lambda: read_ivi_status(args.ivi_run / 'status.json'), ivi_ui, labels=json.loads(args.version_labels),
                     shot=shot, tap=lambda: tap.snapshot(time.time()), extra=extra)
     while running['now']:
         started = time.monotonic()

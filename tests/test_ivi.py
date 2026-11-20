@@ -10,6 +10,18 @@ import pytest
 from dashboard.ivi.build import CONFIGS, payload
 
 
+def _stop_app(app):
+    """End the app so that it also ends its busy workers (SIGTERM). A bare kill() orphans them, and they then burn a core
+    until reboot: dozens of leftover workers made later runs and the whole machine slow and the timing tests flaky."""
+    if app.poll() is None:
+        app.terminate()
+        try:
+            app.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            app.kill()
+            app.wait()
+
+
 def run(slot, *args, env=None, timeout=10):
     return subprocess.run([str(slot / 'bin/app'), *args], capture_output=True, text=True, timeout=timeout,
                           env={**os.environ, 'CAPSTONE_IVI_CAN': '', **(env or {})})
@@ -120,8 +132,7 @@ def test_workers_stop_when_the_flag_content_changes_to_zero(tmp_path):
         (runtime / 'map_active').write_text('1')
         status(lambda s: s['workers'] == 2 and s['map_active'])
     finally:
-        app.kill()
-        app.wait()
+        _stop_app(app)
 
 
 def test_realtime_request_falls_back_visibly_without_privilege(tmp_path):
@@ -180,8 +191,7 @@ def test_navigation_position_follows_the_route_when_a_map_is_shipped(tmp_path):
         assert nav['speed'] == 0 and (nav['x'], nav['y']) == (0, 0) and 'heading' in nav
         assert _json.loads((runtime / 'status.json').read_text())['route'] is True
     finally:
-        app.kill()
-        app.wait()
+        _stop_app(app)
 
 
 def test_v2_has_no_map_so_the_map_flag_does_nothing(tmp_path):
@@ -205,8 +215,7 @@ def test_v2_has_no_map_so_the_map_flag_does_nothing(tmp_path):
         assert data['map_active'] is False and data['workers'] == 0 and not (runtime / 'nav.json').exists()
         assert subprocess.run(['pgrep', '-P', str(app.pid)], capture_output=True).stdout == b''     # no CPU-burning children
     finally:
-        app.kill()
-        app.wait()
+        _stop_app(app)
 
 
 def test_ivi_initialization_preserves_the_signed_payload_tree(tmp_path):
@@ -310,7 +319,30 @@ def test_duty_cycle_splits_the_period_into_busy_and_rest():
     assert duty_cycle(1.0) == (MAP_PERIOD, 0.0)
 
 
-def test_a_worker_with_duty_half_uses_about_half_a_core(tmp_path):
+def _cpu_seconds(pid):
+    fields = (open(f'/proc/{pid}/stat').read().rsplit(')', 1)[1]).split()
+    return (int(fields[11]) + int(fields[12])) / os.sysconf('SC_CLK_TCK')
+
+
+def test_a_worker_with_duty_half_uses_about_half_of_what_a_full_worker_uses():
+    # Compared with a duty-1 worker running at the same moment: absolute CPU shares depend on how busy the machine is.
+    ivi = os.path.join(os.path.dirname(__file__), '..', 'dashboard', 'ivi', 'ivi.py')
+    half = subprocess.Popen([sys.executable, ivi, '--worker', 'normal', '0.5'])
+    full = subprocess.Popen([sys.executable, ivi, '--worker', 'normal', '1.0'])
+    try:
+        time.sleep(0.5)
+        first = (_cpu_seconds(half.pid), _cpu_seconds(full.pid))
+        time.sleep(4.0)
+        used_half, used_full = _cpu_seconds(half.pid) - first[0], _cpu_seconds(full.pid) - first[1]
+    finally:
+        for process in (half, full):
+            process.kill()
+            process.wait()
+    assert used_full > 0.3, used_full                       # the machine gave the full worker something to compare with
+    assert 0.3 <= used_half / used_full <= 0.7, (used_half, used_full)
+
+
+def test_the_app_hands_map_duty_to_the_workers_it_starts(tmp_path):
     slot = payload(tmp_path / 's', 'V3')
     cfg = {'version': 'V3', 'map_enabled': True, 'map_workers': 1, 'map_priority': 'normal', 'map_duty': 0.5}
     (slot / 'ivi.json').write_text(json.dumps(cfg))
@@ -319,20 +351,31 @@ def test_a_worker_with_duty_half_uses_about_half_a_core(tmp_path):
     app = subprocess.Popen([str(slot / 'bin/app')], env={**os.environ, 'CAPSTONE_IVI_RUN': str(runtime), 'CAPSTONE_IVI_CAN': ''})
     try:
         (runtime / 'map_active').touch()
-        deadline = time.time() + 6
-        children = []
+        deadline, children = time.time() + 6, []
         while time.time() < deadline and not children:
             children = subprocess.run(['pgrep', '-P', str(app.pid)], capture_output=True, text=True).stdout.split()
             time.sleep(0.1)
         assert len(children) == 1
-
-        def cpu_seconds(pid):
-            fields = (os.popen(f'cat /proc/{pid}/stat').read().rsplit(')', 1)[1]).split()
-            return (int(fields[11]) + int(fields[12])) / os.sysconf('SC_CLK_TCK')
-        first, started = cpu_seconds(children[0]), time.monotonic()
-        time.sleep(3.0)
-        used = (cpu_seconds(children[0]) - first) / (time.monotonic() - started)
-        assert 0.3 <= used <= 0.7, used                       # 50% duty, not a full busy loop
+        argv = open(f'/proc/{children[0]}/cmdline').read().rstrip('\0').split('\0')
+        assert argv[-3:-1] == ['--worker', 'normal'] and float(argv[-1]) == 0.5
     finally:
-        app.kill()
-        app.wait()
+        _stop_app(app)
+
+
+def test_stopping_the_app_through_the_test_helper_leaves_no_busy_workers(tmp_path):
+    slot = payload(tmp_path / 's', 'V3')
+    cfg = {'version': 'V3', 'map_enabled': True, 'map_workers': 2, 'map_priority': 'normal'}
+    (slot / 'ivi.json').write_text(json.dumps(cfg))
+    runtime = tmp_path / 'run'
+    runtime.mkdir()
+    app = subprocess.Popen([str(slot / 'bin/app')], env={**os.environ, 'CAPSTONE_IVI_RUN': str(runtime), 'CAPSTONE_IVI_CAN': ''})
+    (runtime / 'map_active').touch()
+    deadline, children = time.time() + 6, []
+    while time.time() < deadline and len(children) < 2:
+        children = subprocess.run(['pgrep', '-P', str(app.pid)], capture_output=True, text=True).stdout.split()
+        time.sleep(0.1)
+    assert len(children) == 2
+    _stop_app(app)
+    time.sleep(0.3)
+    alive = subprocess.run(['ps', '-p', ','.join(children), '-o', 'pid='], capture_output=True, text=True).stdout.split()
+    assert alive == []

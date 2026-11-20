@@ -16,6 +16,7 @@ def check_command(value):
 
 class ClusterDevice(Device):
     service_name = "capstone-cluster.service"   # subclasses manage another service with the same A/B logic
+    companion_services = ()                      # other applications of the same OTA image: stopped/restarted with it on a switch
     verifier_timeout = 60                        # seconds an external verifier may take
 
     def __init__(self, root, verifier_command=None, recovery_verification=True,
@@ -29,6 +30,7 @@ class ClusterDevice(Device):
         self._verifier_can_secret = Path(verifier_can_secret_path).read_bytes() if verifier_can_secret_path else None
         self.reports = []
         self._checking_service = False
+        self._switching = False
 
     def _check_arguments(self, app):
         if self._checking_service:
@@ -36,16 +38,22 @@ class ClusterDevice(Device):
         return super()._check_arguments(app)
 
     def _service(self, action):
-        return subprocess.run(["systemctl", action, self.service_name], timeout=10,
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+        # While an image is being switched in, its other applications go down and come up with it; at any
+        # other time (e.g. stopping the head unit after a failed recovery) only this device's own service is touched.
+        names = [self.service_name, *(self.companion_services if self._switching else ())]
+        results = [subprocess.run(["systemctl", action, name], timeout=10,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0 for name in names]
+        return all(results)
 
     def _activate(self, slot, state):
         # Initialize/start the selected target before asking an external observer.
         self._checking_service = state['systemd']
+        self._switching = True
         try:
             super()._activate(slot, state)
         finally:
             self._checking_service = False
+            self._switching = False
         if self.verifier_command is None:
             return
         recovering = state.get("committed") and slot == state["committed"]["slot"]

@@ -385,3 +385,45 @@ def test_ivi_forward_deadline_covers_trial_and_recovery_checks(releases, keys, t
     with serving(releases) as origin:
         assert relay.forward(origin + '/v2', keys[1], config)['result'] == 'committed'
     assert deadlines[0] > 2 * IviDevice.verifier_timeout
+
+
+def _record_systemctl(monkeypatch):
+    cluster = importlib.import_module('capstone_ota.cluster')
+    calls = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(tuple(argv[1:]))
+        return subprocess.CompletedProcess(argv, 0)
+    monkeypatch.setattr(cluster.subprocess, 'run', fake_run)
+    return calls
+
+
+def test_ivi_switch_restarts_the_cluster_service_too(tmp_path, monkeypatch):
+    """The OTA image carries both applications: activating it stops and restarts BOTH services."""
+    from capstone_ota.ivi import IviDevice
+    calls = _record_systemctl(monkeypatch)
+    device = IviDevice(tmp_path / 'device')
+    monkeypatch.setattr(device, '_select', lambda slot: None)
+    monkeypatch.setattr(device, '_check', lambda slot: True)
+    device._activate('A', {'systemd': True})
+    assert ('stop', 'capstone-ivi.service') in calls and ('stop', 'capstone-cluster.service') in calls
+    assert ('restart', 'capstone-ivi.service') in calls and ('restart', 'capstone-cluster.service') in calls
+    assert ('is-active', 'capstone-cluster.service') in calls            # the cluster must stay up after the switch
+
+
+def test_stopping_the_ivi_after_a_failed_recovery_never_stops_the_cluster(tmp_path, monkeypatch):
+    """Outside an activation only the IVI service is touched: the gauge must not die with a stopped head unit."""
+    from capstone_ota.ivi import IviDevice
+    calls = _record_systemctl(monkeypatch)
+    IviDevice(tmp_path / 'device')._service('stop')
+    assert calls == [('stop', 'capstone-ivi.service')]
+
+
+def test_a_cluster_device_has_no_companion_services(tmp_path, monkeypatch):
+    from capstone_ota.cluster import ClusterDevice
+    calls = _record_systemctl(monkeypatch)
+    device = ClusterDevice(tmp_path / 'device')
+    monkeypatch.setattr(device, '_select', lambda slot: None)
+    monkeypatch.setattr(device, '_check', lambda slot: True)
+    device._activate('A', {'systemd': True})
+    assert {name for _action, name in calls} == {'capstone-cluster.service'}

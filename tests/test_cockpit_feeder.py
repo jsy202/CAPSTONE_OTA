@@ -182,3 +182,19 @@ def test_version_labels_travel_to_the_screen(tmp_path):
     data = make(tmp_path, labels={'3.3.0': 'V2', '3.4.0': 'V3'}).collect()
     assert data['version_labels'] == {'3.3.0': 'V2', '3.4.0': 'V3'}
     assert make(tmp_path).collect()['version_labels'] == {}
+
+
+def test_ivi_status_tells_whether_the_application_is_alive_and_how_fresh_its_data_is(tmp_path):
+    import os
+    from bench.cockpit_feeder import read_ivi_status
+    status, nav = tmp_path / 'status.json', tmp_path / 'nav.json'
+    status.write_text('{"version": "V3", "pid": %d}' % os.getpid())
+    nav.write_text('{"speed": 10}')
+    os.utime(status, (990.0, 990.0))
+    os.utime(nav, (999.8, 999.8))
+    data = read_ivi_status(status, now=1000.0)
+    assert data['version'] == 'V3' and data['age_s'] == 10.0 and data['nav_age_s'] == 0.2 and data['alive'] is True
+    status.write_text('{"version": "V3", "pid": 2147483000}')        # the process is gone, the file outlives it
+    assert read_ivi_status(status, now=1000.0)['alive'] is False
+    nav.unlink()                                                      # an IVI without a CAN feed writes no nav.json
+    assert 'nav_age_s' not in read_ivi_status(status, now=1000.0)

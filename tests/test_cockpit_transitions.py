@@ -152,3 +152,24 @@ assert.strictEqual(phase({stage: 'recovery_failed', timeline: [{stage: 'recover'
 assert.strictEqual(phase({stage: 'error', detail: 'some other error'}).label, '');
 '''
     subprocess.run([node, '-e', script, str(helper)], check=True)
+
+
+def test_the_ivi_strip_is_marked_as_not_responding_while_its_status_is_stale_or_missing():
+    node = shutil.which('node')
+    if not node:
+        pytest.skip('Node is needed to exercise the QML JavaScript helper')
+    helper = Path(__file__).parents[1] / 'dashboard/cockpit/Transitions.js'
+    script = r'''
+const fs = require('fs'), vm = require('vm'), assert = require('assert');
+vm.runInThisContext(fs.readFileSync(process.argv[1], 'utf8'));
+assert.strictEqual(iviResponding({alive: true, nav_age_s: 0.3, age_s: 0.4}), true);
+assert.strictEqual(iviResponding({alive: true, nav_age_s: 0.8, age_s: 0.9}), true);    // load can delay a 0.2 s writer a little
+assert.strictEqual(iviResponding({alive: true, nav_age_s: 1.2, age_s: 1.3}), false);   // restarting: nothing written for a while
+assert.strictEqual(iviResponding({alive: false, nav_age_s: 0.1, age_s: 0.1}), false);  // the process is gone right now
+assert.strictEqual(iviResponding({alive: true, age_s: 1.2}), true);                    // no nav file: the 1 s status is the only clock
+assert.strictEqual(iviResponding({alive: true, age_s: 2.4}), false);
+assert.strictEqual(iviResponding(null), false);                                         // no status file at all
+assert.strictEqual(iviResponding({version: 'V2'}), false);                              // an old feeder without ages: do not claim it is up
+'''
+    result = subprocess.run([node, '-e', script, str(helper)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

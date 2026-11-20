@@ -92,3 +92,12 @@ function phase(ota, historical) {
     }
     return idle;
 }
+
+// The IVI is "responding" while its process exists and its data keeps being written: nav.json every 0.2 s (0.9 s of
+// silence = stopped or restarting), or, without a nav file, status.json every 1 s. Otherwise the strip is covered
+// instead of showing a frozen picture of the old screen.
+function iviResponding(ivi) {
+    if (!ivi || ivi.alive !== true) return false
+    if (typeof ivi.nav_age_s === "number") return ivi.nav_age_s <= 0.9
+    return typeof ivi.age_s === "number" && ivi.age_s <= 1.8
+}
