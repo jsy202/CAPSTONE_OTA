@@ -485,8 +485,8 @@ def test_pace_does_nothing_without_a_known_total_or_a_time():
 def test_demo_pace_file_is_optional_and_ignores_nonsense(tmp_path):
     from capstone_ota.device import load_pace
     assert load_pace(tmp_path) == {}
-    (tmp_path / "demo-pace.json").write_text('{"download": 10, "install": 8.5}')
-    assert load_pace(tmp_path) == {"download": 10.0, "install": 8.5}
+    (tmp_path / "demo-pace.json").write_text('{"download": 10, "install": 8.5, "park": 9}')
+    assert load_pace(tmp_path) == {"download": 10.0, "install": 8.5, "park": 9.0}
     for bad in ('[]', '{"download": -1}', '{"download": "fast"}', '{"download": 9999}', 'not json', '{"download": true}'):
         (tmp_path / "demo-pace.json").write_text(bad)
         assert load_pace(tmp_path) == {}, bad
@@ -513,3 +513,23 @@ def test_paced_download_and_install_take_the_requested_time_and_report_in_steps(
     steps = [s for s in seen if s[1] < s[2]]
     assert len(steps) >= 2 and seen[-1][1] == seen[-1][2]          # in-between steps, then done
     assert seen[-1][0] - seen[0][0] >= 1.0                         # spread over time, not one jump
+
+
+def test_the_install_waits_for_the_car_to_stand_still_after_the_download(device_type, releases, keys, tmp_path):
+    """Demo pacing `park`: a gap between the finished download and the start of the install in which the vehicle
+    stops. The device stays in `archive_verify` (download 100 %) during it."""
+    root = tmp_path / "device"
+    root.mkdir()
+    (root / "demo-pace.json").write_text('{"park": 1.2}')
+    device = device_type(root)
+    seen = []
+    original = device._progress
+
+    def spy(stage, **fields):
+        seen.append((stage, time.monotonic()))
+        return original(stage, **fields)
+    device._progress = spy
+    with serving(releases) as url:
+        assert device.update(url + "/v2", public_key=keys[1])["result"] == "committed"
+    at = {stage: moment for stage, moment in seen}
+    assert at["install"] - at["archive_verify"] >= 1.1

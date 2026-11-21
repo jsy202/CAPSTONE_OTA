@@ -105,3 +105,49 @@ def test_a_hold_file_is_a_hold_while_it_exists(tmp_path):
     assert hold() is True
     marker.unlink()
     assert hold() is False
+
+
+def _cruise(ticks, speed=800, gear=4, rpm=2200):
+    return [dc.Row(i * 0.1, speed, rpm, gear) for i in range(ticks)]
+
+
+def _held_between(first, last):
+    state = {'ticks': 0}
+
+    def hold():
+        state['ticks'] += 1
+        return first <= state['ticks'] < last
+    return hold
+
+
+def test_a_car_that_is_held_while_driving_brakes_smoothly_to_a_standstill():
+    """An update is installed standing still: the car must brake like a car, not jump from 80 to 0 in one frame."""
+    _, sent, _ = play(_cruise(400), hold=_held_between(20, 150))
+    speeds = _speeds(sent)[:148]                                # the frames while held
+    assert speeds[18] == 800 and speeds[-1] == 0                # the last frame before the hold is still cruising
+    steps = [a - b for a, b in zip(speeds[18:], speeds[19:])]
+    assert all(0 <= step <= 10 for step in steps)               # at most 9 km/h per second at 10 frames a second
+    assert speeds.index(0) > 18 + 70                            # about nine seconds of braking, not an instant stop
+    assert speeds[speeds.index(0):] == [0] * (len(speeds) - speeds.index(0))   # and it stays at 0
+
+
+def test_after_the_hold_the_car_accelerates_from_zero_instead_of_jumping_back_to_cruising_speed():
+    """The new image has booted at a standstill: the car drives off, it does not reappear at 80 km/h."""
+    _, sent, _ = play(_cruise(900), hold=_held_between(5, 300))
+    speeds = _speeds(sent)
+    release = max(i for i, s in enumerate(speeds) if s == 0)    # last standing frame
+    after = speeds[release:release + 200]
+    assert after[0] == 0 and after[-1] == 800                   # it reaches the profile again
+    steps = [b - a for a, b in zip(after, after[1:])]
+    assert all(0 <= step <= 7 for step in steps)                # 6 km/h per second at 10 frames a second at most
+    assert sum(1 for s in after if 0 < s < 800) > 100           # a drive-off that takes more than ten seconds
+
+
+def test_gear_and_rpm_follow_the_slowing_car_and_idle_when_it_stands():
+    _, sent, _ = play(_cruise(400), hold=_held_between(20, 150))
+    gears = [bytes.fromhex(m['data'])[4] for _, m in sent][:148]
+    rpms = [int.from_bytes(bytes.fromhex(m['data'])[2:4], 'big') for _, m in sent][:148]
+    speeds = _speeds(sent)[:148]
+    middle = next(i for i, s in enumerate(speeds) if 0 < s <= 200)  # still rolling at 20 km/h or less
+    assert gears[middle] < 4 and rpms[middle] < 2200            # downshifted, revs down
+    assert gears[-1] == 0 and rpms[-1] == dc.IDLE_RPM           # neutral and idle when standing

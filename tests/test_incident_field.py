@@ -385,3 +385,60 @@ def test_the_profile_on_pi1_is_started_with_the_hold_file_and_a_stale_hold_is_cl
     commands = boards["pi1"].commands
     assert any("play_profile" in c and f"--hold-file {field.PROFILE_HOLD}" in c for c in commands)
     assert any(c.startswith(f"rm -f {field.PROFILE_HOLD}") for c in commands)
+
+
+def _install_hold(**kw):
+    calls = []
+    clock = _Clock()
+    hold = field.InstallHold(lambda: calls.append("hold"), lambda: calls.append("release"), clock=clock, **kw)
+    return hold, calls, clock
+
+
+def test_the_car_stops_when_the_download_is_done_and_stays_stopped_through_install_and_boot():
+    hold, calls, clock = _install_hold()
+    for stage in (None, "metadata", "signature_verified", "download"):
+        hold.step(stage)
+    assert calls == []                                   # still driving while the files come in
+    hold.step("archive_verify")                          # download complete: the car must stand for the install
+    assert calls == ["hold"] and hold.holding
+    hold.step("install")                                 # installing, switching, cluster off: still standing
+    hold.step("install")
+    assert calls == ["hold"]
+
+
+def test_the_car_drives_off_a_few_seconds_after_the_new_image_has_booted():
+    hold, calls, clock = _install_hold(drive_off_after_s=4)
+    hold.step("archive_verify")
+    hold.step("install")
+    hold.step("trial")                                   # the new image runs: it shows 0 km/h first ...
+    assert calls == ["hold"]
+    clock.now += 3
+    hold.step("trial")
+    assert calls == ["hold"]
+    clock.now += 2
+    hold.step("trial")                                   # ... and only then does the car accelerate
+    assert calls == ["hold", "release"] and not hold.holding
+
+
+def test_the_install_stop_happens_once_and_never_blocks_the_rollback_hold():
+    hold, calls, clock = _install_hold(drive_off_after_s=0)
+    hold.step("archive_verify")
+    hold.step("trial")
+    hold.step("trial")
+    assert calls == ["hold", "release"]
+    for stage in ("verify", "archive_verify", "install", "recheck"):    # later stages never stop the car again
+        hold.step(stage)
+    assert calls == ["hold", "release"]
+
+
+def test_an_install_stop_never_lasts_longer_than_the_safety_limit_and_finish_frees_the_car():
+    hold, calls, clock = _install_hold(max_s=100)
+    hold.step("archive_verify")
+    clock.now += 101
+    hold.step("install")                                 # the install never reached the boot: free the car anyway
+    assert calls == ["hold", "release"]
+    other, other_calls, _ = _install_hold()
+    other.step("archive_verify")
+    other.finish()
+    other.finish()
+    assert other_calls == ["hold", "release"]

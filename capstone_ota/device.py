@@ -110,15 +110,16 @@ def pace(progress, seconds: float, clock=time.monotonic, sleep=time.sleep):
 
 
 def load_pace(root: Path) -> dict:
-    """Optional demo file `<device root>/demo-pace.json` {"download": s, "install": s}: slow those two stages down so a
-    viewer can watch them. Off when the file is missing; bad values are ignored. It only ever adds delay."""
+    """Optional demo file `<device root>/demo-pace.json` {"download": s, "install": s, "park": s}: slow those stages down so
+    a viewer can watch them (`park` = a pause between the finished download and the start of the install, in which the
+    vehicle comes to a standstill). Off when the file is missing; bad values are ignored. It only ever adds delay."""
     try:
         data = json.loads((Path(root) / "demo-pace.json").read_text())
     except (OSError, ValueError):
         return {}
     if not isinstance(data, dict):
         return {}
-    return {key: float(data[key]) for key in ("download", "install")
+    return {key: float(data[key]) for key in ("download", "install", "park")
             if type(data.get(key)) in (int, float) and 0 < data[key] <= MAX_PACE_SECONDS}
 
 
@@ -498,6 +499,8 @@ class Device:
 
                 release = self._download_release(url, public_key, staging, precheck)
                 previous = state["committed"]
+                if park := load_pace(self.root).get("park"):
+                    time.sleep(park)               # demo: the vehicle stops before anything is installed
                 self._progress("install")
                 extract(staging / "app.tar.gz", staging / "payload", self._work_progress("install", "install"))
                 slot = "B" if previous and previous["slot"] == "A" else "A"

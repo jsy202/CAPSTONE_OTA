@@ -178,7 +178,7 @@ def setup(config, boards):
 
 def apply_demo_pace(pi2, config):
     """Demo pacing: slow the device's download and install stages so a viewer can see the bars fill (config key
-    demo_pace {"download": s, "install": s}). Without the key the file is removed and the stages run at full speed."""
+    demo_pace {"download": s, "install": s, "park": s}). Without the key the file is removed and the stages run at full speed."""
     path = f"{IVI_ROOT}/demo-pace.json"
     pace = config.get("demo_pace")
     if pace:
@@ -226,6 +226,44 @@ class ProfileHold:
         self.done = True
 
 
+INSTALL_STOP_STAGES = ("archive_verify", "install")                       # download complete: the car must stand
+BOOTED_STAGES = ("trial", "verify", "committed", "recover", "recheck", "rolled_back")   # the new (or restored) image runs
+DRIVE_OFF_AFTER_S = 4.0     # the new image shows 0 km/h for a moment before the car accelerates
+
+
+class InstallHold:
+    """Keeps the simulated car standing still from the finished download until the new image has booted.
+
+    An update is installed standing still: download complete -> the car brakes to 0 -> install, switch (cluster off),
+    boot at 0 km/h -> a few seconds later the car accelerates. Stage-driven, once per run; the rollback hold
+    (ProfileHold) is separate and may follow later."""
+
+    def __init__(self, set_hold, clear_hold, clock=time.time, max_s=HOLD_MAX_S, drive_off_after_s=DRIVE_OFF_AFTER_S):
+        self._set, self._clear, self._clock = set_hold, clear_hold, clock
+        self._max_s, self._drive_off_after_s = max_s, drive_off_after_s
+        self.holding, self.done, self._since, self._booted = False, False, 0.0, None
+
+    def step(self, stage):
+        if self.done:
+            return
+        if not self.holding:
+            if stage in INSTALL_STOP_STAGES:
+                self._set()
+                self.holding, self._since = True, self._clock()
+            return
+        if stage in BOOTED_STAGES and self._booted is None:
+            self._booted = self._clock()
+        if (self._booted is not None and self._clock() - self._booted >= self._drive_off_after_s) \
+                or self._clock() - self._since > self._max_s:
+            self.finish()
+
+    def finish(self):
+        if self.holding:
+            self._clear()
+            self.holding = False
+        self.done = True
+
+
 def pi2_stage(pi2):
     """The device's current stage (display and pacing only), or None when it cannot be read."""
     try:
@@ -236,16 +274,22 @@ def pi2_stage(pi2):
 
 
 def run_profile_hold(boards, stop):
-    """Thread body: watch the Pi3 verdict and the device stage and hold/release the car on Pi1 accordingly."""
+    """Thread body: stop the car for the install, and again for a rollback, by watching the device stage and the Pi3
+    verdict; the hold file on Pi1 is what the drive profile obeys."""
     pi1, pi2, pi3 = boards["pi1"], boards["pi2"], boards["pi3"]
-    hold = ProfileHold(lambda: pi1.run(f"touch {PROFILE_HOLD}", check=False),
-                       lambda: pi1.run(f"rm -f {PROFILE_HOLD}", check=False))
+    set_hold = lambda: pi1.run(f"touch {PROFILE_HOLD}", check=False)      # noqa: E731
+    clear_hold = lambda: pi1.run(f"rm -f {PROFILE_HOLD}", check=False)    # noqa: E731
+    install, rollback = InstallHold(set_hold, clear_hold), ProfileHold(set_hold, clear_hold)
     try:
         while not stop.is_set():
-            hold.step(pi3_verdict(pi3), pi2_stage(pi2) if hold.holding else None)
+            stage = pi2_stage(pi2)
+            install.step(stage)
+            if install.done:
+                rollback.step(pi3_verdict(pi3), stage if rollback.holding else None)
             stop.wait(1.5)
     finally:
-        hold.finish()
+        install.finish()
+        rollback.finish()
 
 
 def start_real_services(boards, log, hz=DEFAULT_PROFILE_HZ, cycle="synthetic"):
