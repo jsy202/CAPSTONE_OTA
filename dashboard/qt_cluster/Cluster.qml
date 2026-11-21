@@ -49,7 +49,6 @@ Item {
         property color discA
         property color discB
         property real level: 0              // bottom scale fill 0..1
-        property real shown: 0              // the value of the arc that was last painted (the digits follow this)
         property string leftTag: "E"
         property string rightTag: "F"
         readonly property real cx: 360
@@ -91,47 +90,47 @@ Item {
                 }
             }
         }
-        // Live layer: only the progress arcs and their glow. The glow is stacked translucent strokes of
-        // growing width (no blur filter), which is cheap enough for the Pi's software renderer.
-        Canvas {
+        // Live layer: the progress arcs, built from short bars that are switched on and off. On Pi2 a Canvas arc was
+        // painted on another thread and stayed late (and sometimes never shrank) while the digits moved on; bars are
+        // ordinary scene items, so the arc changes in the very frame in which the digits change.
+        Item {
             id: live
             anchors.fill: parent
-            renderStrategy: Canvas.Threaded      // JS painting must not hold the thread that answers CAN frames
-            property real v: ring.value
-            property var last: ({ value: 0 })    // written by the paint thread, read after the paint: no property signal
-            onVChanged: requestPaint()
-            onPainted: ring.shown = last.value
-            onPaint: {
-                var c = getContext("2d"); c.reset()
-                var cx = ring.cx, cy = ring.cy, a = ring.a
-                var s = root.sweepStart, w = root.sweepSpan, value = ring.value
-                last.value = value
-                c.lineCap = "butt"
-                var lc = ring.lineColor, ac = ring.arcB
-                var fade = Math.max(0, Math.min(1, (value - 0.06) / 0.14))   // no halo on a very short arc: wide strokes there only make a fan-shaped smear
-                if (value > 0.002) {
-                    c.lineCap = value > 0.15 ? "round" : "butt"
-                    for (var k = 7; k >= 1; --k) {      // soft halo outside the thin ring
-                        c.beginPath(); c.arc(cx, cy, 287, a(s), a(s + w * value), false)
-                        c.lineWidth = 5 + k * 9; c.strokeStyle = Qt.rgba(lc.r, lc.g, lc.b, 0.045 * fade); c.stroke()
-                    }
-                    for (var j = 6; j >= 1; --j) {      // halo around the thick inner arc
-                        c.beginPath(); c.arc(cx, cy, 200, a(s + 6), a(s + 6 + (w - 12) * value), false)
-                        c.lineWidth = 24 + j * 10; c.strokeStyle = Qt.rgba(ac.r, ac.g, ac.b, 0.05 * fade); c.stroke()
-                    }
-                    c.lineCap = "butt"
-                    c.beginPath(); c.arc(cx, cy, 287, a(s), a(s + w * value), false)
-                    c.lineWidth = 5; c.strokeStyle = lc; c.stroke()
-                    var g = c.createLinearGradient(cx - 210, cy + 200, cx - 100, cy - 220)
-                    g.addColorStop(0, ring.arcB); g.addColorStop(1, ring.arcA)
-                    c.beginPath(); c.arc(cx, cy, 200, a(s + 6), a(s + 6 + (w - 12) * value), false)
-                    c.lineWidth = 24; c.strokeStyle = g; c.stroke()
-                    // light bleeding from the arc end onto the dark track
-                    var ea = a(s + 6 + (w - 12) * value), ex = cx + Math.cos(ea) * 245, ey = cy + Math.sin(ea) * 245
-                    var gl = c.createRadialGradient(ex, ey, 0, ex, ey, 90)
-                    gl.addColorStop(0, Qt.rgba(lc.r, lc.g, lc.b, 0.42 * fade))
-                    gl.addColorStop(1, Qt.rgba(lc.r, lc.g, lc.b, 0))
-                    c.beginPath(); c.arc(ex, ey, 90, 0, Math.PI * 2); c.fillStyle = gl; c.fill()
+            readonly property int steps: 180
+            readonly property real lit: Math.round(ring.value * steps)
+            function mix(i) {                  // thick arc colour along its length
+                var t = i / (steps - 1)
+                return Qt.rgba(ring.arcB.r + (ring.arcA.r - ring.arcB.r) * t, ring.arcB.g + (ring.arcA.g - ring.arcB.g) * t,
+                               ring.arcB.b + (ring.arcA.b - ring.arcB.b) * t, 1)
+            }
+            Repeater {   // soft halo around the thick arc
+                model: live.steps
+                Rectangle {
+                    readonly property real th: (root.sweepStart + 6 + (root.sweepSpan - 12) * (index + 0.5) / live.steps) * Math.PI / 180
+                    width: 7; height: 58; radius: 3; antialiasing: true
+                    x: ring.cx + Math.cos(th) * 200 - width / 2; y: ring.cy + Math.sin(th) * 200 - height / 2
+                    rotation: th * 180 / Math.PI + 90
+                    color: ring.arcB; opacity: 0.10; visible: index < live.lit && ring.value > 0.06
+                }
+            }
+            Repeater {   // thin outer ring
+                model: live.steps
+                Rectangle {
+                    readonly property real th: (root.sweepStart + root.sweepSpan * (index + 0.5) / live.steps) * Math.PI / 180
+                    width: 8.5; height: 5; antialiasing: true
+                    x: ring.cx + Math.cos(th) * 287 - width / 2; y: ring.cy + Math.sin(th) * 287 - height / 2
+                    rotation: th * 180 / Math.PI + 90
+                    color: ring.lineColor; visible: index < live.lit
+                }
+            }
+            Repeater {   // thick inner arc
+                model: live.steps
+                Rectangle {
+                    readonly property real th: (root.sweepStart + 6 + (root.sweepSpan - 12) * (index + 0.5) / live.steps) * Math.PI / 180
+                    width: 7; height: 24; antialiasing: true
+                    x: ring.cx + Math.cos(th) * 200 - width / 2; y: ring.cy + Math.sin(th) * 200 - height / 2
+                    rotation: th * 180 / Math.PI + 90
+                    color: live.mix(index); visible: index < live.lit
                 }
             }
         }
@@ -150,10 +149,8 @@ Item {
         discA: "#2d5f86"; discB: "#0b1119"
         leftTag: "E"; rightTag: "F"
     }
-    // The digits show the speed of the arc that is on screen. The arc is painted on its own thread and is late when the
-    // cores are busy; digits that jumped ahead of it would disagree with the arc.
-    Text { objectName: "speedDigits"; x: 38; y: 266; width: 640; horizontalAlignment: Text.AlignHCenter; color: root.ink
-        text: root.valid ? Math.round(speedRing.shown * root.maxSpeed) : "--"; font.family: root.family; font.pixelSize: 112; font.weight: Font.Light }
+    Text { x: 38; y: 266; width: 640; horizontalAlignment: Text.AlignHCenter; color: root.ink
+        text: root.valid ? Math.round(root.speed) : "--"; font.family: root.family; font.pixelSize: 112; font.weight: Font.Light }
     Text { x: 38; y: 401; width: 640; horizontalAlignment: Text.AlignHCenter; color: root.ink; opacity: 0.85
         text: "km/h"; font.family: root.family; font.pixelSize: 28 }
     Row {   // fuel pump + remaining range
@@ -179,7 +176,7 @@ Item {
         leftTag: "C"; rightTag: "H"
     }
     Text { x: 1242; y: 266; width: 640; horizontalAlignment: Text.AlignHCenter; color: root.ink
-        text: (rpmRing.shown * root.maxRpm / 1000).toFixed(1); font.family: root.family; font.pixelSize: 112; font.weight: Font.Light }
+        text: (root.rpm / 1000).toFixed(1); font.family: root.family; font.pixelSize: 112; font.weight: Font.Light }
     Text { x: 1242; y: 401; width: 640; horizontalAlignment: Text.AlignHCenter; color: root.ink; opacity: 0.85
         text: "x1000 rpm"; font.family: root.family; font.pixelSize: 28 }
     Canvas {   // coolant thermometer over waves
