@@ -49,6 +49,7 @@ Item {
         property color discA
         property color discB
         property real level: 0              // bottom scale fill 0..1
+        property real shown: 0              // the value of the arc that was last painted (the digits follow this)
         property string leftTag: "E"
         property string rightTag: "F"
         readonly property real cx: 360
@@ -97,11 +98,14 @@ Item {
             anchors.fill: parent
             renderStrategy: Canvas.Threaded      // JS painting must not hold the thread that answers CAN frames
             property real v: ring.value
+            property var last: ({ value: 0 })    // written by the paint thread, read after the paint: no property signal
             onVChanged: requestPaint()
+            onPainted: ring.shown = last.value
             onPaint: {
                 var c = getContext("2d"); c.reset()
                 var cx = ring.cx, cy = ring.cy, a = ring.a
                 var s = root.sweepStart, w = root.sweepSpan, value = ring.value
+                last.value = value
                 c.lineCap = "butt"
                 var lc = ring.lineColor, ac = ring.arcB
                 var fade = Math.max(0, Math.min(1, (value - 0.06) / 0.14))   // no halo on a very short arc: wide strokes there only make a fan-shaped smear
@@ -146,8 +150,10 @@ Item {
         discA: "#2d5f86"; discB: "#0b1119"
         leftTag: "E"; rightTag: "F"
     }
-    Text { x: 38; y: 266; width: 640; horizontalAlignment: Text.AlignHCenter; color: root.ink
-        text: root.valid ? Math.round(root.speed) : "--"; font.family: root.family; font.pixelSize: 112; font.weight: Font.Light }
+    // The digits show the speed of the arc that is on screen. The arc is painted on its own thread and is late when the
+    // cores are busy; digits that jumped ahead of it would disagree with the arc.
+    Text { objectName: "speedDigits"; x: 38; y: 266; width: 640; horizontalAlignment: Text.AlignHCenter; color: root.ink
+        text: root.valid ? Math.round(speedRing.shown * root.maxSpeed) : "--"; font.family: root.family; font.pixelSize: 112; font.weight: Font.Light }
     Text { x: 38; y: 401; width: 640; horizontalAlignment: Text.AlignHCenter; color: root.ink; opacity: 0.85
         text: "km/h"; font.family: root.family; font.pixelSize: 28 }
     Row {   // fuel pump + remaining range
@@ -173,7 +179,7 @@ Item {
         leftTag: "C"; rightTag: "H"
     }
     Text { x: 1242; y: 266; width: 640; horizontalAlignment: Text.AlignHCenter; color: root.ink
-        text: (root.rpm / 1000).toFixed(1); font.family: root.family; font.pixelSize: 112; font.weight: Font.Light }
+        text: (rpmRing.shown * root.maxRpm / 1000).toFixed(1); font.family: root.family; font.pixelSize: 112; font.weight: Font.Light }
     Text { x: 1242; y: 401; width: 640; horizontalAlignment: Text.AlignHCenter; color: root.ink; opacity: 0.85
         text: "x1000 rpm"; font.family: root.family; font.pixelSize: 28 }
     Canvas {   // coolant thermometer over waves
