@@ -152,8 +152,8 @@ class IncidentResponder:
         for argument in arguments:
             if skip:
                 skip = False
-            elif argument == "--public-key":
-                skip = True  # repair uses the key pinned on the device
+            elif argument in ("--public-key", "--recheck-command"):
+                skip = True  # repair uses the key pinned on the device; its re-check is `repair_check_command`
             elif argument != "--systemd":
                 command.append(argument)
         if "repair_check_command" in self.target:

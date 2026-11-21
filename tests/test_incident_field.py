@@ -452,3 +452,16 @@ def test_the_gate_allows_an_update_whose_post_rollback_recheck_is_its_own_comman
     assert ota_gate.allowed(_remote(target_command(field.target_for(trial, recheck))), config) is None           # recheck dropped
     longer = field.probation_command("172.20.10.4", probation=120, max_total=480, trace="recheck-trace.jsonl")
     assert ota_gate.allowed(_remote(target_command(field.target_for(trial, recheck, recheck_update=longer))), config) is None
+
+
+def test_the_gate_still_allows_the_repair_when_the_update_has_its_own_recheck_command():
+    """The repair command is derived from the update command; the update's --recheck-command must not leak into it
+    (the gate refused the human-approved restore: 'restore failed: actor exited unsuccessfully')."""
+    trial = field.probation_command("172.20.10.4")
+    recheck = field.probation_command("172.20.10.4", probation=20, max_total=120, trace="recheck-trace.jsonl")
+    config = field.gate_config(trial, recheck, recheck_update=recheck)
+    responder = IncidentResponder.__new__(IncidentResponder)
+    responder.target = field.target_for(trial, recheck, recheck_update=recheck)
+    command = responder._repair_command("http://" + field.PI1_ETH + ":4321")[-1]
+    assert "--recheck-command" not in command
+    assert ota_gate.allowed(command, config) is not None
