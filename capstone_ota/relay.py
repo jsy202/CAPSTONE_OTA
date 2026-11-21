@@ -68,7 +68,7 @@ def serving_release(directory, bind="127.0.0.1", advertise=None):
 def target_command(config):
     required = {"host", "checkout", "python", "root", "public_key"}
     optional = {"check_command", "initialization_only", "systemd", "application", "can_channel", "can_secret_file",
-                "repair_check_command"}  # used only by the incident responder, never by an update
+                "repair_check_command", "recheck_command"}  # repair_check_command: only the incident responder uses it
     present = config.keys() if isinstance(config, dict) else set()
     has_can = "can_channel" in present or "can_secret_file" in present
     if (not isinstance(config, dict) or not required <= config.keys()
@@ -102,6 +102,8 @@ def target_command(config):
     else:
         import json
         arguments += ["--check-command", json.dumps(check_command(checker))]
+        if config.get("recheck_command") is not None:
+            arguments += ["--recheck-command", json.dumps(check_command(config["recheck_command"]))]
     if systemd:
         arguments.append("--systemd")
     if has_can:

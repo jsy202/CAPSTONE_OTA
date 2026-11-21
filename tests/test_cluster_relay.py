@@ -435,3 +435,66 @@ def test_a_cluster_device_has_no_companion_services(tmp_path, monkeypatch):
     monkeypatch.setattr(device, '_check', lambda slot: True)
     device._activate('A', {'systemd': True})
     assert {name for _action, name in calls} == {'capstone-cluster.service'}
+
+
+def test_the_recheck_after_a_rollback_uses_its_own_command_when_one_is_given(keys, payload, tmp_path):
+    """The post-rollback re-check may be shorter than the trial watch (it was the same 120 s one: the cockpit showed
+    a finished 20 s re-check for another 100 s)."""
+    cluster = importlib.import_module('capstone_ota.cluster')
+    (payload / 'label').write_text('good')
+    pack(payload, tmp_path / 'releases/good', '2.0.0', 2, keys[0])
+    (payload / 'label').write_text('bad')
+    pack(payload, tmp_path / 'releases/bad', '3.0.0', 2, keys[0])
+    calls = tmp_path / 'calls.txt'
+    body = ('import json,sys\nfrom pathlib import Path\n'
+            f'Path({str(calls)!r}).open("a").write(sys.argv[0].split("/")[-1] + "\\n")\n'
+            'ok=(Path(sys.argv[1])/"label").read_text()=="good"\n'
+            'print(json.dumps({"passed":ok}))\nraise SystemExit(0 if ok else 1)\n')
+    checker, recheck = tmp_path / 'trial-check.py', tmp_path / 'recheck.py'
+    checker.write_text(body)
+    recheck.write_text(body)
+    device = cluster.ClusterDevice(tmp_path / 'cluster', [sys.executable, str(checker)],
+                                   recheck_command=[sys.executable, str(recheck)])
+    with serving(tmp_path / 'releases') as url:
+        device.update(url + '/good', keys[1])
+        calls.write_text('')
+        result = device.update(url + '/bad')
+    assert result['result'] == 'rolled_back'
+    assert calls.read_text().split() == ['trial-check.py', 'recheck.py']     # the trial, then the re-check of the old image
+
+
+class _Moment:
+    def __init__(self):
+        self.now = 0.0
+
+    def clock(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+def _parked(tmp_path, speeds, max_s=60):
+    """Run the install's wait for a standstill against scripted vehicle speeds (one reading per poll)."""
+    cluster = importlib.import_module('capstone_ota.cluster')
+    device = cluster.ClusterDevice(tmp_path / 'cluster', None)
+    readings = iter(speeds)
+    device.vehicle_speed = lambda: next(readings, speeds[-1])
+    moment = _Moment()
+    device._park(max_s, clock=moment.clock, sleep=moment.sleep)
+    return moment.now
+
+
+def test_the_install_starts_when_the_cluster_reports_a_steady_standstill(tmp_path):
+    waited = _parked(tmp_path, [80, 60, 30, 5, 0, 0, 0, 0, 0, 0, 0, 0])
+    assert 2.0 <= waited < 8.0                      # not the whole 60 s: it started as soon as the car stood still
+
+
+def test_a_car_that_keeps_moving_or_is_unknown_never_counts_as_standing_still(tmp_path):
+    assert _parked(tmp_path, [50], max_s=10) >= 10          # waits the whole limit, then goes on (a demo cap, not a pass)
+    assert _parked(tmp_path, [None], max_s=10) >= 10        # no answer from the cluster is not "stopped"
+
+
+def test_a_moving_reading_restarts_the_standstill_time(tmp_path):
+    waited = _parked(tmp_path, [0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0])
+    assert 3.5 <= waited < 5.0                              # without the 12 km/h reading it would have started at 2.0 s

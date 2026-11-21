@@ -178,6 +178,7 @@ def test_every_safe_window_decision_is_traced_for_evidence():
     result = Probation(world.fetch, world.reset, world.speed, clock=world.clock, sleep=world.sleep, probation_s=20, safe_s=3,
                        max_wait_s=60, max_total_s=100, poll_s=1, stale_s=4, trace=rows.append).run()
     assert 'rolled back in safe window' in result['error']
+    rows = [row for row in rows if row.get('kind') == 'window']
     assert rows and {'t', 'own_stopped', 'bus_stopped', 'watching', 'safe_since'} <= set(rows[0])
     assert rows[-1]['own_stopped'] is True and rows[-1]['bus_stopped'] is True
 
@@ -212,3 +213,17 @@ def test_a_stale_confirmed_verdict_from_before_the_reset_is_never_mistaken_for_t
     # ...and once Pi3 does echo our nonce, its (new) verdict is trusted
     fresh = World()
     assert make(fresh).run()['passed'] is True
+
+
+def test_every_probation_poll_is_traced_so_a_long_wait_can_be_explained():
+    """The post-rollback re-check once took ~90 s longer than its 20 s watch and nothing recorded why."""
+    world = World()
+    rows = []
+    result = Probation(world.fetch, world.reset, world.speed, clock=world.clock, sleep=world.sleep, probation_s=5, safe_s=3,
+                       max_wait_s=60, max_total_s=100, poll_s=1, stale_s=4, trace=rows.append).run()
+    assert result['passed'] is True
+    polls = [row for row in rows if row.get('kind') == 'poll']
+    assert len(polls) >= 5
+    assert {'t', 'seq', 'state', 'acknowledged', 'fresh', 'blind', 'monitored_s', 'elapsed_s'} <= set(polls[0])
+    assert [p['elapsed_s'] for p in polls] == sorted(p['elapsed_s'] for p in polls)    # one row per poll, in time order
+    assert polls[-1]['acknowledged'] is True and polls[-1]['blind'] is False and polls[-1]['monitored_s'] >= 5

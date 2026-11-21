@@ -11,7 +11,7 @@ from anywhere but Central. Repair itself still accepts only the committed image;
 version and svn rules. An action missing from the config is refused.
 
 gate.json: {"checkout", "python", "root", "central_host",
-            "update": {"public_key", "check_command"}, "repair": {"check_command"}}
+            "update": {"public_key", "check_command", "recheck_command" (optional)}, "repair": {"check_command"}}
 """
 from __future__ import annotations
 
@@ -48,7 +48,11 @@ def _argv(config: dict, action: str, url: str) -> list[str] | None:
     if action == "repair":
         return [*head, "ivi-repair", *check, url]
     if action == "update" and _absolute(pinned.get("public_key")):
-        return [*head, "ivi-update", "--public-key", pinned["public_key"], *check, url]
+        recheck = pinned.get("recheck_command")
+        if recheck is not None and not _check(recheck):
+            return None
+        extra = ["--recheck-command", json.dumps(recheck)] if recheck is not None else []
+        return [*head, "ivi-update", "--public-key", pinned["public_key"], *check, *extra, url]
     return None
 
 

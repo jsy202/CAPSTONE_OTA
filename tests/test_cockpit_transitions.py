@@ -434,3 +434,31 @@ Item {
     seen = json.loads(line.split('NOTICE:', 1)[1])
     assert seen['kind'] == 'rollback' and seen['headline'] == '롤백 준비' and seen['sub'] == 'V3 → V2'
     assert seen['queued_again'] == 0
+
+
+def test_update_start_alert_waits_until_the_target_version_is_known():
+    """The device writes `metadata` before it knows the candidate (that comes with `signature_verified`). The alert used
+    to be made at once and read `V2` or `V2 → V3` depending on when the screen looked."""
+    node = shutil.which('node')
+    if not node:
+        pytest.skip('Node is needed to exercise the QML JavaScript helper')
+    helper = Path(__file__).parents[1] / 'dashboard/cockpit/Transitions.js'
+    script = r'''
+const fs = require('fs'), vm = require('vm'), assert = require('assert');
+vm.runInThisContext(fs.readFileSync(process.argv[1], 'utf8'));
+const names = {'3.9.0': 'V2', '3.10.0': 'V3'};
+const state = {run: null, seen: 0, kinds: {}};
+const timeline = [{stage: 'metadata', version: '3.9.0'}];
+assert.deepStrictEqual(consume(state, {timeline_id: 'a', timeline, candidate: '3.10.0'}, names), []);   // target not in the record yet
+timeline.push({stage: 'signature_verified', version: '3.9.0', candidate: '3.10.0'});
+const events = consume(state, {timeline_id: 'a', timeline}, names);
+assert.deepStrictEqual(events.map(e => [e.kind, e.transition]), [['preparing', 'V2 → V3']]);
+timeline.push({stage: 'download', version: '3.9.0', candidate: '3.10.0'});
+assert.deepStrictEqual(consume(state, {timeline_id: 'a', timeline}, names), []);                          // once only
+const fresh = {run: null, seen: 0, kinds: {}};
+const whole = consume(fresh, {timeline_id: 'b', timeline: timeline.slice()}, names);
+assert.deepStrictEqual(whole.map(e => [e.kind, e.transition]), [['preparing', 'V2 → V3']]);
+console.log('ok');
+'''
+    result = subprocess.run([node, '-e', script, str(helper)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

@@ -45,6 +45,7 @@ function consume(state, ota, labels) {
         state.kinds = {};
         state.terminal = false;
         state.recoveryVerified = false;
+        state.prep = null;
     }
     var events = [];
     function add(kind, row) {
@@ -55,7 +56,12 @@ function consume(state, ota, labels) {
     }
     for (; state.seen < ota.timeline.length; state.seen++) {
         var row = ota.timeline[state.seen], s = row.stage;
-        if (s === "metadata") add("preparing", row);
+        // The device writes `metadata` before it knows the candidate (it arrives with `signature_verified`): the start
+        // alert waits for it, so it always reads "V2 → V3" and not "V2" or "V2 → V3" depending on when the screen looked.
+        if (state.prep && row.candidate) { add("preparing", {version: state.prep.version, candidate: row.candidate}); state.prep = null; }
+        if (s === "metadata") {
+            if (row.candidate) add("preparing", row); else state.prep = row;
+        }
         // "trial" = the new image is written and switched in ("설치 완료"); "verify" = it runs ("업데이트 완료"). The
         // delay monitoring that starts there is supervision of the running update, shown by the fixed gauge, not an alert.
         else if (s === "trial" && !state.kinds.rollback) add("installed", row);

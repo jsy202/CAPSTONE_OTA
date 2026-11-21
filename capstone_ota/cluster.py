@@ -1,5 +1,6 @@
 """Target-side application installation; no Central slots or existing Qt services."""
 import subprocess
+import time
 from pathlib import Path
 
 from . import can_verdict
@@ -20,9 +21,11 @@ class ClusterDevice(Device):
     verifier_timeout = 60                        # seconds an external verifier may take
 
     def __init__(self, root, verifier_command=None, recovery_verification=True,
-                 verifier_can_channel=None, verifier_can_secret_path=None):
+                 verifier_can_channel=None, verifier_can_secret_path=None, recheck_command=None):
         super().__init__(root, recovery_verification=recovery_verification)
         self.verifier_command = check_command(verifier_command) if verifier_command is not None else None
+        # The check of the old image after a rollback may be its own, shorter command; without one the trial's is reused.
+        self.recheck_command = check_command(recheck_command) if recheck_command is not None else None
         # SSH (verifier_command) only triggers the external check; when a CAN channel is
         # configured, the pass/fail Device actually trusts arrives as an authenticated CAN
         # verdict instead, so a jammed or compromised SSH/Wi-Fi hop cannot forge the result.
@@ -31,6 +34,31 @@ class ClusterDevice(Device):
         self.reports = []
         self._checking_service = False
         self._switching = False
+
+    speed_socket = "/run/capstone-cluster/model.sock"   # the cluster's own model: the speed it was told over CAN
+    standstill_s = 2.0                                  # the vehicle must report 0 km/h this long before the install starts
+
+    def vehicle_speed(self):
+        """The speed the cluster currently shows (km/h), or None when it cannot be read."""
+        from .qt_verify import socket_request
+        try:
+            report = socket_request(self.speed_socket, {"op": "snapshot", "nonce": "standstill"})
+            return report["model_speed"] if report.get("valid") is True else None
+        except (OSError, ValueError, KeyError):
+            return None
+
+    def _park(self, max_s, clock=time.monotonic, sleep=time.sleep):
+        """Wait until the cluster reports a steady standstill (an update is installed standing still), at most `max_s`.
+        A reading of "moving" restarts the time; no reading is never "stopped". Demo pacing `park` is the limit."""
+        end, stopped_since = clock() + max_s, None
+        while clock() < end:
+            if self.vehicle_speed() == 0:
+                stopped_since = clock() if stopped_since is None else stopped_since
+                if clock() - stopped_since >= self.standstill_s:
+                    return
+            else:
+                stopped_since = None
+            sleep(0.5)
 
     def _check_arguments(self, app):
         if self._checking_service:
@@ -66,7 +94,7 @@ class ClusterDevice(Device):
         # sent while nobody is bound yet to hear it is simply gone (CAN has no
         # replay), so listening has to start before the trigger goes out, not after.
         listener = can_verdict.open_listener(self.verifier_can_channel) if nonce is not None else None
-        command = [*self.verifier_command, str(self._slot(slot))]
+        command = [*(self.recheck_command if recovering and self.recheck_command else self.verifier_command), str(self._slot(slot))]
         if nonce is not None:
             command += ["--nonce", nonce.hex()]
         try:

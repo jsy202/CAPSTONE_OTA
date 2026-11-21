@@ -93,17 +93,22 @@ def load(path):
     return config, {name: Board(config[f"{name}_ssh"]) for name in ("pi1", "pi2", "pi3")}
 
 
-def gate_config(check_update, check_repair):
+def gate_config(check_update, check_repair, recheck_update=None):
+    update = {"public_key": IVI_PUBLIC, "check_command": check_update}
+    if recheck_update is not None:
+        update["recheck_command"] = recheck_update          # the old image's check after a rollback: shorter than the trial
     return {"checkout": RUNTIME, "python": RUNTIME + "/root-python", "root": IVI_ROOT, "central_host": PI1_ETH,
-            "update": {"public_key": IVI_PUBLIC, "check_command": check_update},
-            "repair": {"check_command": check_repair}}
+            "update": update, "repair": {"check_command": check_repair}}
 
 
-def target_for(check, repair_check=None):
+def target_for(check, repair_check=None, recheck_update=None):
     """What Pi1's relay is told about Pi2. Must match gate_config(), which a test pins."""
-    return {"host": "pi2-incident", "checkout": RUNTIME, "python": RUNTIME + "/root-python", "root": IVI_ROOT,
-            "public_key": IVI_PUBLIC, "check_command": check,
-            "repair_check_command": repair_check or passing_recheck(), "application": "ivi"}
+    target = {"host": "pi2-incident", "checkout": RUNTIME, "python": RUNTIME + "/root-python", "root": IVI_ROOT,
+              "public_key": IVI_PUBLIC, "check_command": check,
+              "repair_check_command": repair_check or passing_recheck(), "application": "ivi"}
+    if recheck_update is not None:
+        target["recheck_command"] = recheck_update
+    return target
 
 
 def deploy(boards):
@@ -676,12 +681,12 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
             note("monitor_health", healthy=bool(seen), verdict=pi3_verdict(boards["pi3"]))
             if not seen:
                 raise SystemExit("the Pi3 monitor does not see both the vehicle input and the cluster answer")
-        pi2.write(RUNTIME + "/gate.json", json.dumps(gate_config(trial, recheck)))
+        pi2.write(RUNTIME + "/gate.json", json.dumps(gate_config(trial, recheck, recheck_update=recheck)))
 
         # Pi1: target, keys, and the one process that runs gateway + relay + responder.
         pi1.write(RUNTIME + "/ivi-public.pem", (releases / "keys/ivi-public.pem").read_text())
         pi1.write(RUNTIME + "/order-public.pem", order_pub.read_text())
-        pi1.write(RUNTIME + "/target.json", json.dumps(target_for(trial, recheck)))
+        pi1.write(RUNTIME + "/target.json", json.dumps(target_for(trial, recheck, recheck_update=recheck)))
         pi1.run(f"rm -f {RUNTIME}/result.json {RUNTIME}/gateway.jsonl {RUNTIME}/central.log")
         command = shlex.join([
             PY, "-m", "capstone_ota.central_incident", "--server", server_url, "--vehicle", "PI2-001",

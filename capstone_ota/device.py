@@ -417,6 +417,10 @@ class Device:
             raise ValueError("downloaded archive hash mismatch")
         return release
 
+    def _park(self, max_s: float) -> None:
+        """Demo pacing `park`: pause before the install. A device that can see the vehicle waits for a standstill instead."""
+        time.sleep(max_s)
+
     def _clear_stale_staging(self) -> None:
         """Remove staging directories a killed run left behind. Callers hold the device lock."""
         for pattern in (".repair-*", ".download-*"):
@@ -500,7 +504,7 @@ class Device:
                 release = self._download_release(url, public_key, staging, precheck)
                 previous = state["committed"]
                 if park := load_pace(self.root).get("park"):
-                    time.sleep(park)               # demo: the vehicle stops before anything is installed
+                    self._park(park)               # demo: the vehicle stops before anything is installed
                 self._progress("install")
                 extract(staging / "app.tar.gz", staging / "payload", self._work_progress("install", "install"))
                 slot = "B" if previous and previous["slot"] == "A" else "A"

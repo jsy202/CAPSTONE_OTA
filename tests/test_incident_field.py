@@ -442,3 +442,13 @@ def test_an_install_stop_never_lasts_longer_than_the_safety_limit_and_finish_fre
     other.finish()
     other.finish()
     assert other_calls == ["hold", "release"]
+
+
+def test_the_gate_allows_an_update_whose_post_rollback_recheck_is_its_own_command_and_nothing_else():
+    trial = field.probation_command("172.20.10.4")
+    recheck = field.probation_command("172.20.10.4", probation=20, max_total=120, trace="recheck-trace.jsonl")
+    config = field.gate_config(trial, recheck, recheck_update=recheck)
+    assert ota_gate.allowed(_remote(target_command(field.target_for(trial, recheck, recheck_update=recheck))), config) is not None
+    assert ota_gate.allowed(_remote(target_command(field.target_for(trial, recheck))), config) is None           # recheck dropped
+    longer = field.probation_command("172.20.10.4", probation=120, max_total=480, trace="recheck-trace.jsonl")
+    assert ota_gate.allowed(_remote(target_command(field.target_for(trial, recheck, recheck_update=longer))), config) is None
