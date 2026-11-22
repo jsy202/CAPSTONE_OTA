@@ -42,6 +42,7 @@ PY = RUNTIME + "/venv/bin/python"
 MONITOR_DIR = RUNTIME + "/monitor"
 MONITOR_BASELINE = "/home/otauser/ivi-monitor/baseline.json"  # measured at 10 Hz with the cluster pinned to core 0 (2026-11-05, E4)
 DEFAULT_PROFILE_HZ = 10
+DRIVE_OFF_VIEW_SECONDS = 15    # after a restore the recording goes on this long, so the car is seen driving off again
 VULNERABLE_HOLD_SECONDS = 20   # how long the V1 screen stays up after a failed defence before the run ends (the recording stops then)
 TRIAL_SECONDS = 120        # how long Pi3 must watch a new image before it may pass: the overrun has to be CONFIRMED well inside this
 RECHECK_SECONDS = 20       # how long Pi2 watches a restored image after a rollback; the cockpit's "확인" gauge counts against it
@@ -802,6 +803,8 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
         result["gateway_log"] = [json.loads(line) for line in pi1.run(f"cat {RUNTIME}/gateway.jsonl").stdout.splitlines()]
         result["pi2_final"] = pi2_status(pi2)
         result["incident_record"] = server.incidents
+        if screen and verdict == "real":
+            time.sleep(DRIVE_OFF_VIEW_SECONDS)   # rollback and check are done: the car drives off from 0 (the hold is released)
         note("final", status=result["pi2_final"])
     finally:
         if vulnerable:
