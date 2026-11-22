@@ -78,8 +78,6 @@ jobs:
   qt:
     runs-on: ubuntu-22.04
     timeout-minutes: 25
-    env:
-      UPSTREAM_PIN: 793452919127065536bcb7a08f98838fa963d75e  # keep equal to PIN in dashboard/qt_cluster/build.py
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -94,13 +92,9 @@ jobs:
             qml-module-qtgraphicaleffects qmlscene xvfb libgl1-mesa-dri libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 \
             libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1
       - run: python -m pip install '.[verification,cockpit]'
-      - name: Fetch pinned upstream dashboard
-        run: |
-          git clone --quiet https://github.com/whitfijs-jw/Volvo240-DigitalDash "$RUNNER_TEMP/volvo"
-          git -C "$RUNNER_TEMP/volvo" checkout --quiet "$UPSTREAM_PIN"
       - name: Build cluster and progress panel
         run: |
-          python dashboard/qt_cluster/build.py --source "$RUNNER_TEMP/volvo"
+          python dashboard/qt_cluster/build.py
           python dashboard/qt_progress/build.py
       - name: Qt tests under a virtual display
         run: xvfb-run -a python -m pytest -q tests/test_qt_cluster.py tests/test_qt_progress.py tests/test_qt_source.py tests/test_cockpit_transitions.py tests/test_local_cockpit_replay.py --junitxml=artifacts/qt-junit.xml
