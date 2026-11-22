@@ -365,6 +365,8 @@ assert.strictEqual(change('download', null, '3.9.0'), 'V2');                    
 assert.strictEqual(change('download', '—', '3.9.0'), 'V2');
 assert.strictEqual(change('committed', '3.9.0', null), '');                       // nothing to show at rest
 assert.strictEqual(change('download', '3.9.0', '3.9.0'), '');
+// A refused rollback never reached V2 (the attacker's image runs): "V3 → V2" under "공격 이미지 실행 중" contradicts it.
+assert.strictEqual(change('recovery_failed', '3.9.0', '3.10.0'), '');
 """)
 
 

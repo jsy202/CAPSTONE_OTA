@@ -29,10 +29,11 @@ function versionChange(ota, labels) {
     var known = function (v) { return v && v !== "—" }
     if (!known(ota.version)) return versionLabel(ota.candidate, labels);
     if (ota.version === ota.candidate) return "";
+    if (ota.stage === "recovery_failed") return "";   // the rollback was refused: nothing moved from V3 to V2
     var older = versionNumber(ota.version) <= versionNumber(ota.candidate) ? ota.version : ota.candidate
     var newer = older === ota.version ? ota.candidate : ota.version
     var back = ota.stage === "recover" || ota.stage === "recovery_verified" || ota.stage === "recheck"
-            || ota.stage === "rolled_back" || ota.stage === "recovery_failed" || ota.stage === "verification_failed";
+            || ota.stage === "rolled_back" || ota.stage === "verification_failed";
     return back ? versionLabel(newer, labels) + " → " + versionLabel(older, labels)
                 : versionLabel(older, labels) + " → " + versionLabel(newer, labels);
 }
