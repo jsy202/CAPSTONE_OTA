@@ -465,3 +465,11 @@ def test_the_gate_still_allows_the_repair_when_the_update_has_its_own_recheck_co
     command = responder._repair_command("http://" + field.PI1_ETH + ":4321")[-1]
     assert "--recheck-command" not in command
     assert ota_gate.allowed(command, config) is not None
+
+
+def test_the_wait_for_the_control_centre_shows_on_the_cockpit():
+    assert field.port_line({"event": "incident_reported", "id": "INC-0001"}) == "서버에 사고 보고 전송 · 서버 승인 대기 중"
+    assert field.port_line({"event": "incident_approved"}) == "서버 승인됨 · 복원 진행"
+    assert field.port_line({"event": "incident_rejected"}) == "서버 거절됨 · 정비 필요"
+    assert field.port_line({"event": "incident_timeout"}) == "서버 응답 없음 (시간 초과) · 정비 필요"
+    assert field.port_line({"event": "incident_unreachable"}) == "서버에 연결할 수 없음 · 정비 필요"

@@ -68,13 +68,18 @@ class IncidentResponder:
             if not isinstance(incident, str) or not re.fullmatch(r"INC-[0-9]{4,}", incident):
                 raise ValueError("the control centre did not return an incident id")
         except (OSError, ValueError, HTTPException) as exc:
+            self._note("incident_unreachable")
             return self._stop(None, f"control centre unreachable or invalid: {exc}")
+        self._note("incident_reported", id=incident)  # from here the vehicle waits for the control centre
         order = self._await_order(incident, nonce, report["committed_version"])
         if order is None:
+            self._note("incident_timeout", id=incident)
             return self._stop(incident, "no valid decision arrived before the timeout")
         if order["action"] == "reject":
+            self._note("incident_rejected", id=incident)
             self._outcome(incident, "maintenance_required")
             return self._stop(incident, "the control centre rejected the restore")
+        self._note("incident_approved", id=incident)
         return self._restore(incident, order)
 
     def accept_order(self, incident: str, nonce: str, body: dict, version: str | None = None) -> dict:
@@ -109,6 +114,13 @@ class IncidentResponder:
                 return response.status, response.read()
         except HTTPError as exc:
             return exc.code, exc.read()
+
+    def _note(self, event: str, **fields) -> None:
+        """Display telemetry only (the cockpit shows "waiting for the server" / approved / rejected from it)."""
+        try:
+            self.gateway.record({"event": event, **fields})
+        except OSError:
+            pass
 
     def _outcome(self, incident: str, result: str) -> None:
         try:

@@ -313,3 +313,37 @@ def test_the_gate_closes_even_if_handling_raises(world):
     with pytest.raises(RuntimeError):
         responder.handle({"result": "recovery_failed"})
     assert gateway.is_open is False
+
+
+def _incident_events(gateway):
+    return [entry["event"] for entry in gateway.log_tail(50) if entry["event"].startswith("incident_")]
+
+
+def test_the_wait_for_the_control_centre_is_recorded_for_the_display(world):
+    device, gateway, build = world
+    server, responder = build()
+    operate(server, "approve")
+    responder.handle(dict(device.status(), **device.recovery_evidence()))
+    assert _incident_events(gateway) == ["incident_reported", "incident_approved"]
+
+
+def test_a_rejection_is_recorded_as_rejected(world):
+    device, gateway, build = world
+    server, responder = build()
+    operate(server, "reject")
+    responder.handle(device.status())
+    assert _incident_events(gateway) == ["incident_reported", "incident_rejected"]
+
+
+def test_no_answer_in_time_is_recorded_as_timeout(world):
+    device, gateway, build = world
+    _server, responder = build(decision_timeout=0.5)
+    responder.handle(device.status())
+    assert _incident_events(gateway) == ["incident_reported", "incident_timeout"]
+
+
+def test_an_unreachable_control_centre_is_recorded_without_a_report(world):
+    device, gateway, build = world
+    _server, responder = build(server_url="http://127.0.0.1:9", decision_timeout=0.5)
+    responder.handle(device.status())
+    assert _incident_events(gateway) == ["incident_unreachable"]

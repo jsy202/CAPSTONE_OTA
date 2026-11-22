@@ -420,10 +420,22 @@ def start_screen(boards, pi3_ip, log, interval=0.1, ivi_ui=None, virtual=False, 
         log("[screen] cockpit feeder + fullscreen monitoring screen started on Pi2's HDMI monitor")
 
 
+INCIDENT_LINES = {   # what the vehicle says while the control centre decides on the restore
+    "incident_reported": "서버에 사고 보고 전송 · 서버 승인 대기 중",
+    "incident_approved": "서버 승인됨 · 복원 진행",
+    "incident_rejected": "서버 거절됨 · 정비 필요",
+    "incident_timeout": "서버 응답 없음 (시간 초과) · 정비 필요",
+    "incident_unreachable": "서버에 연결할 수 없음 · 정비 필요",
+}
+
+
 def port_line(entry):
     """One short cockpit line for a gateway log entry, or None for noise (a bare port probe has no payload)."""
     if entry.get("event") == "gateway_closed":
         return "디버깅 포트 닫힘"
+    wait = INCIDENT_LINES.get(entry.get("event"))
+    if wait:
+        return wait
     if entry.get("event") != "request" or not entry.get("slot"):
         return None
     source = str(entry.get("source", "?")).rsplit(":", 1)[0]
