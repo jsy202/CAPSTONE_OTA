@@ -19,7 +19,7 @@ from test_device_repair import served, tampered  # noqa: F401
 from test_order import make_keypair, make_order, NONCE, order_keys  # noqa: F401
 
 ROOT = Path(__file__).resolve().parents[1]
-PASS_CHECK = [sys.executable, "-c", "import json;print(json.dumps({'passed': True}))"]
+PASS_CHECK = [sys.executable, "-m", "demo.restore_check"]  # the restored slot must be the committed one
 
 
 @pytest.fixture(autouse=True)
@@ -84,18 +84,18 @@ def world(tmp_path, tampered, served, keys, order_keys):
     gateway.server_close()
 
 
-def test_recovery_failed_closes_gate_reports_and_restores_on_approval(world):
+def test_recovery_failed_reports_restores_on_approval_then_closes_gate(world):
     device, gateway, build = world
     server, responder = build()
     operate(server, "approve")
-    outcome = responder.handle(device.status())
+    outcome = responder.handle(dict(device.status(), **device.recovery_evidence()))
     assert gateway.is_open is False
     assert outcome["action"] == "restored" and outcome["repair"]["result"] == "rolled_back"
     assert outcome["repair"]["version"] == "2.0.0"
     incident = server.incidents[0]
     assert incident["status"] == "closed" and incident["outcome"]["result"] == "rolled_back"
     report = incident["report"]
-    assert report["committed_version"] == "2.0.0" and report["gateway_state"] == "closed"
+    assert report["committed_version"] == "2.0.0" and report["gateway_state"] == "open"   # reported before the restore; it closes afterwards
     assert report["source"] == "192.0.2.50:41000" and report["cluster"] == "unaffected"
     assert report["expected_tree_sha256"] and report["observed_tree_sha256"] != report["expected_tree_sha256"]
 
@@ -234,3 +234,116 @@ def test_responder_sends_the_api_token(world, tmp_path, served, keys, order_keys
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_report_uses_the_device_answer_not_its_files(world):
+    device, _gateway, build = world
+    server, responder = build(decision_timeout=0.5)
+    responder.target["root"] = "/nonexistent-pi2-root"  # Pi1 cannot read Pi2's files on a real vehicle.
+    result = dict(device.status(), expected_tree_sha256="aa" * 32, observed_tree_sha256="bb" * 32,
+                  error="recovery application tree hash mismatch")
+    responder.handle(result)
+    report = server.incidents[0]["report"]
+    assert report["expected_tree_sha256"] == "aa" * 32 and report["observed_tree_sha256"] == "bb" * 32
+    assert report["detail"] == "recovery application tree hash mismatch"
+    assert report["committed_version"] == "2.0.0"
+
+
+def test_repair_uses_its_own_recheck_not_the_updates_check():
+    """The update's check (V3's trial) and the re-check after a restore are different commands."""
+    responder = IncidentResponder.__new__(IncidentResponder)
+    update_check, repair_check = ["/bin/update-check", "--trial"], ["/bin/repair-check", "--recheck"]
+    responder.target = {"host": "pi2", "checkout": "/srv/x", "python": "/srv/x/python", "root": "/srv/root",
+                        "public_key": "/srv/key.pub", "check_command": update_check,
+                        "repair_check_command": repair_check, "application": "ivi"}
+    remote = responder._repair_command("http://10.77.0.1:5")[-1]
+    assert json.dumps(repair_check) in remote and "update-check" not in remote
+
+
+def test_target_may_name_a_repair_recheck_but_it_must_be_a_command():
+    from capstone_ota.relay import target_command
+    base = {"host": "pi2", "checkout": "/srv/x", "python": "/srv/x/python", "root": "/srv/root",
+            "public_key": "/srv/key.pub", "check_command": ["/bin/c"], "application": "ivi"}
+    arguments = target_command(dict(base, repair_check_command=["/bin/r"]))
+    assert "/bin/r" not in " ".join(arguments)  # the update never uses it
+    for bad in ("not a list", [], [""], [1]):
+        with pytest.raises(ValueError):
+            target_command(dict(base, repair_check_command=bad))
+
+
+def test_report_names_the_slot_the_device_says_failed_its_check(world):
+    device, _gateway, build = world
+    server, responder = build(decision_timeout=0.5)
+    other = "B" if device.status()["active_slot"] == "A" else "A"      # the failed trial runs in one slot, the tamper is in the other
+    result = dict(device.status(), expected_tree_sha256="aa" * 32, observed_tree_sha256="bb" * 32, checked_slot=other,
+                  error="recovery application tree hash mismatch")
+    responder.handle(result)
+    assert server.incidents[0]["report"]["slot"] == other
+
+
+def test_the_gate_stays_open_during_the_restore_and_closes_after_it(world):
+    device, gateway, build = world
+    server, responder = build()
+    seen = {}
+    original = responder._restore
+
+    def spy(incident, order):
+        seen["open_during_restore"] = gateway.is_open
+        return original(incident, order)
+
+    responder._restore = spy
+    operate(server, "approve")
+    assert responder.handle(dict(device.status(), **device.recovery_evidence()))["action"] == "restored"
+    assert seen["open_during_restore"] is True and gateway.is_open is False
+
+
+@pytest.mark.parametrize("decision", ["reject"])
+def test_the_gate_closes_when_the_restore_is_rejected_too(world, decision):
+    device, gateway, build = world
+    server, responder = build()
+    operate(server, decision)
+    outcome = responder.handle(dict(device.status(), **device.recovery_evidence()))
+    assert outcome["action"] == "maintenance_required" and gateway.is_open is False
+
+
+def test_the_gate_closes_even_if_handling_raises(world):
+    device, gateway, build = world
+    server, responder = build()
+    responder._handle_incident = lambda result: (_ for _ in ()).throw(RuntimeError("boom"))
+    with pytest.raises(RuntimeError):
+        responder.handle({"result": "recovery_failed"})
+    assert gateway.is_open is False
+
+
+def _incident_events(gateway):
+    return [entry["event"] for entry in gateway.log_tail(50) if entry["event"].startswith("incident_")]
+
+
+def test_the_wait_for_the_control_centre_is_recorded_for_the_display(world):
+    device, gateway, build = world
+    server, responder = build()
+    operate(server, "approve")
+    responder.handle(dict(device.status(), **device.recovery_evidence()))
+    assert _incident_events(gateway) == ["incident_reported", "incident_approved"]
+
+
+def test_a_rejection_is_recorded_as_rejected(world):
+    device, gateway, build = world
+    server, responder = build()
+    operate(server, "reject")
+    responder.handle(device.status())
+    assert _incident_events(gateway) == ["incident_reported", "incident_rejected"]
+
+
+def test_no_answer_in_time_is_recorded_as_timeout(world):
+    device, gateway, build = world
+    _server, responder = build(decision_timeout=0.5)
+    responder.handle(device.status())
+    assert _incident_events(gateway) == ["incident_reported", "incident_timeout"]
+
+
+def test_an_unreachable_control_centre_is_recorded_without_a_report(world):
+    device, gateway, build = world
+    _server, responder = build(server_url="http://127.0.0.1:9", decision_timeout=0.5)
+    responder.handle(device.status())
+    assert _incident_events(gateway) == ["incident_unreachable"]

@@ -29,6 +29,33 @@ SYNTHETIC_CYCLE = [
     (58.0, 80.0), (70.0, 80.0), (76.0, 60.0), (84.0, 60.0), (96.0, 0.0), (104.0, 0.0),
 ]
 
+# Demo cycle: start from standstill, cruise around 80 km/h with small speed changes like real traffic,
+# stop twice at lights. Each stop lasts 12 s or more because the rollback gate needs about 10 s of
+# continuous standstill (Pi3 bus_stopped_s >= 5 s, then the cluster must answer "stopped" for safe_s).
+DEMO_CYCLE = [
+    (0.0, 0.0), (2.0, 0.0),
+    (7.0, 36.0), (13.0, 80.0),                                   # light start, 0 -> 80 in ~11 s
+    (17.0, 86.0), (21.0, 78.0), (25.0, 84.0),                    # arterial road, +-3..10 km/h swings
+    (29.0, 90.0), (33.0, 82.0), (37.0, 76.0),                    # overtake, then match the car ahead
+    (41.0, 84.0), (45.0, 88.0), (49.0, 80.0),
+    (53.0, 74.0), (57.0, 80.0),
+    (61.0, 62.0), (65.0, 40.0), (69.0, 18.0), (72.0, 0.0),       # gentle braking for a red light
+    (86.0, 0.0),                                                 # waiting at the light (rollback window)
+    (92.0, 38.0), (98.0, 70.0), (101.0, 80.0),                   # restart and merge
+    (105.0, 86.0), (109.0, 78.0), (113.0, 85.0), (117.0, 80.0),
+    (121.0, 64.0), (125.0, 42.0), (129.0, 18.0), (132.0, 0.0),   # arrive and stop
+    (144.0, 0.0),                                                # joins the 2 s at the start: 14 s window
+]
+# Shift points for ~80 km/h cruising in 5th gear (~2200 rpm); 6th stays unused so cruise rpm is not too low.
+DEMO_SHIFT_KMH = (22.0, 38.0, 52.0, 68.0, 100.0)
+
+
+def named_cycle(name: str):
+    cycles = {'synthetic': SYNTHETIC_CYCLE, 'demo': DEMO_CYCLE}
+    if name not in cycles:
+        raise ValueError(f'unknown cycle {name!r}; choose from {sorted(cycles)}')
+    return cycles[name]
+
 
 class Row(NamedTuple):
     t: float
@@ -92,14 +119,14 @@ def limit_acceleration(speeds, hz: int = 10, accel: float = MAX_ACCEL_KMH_S,
     return limited
 
 
-def select_gear(speed: float, current: int) -> int:
+def select_gear(speed: float, current: int, shifts=UP_SHIFT_KMH) -> int:
     """Neutral (0) at standstill, 1..6 by speed with hysteresis so the gear does not hunt."""
     if speed < (1.0 if current == 0 else 0.5):
         return 0
     gear = current or 1
-    while gear < 6 and speed >= UP_SHIFT_KMH[gear - 1]:
+    while gear < 6 and speed >= shifts[gear - 1]:
         gear += 1
-    while gear > 1 and speed < UP_SHIFT_KMH[gear - 2] * DOWN_FACTOR:
+    while gear > 1 and speed < shifts[gear - 2] * DOWN_FACTOR:
         gear -= 1
     return gear
 
@@ -111,11 +138,11 @@ def engine_rpm(speed: float, gear: int) -> int:
     return int(min(MAX_RPM, max(IDLE_RPM, wheel_rpm * GEAR_RATIOS[gear] * FINAL_DRIVE)))
 
 
-def build_profile(samples, hz: int = 10) -> list[Row]:
+def build_profile(samples, hz: int = 10, shifts=UP_SHIFT_KMH) -> list[Row]:
     speeds = limit_acceleration(resample(samples, hz), hz)
     rows, gear = [], 0
     for tick, speed in enumerate(speeds):
-        gear = select_gear(speed, gear)
+        gear = select_gear(speed, gear, shifts)
         rows.append(Row(tick / hz, min(3000, int(round(speed * 10))), engine_rpm(speed, gear), gear))
     return rows
 

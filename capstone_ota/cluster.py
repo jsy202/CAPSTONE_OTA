@@ -1,5 +1,7 @@
 """Target-side application installation; no Central slots or existing Qt services."""
 import subprocess
+import math
+import time
 from pathlib import Path
 
 from . import can_verdict
@@ -16,12 +18,15 @@ def check_command(value):
 
 class ClusterDevice(Device):
     service_name = "capstone-cluster.service"   # subclasses manage another service with the same A/B logic
+    companion_services = ()                      # other applications of the same OTA image: stopped/restarted with it on a switch
     verifier_timeout = 60                        # seconds an external verifier may take
 
     def __init__(self, root, verifier_command=None, recovery_verification=True,
-                 verifier_can_channel=None, verifier_can_secret_path=None):
+                 verifier_can_channel=None, verifier_can_secret_path=None, recheck_command=None):
         super().__init__(root, recovery_verification=recovery_verification)
         self.verifier_command = check_command(verifier_command) if verifier_command is not None else None
+        # The check of the old image after a rollback may be its own, shorter command; without one the trial's is reused.
+        self.recheck_command = check_command(recheck_command) if recheck_command is not None else None
         # SSH (verifier_command) only triggers the external check; when a CAN channel is
         # configured, the pass/fail Device actually trusts arrives as an authenticated CAN
         # verdict instead, so a jammed or compromised SSH/Wi-Fi hop cannot forge the result.
@@ -29,6 +34,34 @@ class ClusterDevice(Device):
         self._verifier_can_secret = Path(verifier_can_secret_path).read_bytes() if verifier_can_secret_path else None
         self.reports = []
         self._checking_service = False
+        self._switching = False
+
+    speed_socket = "/run/capstone-cluster/model.sock"   # the cluster's own model: the speed it was told over CAN
+    standstill_s = 2.0                                  # the vehicle must report 0 km/h this long before the install starts
+
+    def vehicle_speed(self):
+        """The speed the cluster currently shows (km/h), or None when it cannot be read."""
+        from .qt_verify import socket_request
+        try:
+            report = socket_request(self.speed_socket, {"op": "snapshot", "nonce": "standstill"})
+        except (OSError, ValueError):
+            return None
+        # Anything but a plain, finite number from a valid snapshot is "no reading" (a bool is not a speed: False == 0).
+        speed = report.get("model_speed") if isinstance(report, dict) and report.get("valid") is True else None
+        return speed if type(speed) in (int, float) and math.isfinite(speed) else None
+
+    def _park(self, max_s, clock=time.monotonic, sleep=time.sleep):
+        """Wait until the cluster reports a steady standstill (an update is installed standing still), at most `max_s`.
+        A reading of "moving" restarts the time; no reading is never "stopped". Demo pacing `park` is the limit."""
+        end, stopped_since = clock() + max_s, None
+        while clock() < end:
+            if self.vehicle_speed() == 0:
+                stopped_since = clock() if stopped_since is None else stopped_since
+                if clock() - stopped_since >= self.standstill_s:
+                    return
+            else:
+                stopped_since = None
+            sleep(0.5)
 
     def _check_arguments(self, app):
         if self._checking_service:
@@ -36,16 +69,24 @@ class ClusterDevice(Device):
         return super()._check_arguments(app)
 
     def _service(self, action):
-        return subprocess.run(["systemctl", action, self.service_name], timeout=10,
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+        # The applications of one image are one body: whenever this service is stopped (a switch, or the head unit
+        # stopping after a refused recovery) the others stop with it. They are restarted and checked only during an
+        # activation (which a repair also goes through), so a stopped image comes back together.
+        together = action == "stop" or self._switching
+        names = [self.service_name, *(self.companion_services if together else ())]
+        results = [subprocess.run(["systemctl", action, name], timeout=10,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0 for name in names]
+        return all(results)
 
     def _activate(self, slot, state):
         # Initialize/start the selected target before asking an external observer.
         self._checking_service = state['systemd']
+        self._switching = True
         try:
             super()._activate(slot, state)
         finally:
             self._checking_service = False
+            self._switching = False
         if self.verifier_command is None:
             return
         recovering = state.get("committed") and slot == state["committed"]["slot"]
@@ -56,7 +97,7 @@ class ClusterDevice(Device):
         # sent while nobody is bound yet to hear it is simply gone (CAN has no
         # replay), so listening has to start before the trigger goes out, not after.
         listener = can_verdict.open_listener(self.verifier_can_channel) if nonce is not None else None
-        command = [*self.verifier_command, str(self._slot(slot))]
+        command = [*(self.recheck_command if recovering and self.recheck_command else self.verifier_command), str(self._slot(slot))]
         if nonce is not None:
             command += ["--nonce", nonce.hex()]
         try:

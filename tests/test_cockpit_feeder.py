@@ -22,7 +22,7 @@ def test_collect_merges_sources_and_marks_missing_ones_as_none(tmp_path):
     assert data['ota']['version'] == '2.0.0' and data['ivi']['version'] == 'V2' and data['ivi_ui'].endswith('Ivi.qml')
     gone = make(tmp_path, cluster=lambda: None, pi3=lambda: None).collect()
     assert gone['cluster'] is None and gone['pi3'] is None
-    assert any('Pi3' in line['text'] and 'lost' in line['text'] for line in gone['log'])
+    assert any(line['text'] == '모니터: 신호 끊김' for line in gone['log'])
     json.dumps(data)
 
 
@@ -38,7 +38,7 @@ def test_state_changes_and_device_events_become_log_lines_once(tmp_path):
     events.append({'time': 2.0, 'event': 'recover'})
     third = feeder.collect()
     texts = [l['text'] for l in third['log']]
-    assert any('confirmed' in t and 'freeze' in t for t in texts) and describe_event('recover') in texts
+    assert '모니터: 한계 초과 확정 (응답 멈춤)' in texts and describe_event('recover') in texts
 
 
 def test_ivi_version_change_is_logged_and_log_is_bounded(tmp_path):
@@ -47,7 +47,7 @@ def test_ivi_version_change_is_logged_and_log_is_bounded(tmp_path):
     feeder.collect()
     ivi['v'] = {'version': 'V2', 'workers': 1, 'map_active': True}
     texts = [l['text'] for l in feeder.collect()['log']]
-    assert any('V2' in t for t in texts)
+    assert '화면 앱 V2 실행 중' in texts
     for i in range(40):
         ivi['v'] = {'version': 'V%d' % (i % 2 + 2), 'workers': 0, 'map_active': False}
         feeder.collect()
@@ -55,8 +55,21 @@ def test_ivi_version_change_is_logged_and_log_is_bounded(tmp_path):
 
 
 def test_unknown_events_are_described_not_dropped():
-    assert describe_event('something_new') == 'Device: something_new'
-    assert 'Rollback' in describe_event('recover') and 'Trial' in describe_event('trial')
+    assert describe_event('something_new') == '장치: something_new'
+    assert describe_event('download_and_verify') == '업데이트: 서명된 릴리스를 내려받는 중'
+    assert describe_event('trial') == '시운전: 새 버전 설치, 시험 중'
+    assert describe_event('committed') == '확정: 새 버전 최종 승인'
+    assert describe_event('recover') == '롤백: 이전 버전으로 되돌리는 중'
+    assert describe_event('recovery_verified') == '롤백: 이전 버전 검사 통과'
+    assert describe_event('recovery_failed') == '롤백 실패: 수동 점검 필요'
+
+
+def test_monitor_state_lines_are_korean(tmp_path):
+    state = {'pi3': {'state': 'observing', 'cls': 'normal'}}
+    feeder = make(tmp_path, pi3=lambda: state['pi3'])
+    assert '모니터: 정상 관측' in [l['text'] for l in feeder.collect()['log']]
+    state['pi3'] = {'state': 'suspect', 'cls': 'freeze'}
+    assert '모니터: 징후 포착 (응답 멈춤)' in [l['text'] for l in feeder.collect()['log']]
 
 
 def test_write_is_atomic_and_world_readable(tmp_path):
@@ -117,3 +130,130 @@ def test_capture_reads_external_framebuffer_without_requesting_qt_render(tmp_pat
     finally:
         os.close(read_fd)
         xvfb.terminate(); xvfb.wait(timeout=5)
+
+
+def test_download_bytes_reach_the_display_data(tmp_path):
+    ota = lambda: {'stage': 'download', 'received': 10, 'total': 40}
+    assert make(tmp_path, ota=ota).collect()['ota'] == {'stage': 'download', 'received': 10, 'total': 40}
+
+
+def test_port_events_from_the_control_side_appear_in_the_log_once(tmp_path):
+    rows = [{'t': '06:11:02', 'text': '디버깅 포트 7400 열림'}]
+    feeder = make(tmp_path, extra=lambda: list(rows))
+    assert any(line['text'] == '디버깅 포트 7400 열림' for line in feeder.collect()['log'])
+    rows.append({'t': '06:11:20', 'text': '디버깅 포트 닫힘 (사고 보고)'})
+    texts = [line['text'] for line in feeder.collect()['log']]
+    assert texts.count('디버깅 포트 7400 열림') == 1 and texts.count('디버깅 포트 닫힘 (사고 보고)') == 1
+    assert [line['t'] for line in feeder.collect()['log'] if '디버깅' in line['text']] == ['06:11:02', '06:11:20']  # their own time
+
+
+def test_every_event_the_device_writes_has_korean_text_and_no_raw_identifier():
+    import re
+    import bench.cockpit_feeder as feeder
+    device_events = ['committed', 'download_and_verify', 'recover', 'recovery_failed', 'repair_installed',
+                     'repair_rejected', 'repair_started', 'service_stopped_after_recovery_failure', 'trial']
+    for name in device_events:
+        text = describe_event(name)
+        assert not re.search(r'[a-z]+_[a-z]+', text), (name, text)  # a raw identifier must never reach the screen
+        assert re.search('[가-힣]', text), (name, text)
+    assert feeder.CLASS_TEXT['freeze'] == '응답 멈춤' and feeder.CLASS_TEXT['delay'] == '응답 지연'
+
+
+def test_the_monitor_log_line_names_the_failure_class_in_korean(tmp_path):
+    pi3 = {'seq': 1, 'state': 'confirmed', 'cls': 'freeze', 'fired': [], 'monitored_s': 5, 'bus_stopped_s': 0, 'bus_speed': 0}
+    log = make(tmp_path, pi3=lambda: pi3).collect()['log']
+    assert any('한계 초과 확정' in line['text'] and '응답 멈춤' in line['text'] and 'freeze' not in line['text'] for line in log)
+
+
+def test_a_preview_path_overrides_the_installed_slot_for_the_ivi_screen(tmp_path):
+    from bench.cockpit_feeder import resolve_ivi_ui
+    slot = tmp_path / "current"
+    (slot / "ui").mkdir(parents=True)
+    (slot / "ui" / "Ivi.qml").write_text("Item {}")
+    preview = tmp_path / "preview" / "ui"
+    preview.mkdir(parents=True)
+    (preview / "Ivi.qml").write_text("Item {}")
+    assert resolve_ivi_ui(slot, None) == "file://" + str(slot.resolve() / "ui/Ivi.qml")   # normal: the installed slot's own UI
+    assert resolve_ivi_ui(slot, preview) == "file://" + str(preview / "Ivi.qml")            # preview: only when asked for
+    assert resolve_ivi_ui(tmp_path / "none", None) is None                                  # nothing installed: no screen
+
+
+def test_version_labels_travel_to_the_screen(tmp_path):
+    data = make(tmp_path, labels={'3.3.0': 'V2', '3.4.0': 'V3'}).collect()
+    assert data['version_labels'] == {'3.3.0': 'V2', '3.4.0': 'V3'}
+    assert make(tmp_path).collect()['version_labels'] == {}
+
+
+def test_ivi_status_tells_whether_the_application_is_alive_and_how_fresh_its_data_is(tmp_path):
+    import os
+    from bench.cockpit_feeder import read_ivi_status
+    status, nav = tmp_path / 'status.json', tmp_path / 'nav.json'
+    status.write_text('{"version": "V3", "pid": %d}' % os.getpid())
+    nav.write_text('{"speed": 10}')
+    os.utime(status, (990.0, 990.0))
+    os.utime(nav, (999.8, 999.8))
+    data = read_ivi_status(status, now=1000.0)
+    assert data['version'] == 'V3' and data['age_s'] == 10.0 and data['nav_age_s'] == 0.2 and data['alive'] is True
+    status.write_text('{"version": "V3", "pid": 2147483000}')        # the process is gone, the file outlives it
+    assert read_ivi_status(status, now=1000.0)['alive'] is False
+    nav.unlink()                                                      # an IVI without a CAN feed writes no nav.json
+    assert 'nav_age_s' not in read_ivi_status(status, now=1000.0)
+
+
+OLD_PROGRESS = {'stage': 'rolled_back', 'version': '3.5.0', 'candidate': '3.7.0', 'detail': 'x',
+                'slot_view': {'A': {'version': None, 'role': 'retained'}, 'B': {'version': '3.5.0', 'role': 'committed'}},
+                'timeline_id': 'earlier', 'timeline': [{'stage': 'recover'}], 'received': 5, 'total': 5,
+                'work': {'kind': 'rollback', 'done': 5, 'total': 5}, 'updated': 900.0}
+
+
+def test_progress_left_by_an_earlier_session_is_shown_as_idle_not_as_a_live_rollback():
+    from bench.cockpit_feeder import session_view
+    view = session_view(dict(OLD_PROGRESS), started=1000.0)
+    assert view['stage'] == 'idle' and view['version'] == '3.5.0' and view['slot_view'] == OLD_PROGRESS['slot_view']
+    for key in ('timeline', 'timeline_id', 'work', 'candidate', 'received', 'total'):
+        assert not view.get(key), key          # no gauge, no replayed alerts from the last drill
+
+
+def test_progress_written_during_this_session_is_shown_as_it_is():
+    from bench.cockpit_feeder import session_view
+    current = {**OLD_PROGRESS, 'updated': 1001.0}
+    assert session_view(dict(current), started=1000.0) == current
+    just_before = {**OLD_PROGRESS, 'updated': 999.5}          # an update that began a moment before the screen came up
+    assert session_view(dict(just_before), started=1000.0) == just_before
+
+
+def test_the_running_feeder_reports_an_idle_device_for_progress_left_by_an_earlier_session(tmp_path):
+    """Runs the real feeder process: the unit tests above passed while main() overwrote the session start (same name
+    as a loop timer), so the previous drill's finished rollback was still drawn on the real boards."""
+    import signal
+    import subprocess
+    import sys
+    import time
+    device, out, run = tmp_path / 'device', tmp_path / 'out', tmp_path / 'run'
+    for directory in (device, run):
+        directory.mkdir()
+    (device / 'progress.json').write_text(json.dumps({**OLD_PROGRESS, 'updated': time.time() - 600}))
+    (device / 'events.jsonl').write_text('')
+    process = subprocess.Popen([sys.executable, '-m', 'bench.cockpit_feeder', '--out-dir', str(out), '--device-root', str(device),
+                                '--ivi-run', str(run), '--cluster-socket', str(tmp_path / 'none.sock'),
+                                '--pi3-ssh', '["false"]', '--verdict-path', '/none', '--channel', 'nonexistent0', '--interval', '0.1'],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        data, deadline = None, time.time() + 15
+        while time.time() < deadline and data is None:
+            try:
+                data = json.loads((out / 'data.json').read_text())
+            except (OSError, ValueError):
+                time.sleep(0.2)
+    finally:
+        process.send_signal(signal.SIGTERM)
+        process.wait(timeout=10)
+    assert data is not None, 'the feeder never wrote data.json'
+    assert data['ota']['stage'] == 'idle' and not data['ota']['timeline_id'] and not data['ota']['work']
+
+
+def test_the_collected_data_carries_the_recheck_length_and_the_progress_clock(tmp_path):
+    feeder = make(tmp_path, ota=lambda: {'stage': 'recheck', 'updated': 990.0})
+    feeder.recheck_s = 20
+    data = feeder.collect()
+    assert data['recheck_s'] == 20 and data['ota']['updated'] == 990.0 and 'trial_s' not in data

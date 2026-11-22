@@ -66,7 +66,12 @@ class DelayTap:
             cluster = {'speed': latest_echo[1].speed / 10.0,
                        'behind_frames': (latest_source[1].counter - latest_echo[1].counter) % 256}
         # Frames that arrived but have no echo yet are at least as delayed as they have been waiting (a lower bound).
-        waiting = [now - s.t for s in result.unmatched_sources if now - 3.0 <= s.t <= now]
+        # Only frames NEWER than the newest answered one are still waiting. Older ones that never got an echo were dropped
+        # (a restart leaves up to a second or two of them), not late: counting them showed ~3 s for three seconds after the
+        # cluster was answering again.
+        answered = max((p.t_source for p in result.pairs), default=None)
+        waiting = [now - s.t for s in result.unmatched_sources
+                   if now - 3.0 <= s.t <= now and (answered is None or s.t > answered)]
         pending_ms = max(waiting) * 1000 if waiting else 0.0
         latencies = [p.latency for p in pairs]
         if len(latencies) < 3 and pending_ms == 0.0:

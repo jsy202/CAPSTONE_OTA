@@ -385,3 +385,141 @@ def test_ivi_forward_deadline_covers_trial_and_recovery_checks(releases, keys, t
     with serving(releases) as origin:
         assert relay.forward(origin + '/v2', keys[1], config)['result'] == 'committed'
     assert deadlines[0] > 2 * IviDevice.verifier_timeout
+
+
+def _record_systemctl(monkeypatch):
+    cluster = importlib.import_module('capstone_ota.cluster')
+    calls = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(tuple(argv[1:]))
+        return subprocess.CompletedProcess(argv, 0)
+    monkeypatch.setattr(cluster.subprocess, 'run', fake_run)
+    return calls
+
+
+def test_ivi_switch_restarts_the_cluster_service_too(tmp_path, monkeypatch):
+    """The OTA image carries both applications: activating it stops and restarts BOTH services."""
+    from capstone_ota.ivi import IviDevice
+    calls = _record_systemctl(monkeypatch)
+    device = IviDevice(tmp_path / 'device')
+    monkeypatch.setattr(device, '_select', lambda slot: None)
+    monkeypatch.setattr(device, '_check', lambda slot: True)
+    device._activate('A', {'systemd': True})
+    assert ('stop', 'capstone-ivi.service') in calls and ('stop', 'capstone-cluster.service') in calls
+    assert ('restart', 'capstone-ivi.service') in calls and ('restart', 'capstone-cluster.service') in calls
+    assert ('is-active', 'capstone-cluster.service') in calls            # the cluster must stay up after the switch
+
+
+def test_the_ivi_and_the_cluster_stop_together_whenever_the_ivi_is_stopped(tmp_path, monkeypatch):
+    """They are one body: a stopped head unit (for example after a refused recovery) takes the cluster down with it."""
+    from capstone_ota.ivi import IviDevice
+    calls = _record_systemctl(monkeypatch)
+    IviDevice(tmp_path / 'device')._service('stop')
+    assert sorted(calls) == [('stop', 'capstone-cluster.service'), ('stop', 'capstone-ivi.service')]
+
+
+def test_only_activation_restarts_and_checks_the_companion(tmp_path, monkeypatch):
+    from capstone_ota.ivi import IviDevice
+    calls = _record_systemctl(monkeypatch)
+    device = IviDevice(tmp_path / 'device')
+    device._service('restart')
+    assert calls == [('restart', 'capstone-ivi.service')]      # outside an activation nothing else is restarted
+
+
+def test_a_cluster_device_has_no_companion_services(tmp_path, monkeypatch):
+    from capstone_ota.cluster import ClusterDevice
+    calls = _record_systemctl(monkeypatch)
+    device = ClusterDevice(tmp_path / 'device')
+    monkeypatch.setattr(device, '_select', lambda slot: None)
+    monkeypatch.setattr(device, '_check', lambda slot: True)
+    device._activate('A', {'systemd': True})
+    assert {name for _action, name in calls} == {'capstone-cluster.service'}
+
+
+def test_the_recheck_after_a_rollback_uses_its_own_command_when_one_is_given(keys, payload, tmp_path):
+    """The post-rollback re-check may be shorter than the trial watch (it was the same 120 s one: the cockpit showed
+    a finished 20 s re-check for another 100 s)."""
+    cluster = importlib.import_module('capstone_ota.cluster')
+    (payload / 'label').write_text('good')
+    pack(payload, tmp_path / 'releases/good', '2.0.0', 2, keys[0])
+    (payload / 'label').write_text('bad')
+    pack(payload, tmp_path / 'releases/bad', '3.0.0', 2, keys[0])
+    calls = tmp_path / 'calls.txt'
+    body = ('import json,sys\nfrom pathlib import Path\n'
+            f'Path({str(calls)!r}).open("a").write(sys.argv[0].split("/")[-1] + "\\n")\n'
+            'ok=(Path(sys.argv[1])/"label").read_text()=="good"\n'
+            'print(json.dumps({"passed":ok}))\nraise SystemExit(0 if ok else 1)\n')
+    checker, recheck = tmp_path / 'trial-check.py', tmp_path / 'recheck.py'
+    checker.write_text(body)
+    recheck.write_text(body)
+    device = cluster.ClusterDevice(tmp_path / 'cluster', [sys.executable, str(checker)],
+                                   recheck_command=[sys.executable, str(recheck)])
+    with serving(tmp_path / 'releases') as url:
+        device.update(url + '/good', keys[1])
+        calls.write_text('')
+        result = device.update(url + '/bad')
+    assert result['result'] == 'rolled_back'
+    assert calls.read_text().split() == ['trial-check.py', 'recheck.py']     # the trial, then the re-check of the old image
+
+
+class _Moment:
+    def __init__(self):
+        self.now = 0.0
+
+    def clock(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+def _parked(tmp_path, speeds, max_s=60):
+    """Run the install's wait for a standstill against scripted vehicle speeds (one reading per poll)."""
+    cluster = importlib.import_module('capstone_ota.cluster')
+    device = cluster.ClusterDevice(tmp_path / 'cluster', None)
+    readings = iter(speeds)
+    device.vehicle_speed = lambda: next(readings, speeds[-1])
+    moment = _Moment()
+    device._park(max_s, clock=moment.clock, sleep=moment.sleep)
+    return moment.now
+
+
+def test_the_install_starts_when_the_cluster_reports_a_steady_standstill(tmp_path):
+    waited = _parked(tmp_path, [80, 60, 30, 5, 0, 0, 0, 0, 0, 0, 0, 0])
+    assert 2.0 <= waited < 8.0                      # not the whole 60 s: it started as soon as the car stood still
+
+
+def test_a_car_that_keeps_moving_or_is_unknown_never_counts_as_standing_still(tmp_path):
+    assert _parked(tmp_path, [50], max_s=10) >= 10          # waits the whole limit, then goes on (a demo cap, not a pass)
+    assert _parked(tmp_path, [None], max_s=10) >= 10        # no answer from the cluster is not "stopped"
+
+
+def test_a_moving_reading_restarts_the_standstill_time(tmp_path):
+    waited = _parked(tmp_path, [0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0])
+    assert 3.5 <= waited < 5.0                              # without the 12 km/h reading it would have started at 2.0 s
+
+
+@pytest.mark.parametrize('reply', [None, [], 'x', {'valid': True, 'model_speed': False}, {'valid': True, 'model_speed': None},
+                                   {'valid': True, 'model_speed': 'fast'}, {'valid': True, 'model_speed': float('nan')},
+                                   {'valid': False, 'model_speed': 0}, {'valid': 'yes', 'model_speed': 0}])
+def test_an_odd_cluster_answer_is_never_a_reading_and_never_crashes_the_update(tmp_path, monkeypatch, reply):
+    cluster = importlib.import_module('capstone_ota.cluster')
+    qt_verify = importlib.import_module('capstone_ota.qt_verify')
+    monkeypatch.setattr(qt_verify, 'socket_request', lambda *a, **k: reply)
+    assert cluster.ClusterDevice(tmp_path / 'cluster', None).vehicle_speed() is None
+
+
+def test_a_valid_cluster_answer_is_the_speed(tmp_path, monkeypatch):
+    cluster = importlib.import_module('capstone_ota.cluster')
+    qt_verify = importlib.import_module('capstone_ota.qt_verify')
+    monkeypatch.setattr(qt_verify, 'socket_request', lambda *a, **k: {'valid': True, 'model_speed': 0})
+    assert cluster.ClusterDevice(tmp_path / 'cluster', None).vehicle_speed() == 0
+
+
+def test_a_pinned_recheck_without_a_check_command_is_refused_not_dropped(tmp_path):
+    relay = importlib.import_module('capstone_ota.relay')
+    target = {"host": "h", "checkout": "/c", "python": "/p", "root": "/r", "public_key": "/k",
+              "application": "ivi", "initialization_only": True, "recheck_command": ["true"]}
+    with pytest.raises(ValueError):
+        relay.target_command(target)

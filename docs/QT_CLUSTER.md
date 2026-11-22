@@ -17,24 +17,24 @@ make, Qt 5.15 development tools/Core/Gui/Quick/QML/Network, QML Quick Controls,
 Layouts/Shapes and GraphicalEffects. Xvfb is required for hidden screenshot capture.
 There is no Python Qt binding or new pip dependency.
 
-Use a clean source checkout pinned to the commit in
-[UPSTREAM.md](../dashboard/qt_cluster/UPSTREAM.md). The current host already has
-`/home/jsy/Downloads/Volvo240-DigitalDash`; build.py reads Git's pinned tree and
-does not modify that checkout.
+Qt 외에 외부 소스가 필요 없다. 화면(`Cluster.qml`, `Main.qml`)과 글꼴은 `capstone.qrc`로 실행 파일 안에 들어간다.
+(2026-11-20: 이전의 Volvo 게이지 코드·`--source` 옵션·`UPSTREAM.md`·`LICENSE.upstream`은 제거했다.)
 
 ```bash
 # With system Qt:
-.venv/bin/python dashboard/qt_cluster/build.py --source /PATH/Volvo240-DigitalDash
+.venv/bin/python dashboard/qt_cluster/build.py
 
 # With this host's separately extracted Qt runtime/development files:
 export CAPSTONE_QT_PREFIX=/home/jsy/Downloads/volvo-qt-runtime/root/usr
-.venv/bin/python dashboard/qt_cluster/build.py \
-  --source /home/jsy/Downloads/Volvo240-DigitalDash --qt-prefix "$CAPSTONE_QT_PREFIX"
+.venv/bin/python dashboard/qt_cluster/build.py --qt-prefix "$CAPSTONE_QT_PREFIX"
 ```
 
-Build output, imported upstream and binaries are ignored under .demo/qt-build.
-Release payload contains bin/app, libexec/dashboard, upstream
-license. QML/images are compiled into the executable. Qt libraries stay external
+화면 구성: 왼쪽 속도 링(0~220 km/h), 오른쪽 rpm 링(0~8000), 가운데 주행 정보, 아래 외기온·기어.
+**CAN에서 오는 실제 값은 속도·rpm·기어(0=N, 1~6=D)·유효 여부뿐이다.** 앞차 간격, Trip/Timer/Avg., 연료 480 km,
+냉각수, 외기온 25 °C, 총 주행거리 1576 km는 디자인 시안과 같은 고정 표시값이고 차량 신호가 아니다.
+
+Build output and binaries are ignored under .demo/qt-build.
+Release payload contains bin/app, libexec/dashboard and the font license. QML/fonts are compiled into the executable. Qt libraries stay external
 and must match the target architecture. PC x86 binaries must not be installed on Pi.
 ARM 실보드 빌드의 과거 결과는 별도 실보드 보고서에 기록되어 있다.
 

@@ -3,7 +3,7 @@ import QtQuick.Window 2.15
 import "Transitions.js" as Transitions
 
 // Single-monitor cockpit: real Qt cluster (live capture), OTA/field monitor, the IVI of the
-// CURRENT slot (loaded from the release itself), and an event log. Designed at 2160x1440, scaled to fit.
+// CURRENT slot (loaded from the release itself), and a top strip for dynamic alerts (no event log). Designed at 2160x1440, scaled to fit.
 //
 // Visual language: flat instrument panel, not a SaaS dashboard — hairline dividers instead of
 // card borders, near-zero corner radius, monospace technical tags. One signature accent (an
@@ -27,10 +27,10 @@ Window {
     readonly property color critical: "#ff3b30"
     readonly property color success: "#22c55e"     // a successful commit only -- never used for anything ambient
     readonly property color ink: "#eef1f6"
-    readonly property color inkMuted: "#7c8696"
+    readonly property color inkMuted: "#9aa5b6"
     readonly property color hairline: Qt.rgba(1, 1, 1, 0.09)
     readonly property color stateColor: pstate === "confirmed" ? critical : pstate === "suspect" ? warn
-                                      : pstate === "observing" ? accent : inkMuted
+                                      : pstate === "observing" ? accent : warn
 
     FontLoader { id: fGroteskBold; source: "fonts/SpaceGrotesk-Bold.ttf" }
     FontLoader { id: fGroteskMed; source: "fonts/SpaceGrotesk-Medium.ttf" }
@@ -41,15 +41,58 @@ Window {
     property var lastShot: null
     property bool _haveSnapshot: false
     property var _transitionState: ({run: null, seen: 0, kinds: {}})
+    property int logSeen: -1
+    function logAlerts(rows) {
+        var look = Transitions.freshLogRows(rows, logSeen)     // by row number: the feeder keeps only the latest rows
+        logSeen = look.seen
+        for (var i = 0; i < look.rows.length; i++) {
+            var t = String(look.rows[i].text || "")
+            if (t.indexOf("디버깅 포트 닫힘") === 0) band.enqueue({kind: "port_closed", text: t})
+            else if (t.indexOf("화면 앱 V1 실행") === 0) band.enqueue({kind: "attack_running", text: t})   // the IVI itself reports V1
+            // The vehicle asked the control centre for the restore and waits for a person's decision.
+            else if (t.indexOf("서버에 사고 보고") === 0) band.enqueue({kind: "server_waiting", text: t})
+            else if (t.indexOf("서버 승인됨") === 0) band.enqueue({kind: "server_approved", text: t})
+            else if (t.indexOf("서버 거절됨") === 0) band.enqueue({kind: "server_rejected", text: t})
+            else if (t.indexOf("서버 응답 없음") === 0 || t.indexOf("서버에 연결할 수 없음") === 0) band.enqueue({kind: "server_silent", text: t})
+        }
+    }
+    property string _rollbackRun: ""
     onDChanged: {
+        if (d.log) logAlerts(d.log)
+        // 롤백 준비 comes with the decision (the monitor confirmed the overrun), not with the switch back to V2
+        var notice = win._haveSnapshot ? Transitions.rollbackNotice(d.pi3 ? d.pi3.state : "lost", d.ota, d.version_labels, win._rollbackRun) : null
+        if (notice) { win._rollbackRun = notice.run; band.enqueue({kind: notice.kind, transition: notice.transition}) }
         if (d.shot && d.shot !== lastShot) {
             lastShot = d.shot
             stage_.grabToImage(function (r) { r.saveToFile("/tmp/cockpit-shot.png") })
         }
     }
+    // Stage queue for the gauge: every stage the device passed through is shown for stageTimer.interval.
+    property var stageQueue: []
+    property var shownOta: null
+    property int stagesSeen: 0
+    property string stageRun: ""
+    Timer { id: stageTimer; interval: 900; repeat: true
+        onTriggered: {
+            if (win.stageQueue.length) win.shownOta = win.stageQueue.shift()
+            else { win.shownOta = null; stop() }
+        } }
+    function queueStages(ota) {
+        var rows = ota.timeline || []
+        var run = ota.timeline_id ? String(ota.timeline_id) : ""
+        if (run !== stageRun) { stageRun = run; stagesSeen = _haveSnapshot ? 0 : rows.length }
+        for (; stagesSeen < rows.length; stagesSeen++) {
+            var row = rows[stagesSeen]
+            // A refused recovery shows at once so the gauge never lags the alert band.
+            if (Transitions.phase(row).kind === "failed") { stageQueue = []; shownOta = row; stageTimer.restart() }
+            else stageQueue.push(row)
+        }
+        if (stageQueue.length && !stageTimer.running) { shownOta = stageQueue.shift(); stageTimer.restart() }
+    }
     onOtaChanged: {
         if (win.ota) {
-            var events = Transitions.consume(win._transitionState, win.ota)
+            win.queueStages(win.ota)
+            var events = Transitions.consume(win._transitionState, win.ota, win.d.version_labels)
             // Opening the monitor must not replay a previous completed update.
             if (win._haveSnapshot)
                 for (var i = 0; i < events.length; i++) band.enqueue(events[i])
@@ -61,15 +104,8 @@ Window {
         x.onreadystatechange = function () { if (x.readyState === 4) { try { win.d = JSON.parse(x.responseText) } catch (e) { } } }
         x.open("GET", dataUrl + "?t=" + Date.now()); x.send()
     }
-    Timer { interval: 400; running: true; repeat: true; triggeredOnStart: true; onTriggered: win.readData() }
+    Timer { interval: 100; running: true; repeat: true; triggeredOnStart: true; onTriggered: win.readData() }
 
-    function stageFraction(stage) {
-        var map = {metadata: 0.08, signature: 0.16, signature_verified: 0.22, download: 0.32, archive_verify: 0.45,
-                   install: 0.58, trial: 0.72, verify: 0.85, verification_failed: 0.85, recover: 0.72,
-                   recovery_verified: 0.88, recheck: 0.94, committed: 1.0, rolled_back: 1.0,
-                   recovery_failed: 0.6, failed: 0.4, error: 0.3}
-        return map[stage] !== undefined ? map[stage] : 0
-    }
     function lerp(a, b, t) { return a + (b - a) * Math.max(0, Math.min(1, t)) }
     function rampColor(ratio) {
         if (ratio <= 0.65) return win.accent
@@ -86,161 +122,164 @@ Window {
         scale: Math.min(win.width / 2160, win.height / 1440)
 
         // ---------------- cluster (real application, live capture — untouched) ----------------
-        Rectangle { x: 0; y: 0; width: 1440; height: 540; color: "#000000"
+        Rectangle { x: 0; y: 225; width: 1440; height: 540; color: "#000000"
             Image { id: clusterImg; anchors.fill: parent; cache: false; fillMode: Image.Stretch
                 source: win.d.cluster ? "file:///run/cockpit/cluster.bmp?rev=" + win.d.cluster.rev : "" }
             Text { visible: !win.d.cluster || clusterImg.status !== Image.Ready; anchors.centerIn: parent; color: win.inkMuted
-                font.family: fSans.name; font.pixelSize: 30; text: "CLUSTER · NO SIGNAL" }
-            Row { x: 14; y: 14; spacing: 8
-                Rectangle { width: 8; height: 8; radius: 4; anchors.verticalCenter: parent.verticalCenter; color: win.critical }
-                Text { color: win.inkMuted; font.family: fMono.name; font.pixelSize: 14; font.letterSpacing: 1
-                    text: "CLUSTER · LIVE" } }
+                font.family: fSans.name; font.pixelSize: 30; text: "계기판 신호 없음" }
         }
 
         // ---------------- OTA / field monitor — flat instrument-panel grid ----------------
-        Rectangle { id: panel; x: 1440; y: 0; width: 720; height: 540; color: "#070a0f"
+        Rectangle { id: panel; x: 1440; y: 225; width: 720; height: 540; color: "#070a0f"
             Rectangle { width: 1; height: parent.height; color: win.hairline }   // left hairline seam vs. cluster
-            readonly property var can: win.d.tap ? win.d.tap.can : null
-            readonly property var shown: win.d.tap ? win.d.tap.cluster : null
             readonly property real limitMs: win.pi3 && win.pi3.latency_limit_ms ? win.pi3.latency_limit_ms : 100
-            readonly property var rawDelay: win.d.tap ? win.d.tap.delay_ms : null
+            // unknown (the "--" readout) while the cluster does not answer: a restart is not a delay
+            readonly property var rawDelay: Transitions.delayReading(win.d.cluster, win.d.tap ? win.d.tap.delay_ms : null)
             readonly property bool over: panel.rawDelay !== null && panel.rawDelay !== undefined && panel.rawDelay > panel.limitMs
             property real displayDelay: panel.rawDelay === null || panel.rawDelay === undefined ? 0 : panel.rawDelay
             Behavior on displayDelay { NumberAnimation { duration: 650; easing.type: Easing.OutCubic } }
             readonly property real ratio: panel.limitMs > 0 ? panel.displayDelay / panel.limitMs : 0
             readonly property color tone: win.rampColor(panel.ratio)
 
-            // header row: eyebrow + a stage-driven progress ring that settles into the version readout --
-            // the same real-world pattern a Tesla-style update indicator uses (ring fills through the
-            // install stages, then the version text takes over once it closes), not an instant text swap.
-            Item { x: 32; y: 22; width: panel.width - 64; height: 56
-                Text { anchors.verticalCenter: parent.verticalCenter; text: "OTA MONITOR"; color: win.inkMuted
-                    font.family: fMono.name; font.pixelSize: 14; font.letterSpacing: 2 }
-                Row { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 14
-                    Item {
-                        id: ringWrap; width: 36; height: 36
-                        property real fraction: win.stageFraction(win.stage)
-                        property color ringColor: (win.stage === "recovery_failed" || win.stage === "failed" || win.stage === "error") ? win.critical
-                                                 : (win.stage === "verification_failed") ? win.warn : win.accent
-                        property bool _wasComplete: false
-                        Behavior on fraction { NumberAnimation { duration: 550; easing.type: Easing.OutCubic } }
-                        Behavior on ringColor { ColorAnimation { duration: 400 } }
-                        onFractionChanged: {
-                            ringCanvas.requestPaint()
-                            if (fraction >= 0.999 && !_wasComplete) { _wasComplete = true; completePulse.restart() }
-                            else if (fraction < 0.999) { _wasComplete = false }
-                        }
-                        onRingColorChanged: ringCanvas.requestPaint()
-                        Canvas {
-                            id: ringCanvas; anchors.fill: parent
-                            onPaint: {
-                                var ctx = getContext("2d"); ctx.reset()
-                                var cx = width / 2, cy = height / 2, r = width / 2 - 3
-                                ctx.lineWidth = 4; ctx.lineCap = "butt"
-                                ctx.strokeStyle = "#1a2029"
-                                ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke()
-                                ctx.strokeStyle = Qt.rgba(ringWrap.ringColor.r, ringWrap.ringColor.g, ringWrap.ringColor.b, 1)
-                                ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + ringWrap.fraction * Math.PI * 2); ctx.stroke()
-                            }
-                        }
-                    }
-                    Text {
-                        id: verText; anchors.verticalCenter: parent.verticalCenter
-                        color: ringWrap.fraction >= 0.999 ? win.ink : win.accent
-                        font.family: fGroteskMed.name; font.pixelSize: 20
-                        transformOrigin: Item.Right
-                        text: Transitions.versionText(win.ota)
-                        SequentialAnimation { id: completePulse
-                            NumberAnimation { target: verText; property: "scale"; to: 1.14; duration: 140; easing.type: Easing.OutQuad }
-                            NumberAnimation { target: verText; property: "scale"; to: 1.0; duration: 260; easing.type: Easing.OutBack; easing.overshoot: 2.0 } }
-                    } } }
-            Rectangle { x: 32; y: 90; width: panel.width - 64; height: 1; color: win.hairline }
+            // ---- big progress gauge: the step running now, and how far an update or rollback has come ----
+            // Each telemetry stage is shown for at least a moment (stageTimer), because a real update crosses
+            // download/verify/install in well under a second and would otherwise never be seen.
+            Item {
+                id: gauge
+                x: 32; y: 16; width: panel.width - 64; height: 100
+                readonly property var live: {
+                    var o = win.shownOta ? win.shownOta : win.ota
+                    var current = win.ota && o && o.stage === win.ota.stage && (o.stage === "download" || o.stage === "install" || o.stage === "recover")
+                    if (current) o = win.ota        // these three carry live progress; replayed rows do not
+                    return Transitions.phase(o, !current && o !== win.ota)
+                }
+                readonly property color tone: live.kind === "rollback" ? win.warn
+                                            : live.kind === "failed" ? win.critical
+                                            : live.kind === "done" || live.kind === "blocked" ? win.success
+                                            : live.kind === "update" ? win.accent : win.inkMuted
+                property real shown: live.fraction
+                Behavior on shown { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+                Text { id: gaugePercent; anchors.right: parent.right; y: 0; text: gauge.live.percent; color: win.ink
+                    font.family: fGroteskBold.name; font.pixelSize: 44 }
+                Row { x: 0; y: 0; spacing: 20; width: parent.width - gaugePercent.width - 12
+                    Text { id: gaugeTitle; text: gauge.live.label; color: gauge.tone; font.family: fGroteskBold.name; font.pixelSize: 44
+                        Behavior on color { ColorAnimation { duration: 300 } } }
+                    // the version change, small, beside the title: the same "V2 → V3" form as on the alert strip
+                    Text { visible: gauge.live.label !== ""; anchors.baseline: gaugeTitle.baseline; color: win.inkMuted
+                        font.family: fGroteskMed.name; font.pixelSize: 30
+                        text: Transitions.versionChange(win.shownOta ? win.shownOta : win.ota, win.d.version_labels) } }   // same record as the title
+                Rectangle { y: 66; width: parent.width; height: 34; color: "#11151b"
+                    Rectangle { width: parent.width * gauge.shown; height: parent.height; color: gauge.tone
+                        Behavior on color { ColorAnimation { duration: 300 } } } }
+            }
+            // ---- fixed gauge "검증" under the main gauge: the signature and image check, nothing else ----
+            // Empty until the check has passed, then simply full (no progress, nothing to do with the delay monitoring).
+            Item {
+                id: verifyGauge
+                x: 32; y: 144; width: panel.width - 64; height: 68
+                readonly property var live: Transitions.verified(win.ota)
+                property real shown: live.fraction
+                Behavior on shown { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                Text { id: verifyPercent; anchors.right: parent.right; y: 0; text: verifyGauge.live.percent; color: win.ink
+                    font.family: fGroteskBold.name; font.pixelSize: 30 }
+                Text { x: 0; y: 0; text: verifyGauge.live.label; font.family: fGroteskBold.name; font.pixelSize: 30
+                    color: verifyGauge.live.kind === "done" ? win.success : win.inkMuted
+                    Behavior on color { ColorAnimation { duration: 200 } } }
+                Rectangle { y: 46; width: parent.width; height: 22; color: "#11151b"
+                    Rectangle { width: parent.width * verifyGauge.shown; height: parent.height; color: win.success } }
+            }
+            // ---- "확인" gauge, only after a rollback: the restored image is watched for a while; this is that watch ----
+            Item {
+                id: watchGauge
+                x: 32; y: 240; width: panel.width - 64; height: 56
+                readonly property var live: Transitions.watch(win.ota, win.pi3, win.d.recheck_s, win.d.now)
+                visible: live.kind !== "idle"
+                property real shown: live.fraction
+                Behavior on shown { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+                Text { anchors.right: parent.right; y: 0; text: watchGauge.live.percent; color: win.ink; font.family: fGroteskBold.name; font.pixelSize: 28 }
+                Text { x: 0; y: 0; text: watchGauge.live.label; font.family: fGroteskBold.name; font.pixelSize: 28
+                    color: watchGauge.live.kind === "done" ? win.success : win.ink
+                    Behavior on color { ColorAnimation { duration: 300 } } }
+                Rectangle { y: 38; width: parent.width; height: 18; color: "#11151b"
+                    Rectangle { width: parent.width * watchGauge.shown; height: parent.height
+                        color: watchGauge.live.kind === "done" ? win.success : win.ink
+                        Behavior on color { ColorAnimation { duration: 300 } } } }
+            }
 
-            // the one big causal visual: live cluster processing delay vs. its limit
-            Column {
-                x: 32; y: 120; width: panel.width - 64; spacing: 14
-                Text { text: "클러스터 처리 지연"; color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 15; font.letterSpacing: 1 }
-                Row { spacing: 14
-                    Text { text: panel.rawDelay === null || panel.rawDelay === undefined ? "—" : Math.round(panel.displayDelay)
-                        color: panel.tone; font.family: fGroteskBold.name; font.pixelSize: 124
+            // ---- the delay block, at the very bottom; it moves down by the height of the watch gauge when that appears ----
+            Item {
+                id: delayBlock
+                x: 0; y: watchGauge.visible ? 324 : 256; width: panel.width; height: 284
+                Behavior on y { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+                Rectangle { x: 32; y: 0; width: panel.width - 64; height: 1; color: win.hairline }
+
+                // the one big causal visual: live cluster processing delay vs. its limit
+                // fixed line heights keep every box inside its row (measured natural heights: 28px=42, 58px=75, 92px=118)
+                Text { x: 32; y: 24; text: "계기판 처리 지연"; color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28
+                    lineHeightMode: Text.FixedHeight; lineHeight: 34 }
+                Row { x: 32; y: 58; spacing: 14; height: 110
+                    Text { text: panel.rawDelay === null || panel.rawDelay === undefined ? "--" : Math.round(panel.displayDelay)
+                        color: panel.tone; font.family: fGroteskBold.name; font.pixelSize: 92
+                        lineHeightMode: Text.FixedHeight; lineHeight: 108
                         Behavior on color { ColorAnimation { duration: 450 } } }
-                    Text { text: "ms"; color: win.inkMuted; font.family: fMono.name; font.pixelSize: 26
-                        anchors.bottom: parent.bottom; anchors.bottomMargin: 18 } }
-                Rectangle { width: parent.width; height: 6; color: "#11151b"
+                    Text { text: "ms"; color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 34
+                        anchors.bottom: parent.bottom; anchors.bottomMargin: 8 } }
+                Rectangle { x: 32; y: 176; width: panel.width - 64; height: 12; color: "#11151b"
                     Rectangle { width: parent.width * Math.min(1, panel.ratio * 0.62); height: parent.height
                         color: panel.tone
                         Behavior on width { NumberAnimation { duration: 650; easing.type: Easing.OutCubic } }
                         Behavior on color { ColorAnimation { duration: 450 } } }
-                    Rectangle { x: parent.width * 0.62 - 1; width: 2; height: parent.height; color: win.ink; opacity: 0.5 } }
-                // instrument ticks under the bar, the only decorative nod to a gauge face
-                Row { width: parent.width
-                    Repeater { model: 4
-                        Item { width: parent.width / 4; height: 14
-                            Rectangle { x: 0; width: 1; height: 8; color: win.hairline }
-                            Text { x: 4; y: -2; text: (index * 50); color: win.inkMuted; font.family: fMono.name; font.pixelSize: 11 } } } }
+                    Rectangle { x: parent.width * 0.62 - 1; width: 3; height: parent.height; color: win.ink; opacity: 0.6 } }
+                // limit label beside the marker, right-aligned so it never touches the delay number
+                Text { x: panel.width - 32 - width; y: 176 - 34 - 2; lineHeightMode: Text.FixedHeight; lineHeight: 34; text: Math.round(panel.limitMs) + " ms"
+                    color: win.inkMuted; font.family: fSansMed.name; font.pixelSize: 28 }
+
+                // status: a flat left-edge stripe, not a filled rounded pill
+                Row { x: 32; y: 206; width: panel.width - 64; height: 48; spacing: 16
+                    readonly property string caption: Transitions.monitorStatus(win.pstate, win.ota && win.ota.stage ? win.ota.stage : "")
+                    visible: caption !== ""   // normal needs no caption
+                    Rectangle { width: 5; height: parent.height; color: win.stateColor
+                        Behavior on color { ColorAnimation { duration: 400 } } }
+                    Text { anchors.verticalCenter: parent.verticalCenter; color: win.stateColor; font.family: fGroteskMed.name; font.pixelSize: 34
+                        Behavior on color { ColorAnimation { duration: 400 } }
+                        text: parent.caption } }
             }
-
-            // status: a flat left-edge stripe, not a filled rounded pill
-            Row { x: 32; y: 366; width: panel.width - 64; height: 48; spacing: 16
-                Rectangle { width: 4; height: parent.height; color: win.stateColor
-                    Behavior on color { ColorAnimation { duration: 400 } } }
-                Text { anchors.verticalCenter: parent.verticalCenter; color: win.stateColor; font.family: fGroteskMed.name; font.pixelSize: 24
-                    Behavior on color { ColorAnimation { duration: 400 } }
-                    text: win.pstate === "confirmed" ? "한계 초과 · 복구 결정"
-                        : win.pstate === "suspect" ? "징후 포착 · 관찰 중"
-                        : win.pstate === "observing" ? "정상 관측 중" : "PI3 신호 없음" } }
-            Rectangle { x: 32; y: 426; width: panel.width - 64; height: 1; color: win.hairline }
-
-            // CAN truth vs. what the cluster shows — one flat row, hairline-divided, no card boxes
-            Row { x: 32; y: 450; width: panel.width - 64; height: 90
-                readonly property bool lagging: panel.shown !== null && panel.shown !== undefined && panel.shown.behind_frames >= 3
-                Column { width: parent.width / 2; spacing: 6
-                    Text { color: win.inkMuted; font.family: fMono.name; font.pixelSize: 13; font.letterSpacing: 1; text: "CAN BUS" }
-                    Row { spacing: 8
-                        Text { color: win.accent; font.family: fMono.name; font.pixelSize: 40; text: panel.can ? Math.round(panel.can.speed) : "—" }
-                        Text { color: win.inkMuted; font.family: fSans.name; font.pixelSize: 16; anchors.bottom: parent.bottom; anchors.bottomMargin: 7; text: "km/h" } } }
-                Rectangle { width: 1; height: parent.height; color: win.hairline }
-                Column { x: parent.width / 2 + 24; width: parent.width / 2 - 24; spacing: 6
-                    Text { color: win.inkMuted; font.family: fMono.name; font.pixelSize: 13; font.letterSpacing: 1; text: "CLUSTER SHOWS" }
-                    Row { spacing: 8
-                        Text { color: parent.parent.parent.lagging ? win.critical : win.ink; font.family: fMono.name; font.pixelSize: 40
-                            text: panel.shown ? Math.round(panel.shown.speed) : "—" }
-                        Text { color: win.inkMuted; font.family: fSans.name; font.pixelSize: 16; anchors.bottom: parent.bottom; anchors.bottomMargin: 7; text: "km/h" } } } }
         }
 
+        // ---------------- section dividers: cluster | monitor over IVI (all three read as separate zones) ----------------
+        Rectangle { z: 60; x: 1438; y: 225; width: 4; height: 540; color: "#3a4a68" }
+        Rectangle { z: 60; x: 0; y: 223; width: 2160; height: 4; color: "#3a4a68" }
+        Rectangle { z: 60; x: 0; y: 763; width: 2160; height: 4; color: "#3a4a68" }
+
         // ---------------- IVI of the current slot (real app, live — untouched) ----------------
-        Rectangle { x: 0; y: 540; width: 2160; height: 675; color: "#0a0e15"; clip: true
+        Rectangle { x: 0; y: 765; width: 2160; height: 675; color: "#0a0e15"; clip: true
             Loader { id: iviLoader; width: 1920; height: 600; transformOrigin: Item.TopLeft; scale: 1.125
                 source: win.d.ivi_ui ? win.d.ivi_ui : ""
                 onLoaded: if (item && item.hasOwnProperty("runDir")) item.runDir = "file:///run/capstone-ivi/" }
             Text { visible: iviLoader.status !== Loader.Ready; anchors.centerIn: parent; color: win.inkMuted; font.family: fSans.name; font.pixelSize: 32
-                text: win.d.ivi_ui ? "IVI loading…" : "IVI not installed" }
+                text: win.d.ivi_ui ? "IVI 불러오는 중" : "IVI 설치 안 됨" }
+            // The application process is stopped or restarting (its status file stopped updating): cover the
+            // last picture instead of showing a frozen screen. Real signal, no timer of its own.
+            Rectangle { id: iviDown; z: 5; anchors.fill: parent; color: "#0a0e15"; visible: !!win.d.ivi_ui && !Transitions.iviResponding(win.d.ivi)
+                Text { anchors.centerIn: parent; color: win.inkMuted; font.family: fSans.name; font.pixelSize: 32; text: "IVI 응답 없음" } }
         }
 
-        // ---------------- event log (unchanged) ----------------
-        Rectangle { x: 0; y: 1215; width: 2160; height: 225; color: "#070a10"
-            Rectangle { width: parent.width; height: 1; color: win.hairline }
-            Text { x: 28; y: 12; text: "EVENT LOG"; color: win.inkMuted; font.family: fMono.name; font.pixelSize: 14; font.letterSpacing: 2 }
-            Column { x: 28; y: 38; spacing: 2
-                Repeater { model: win.d.log ? win.d.log.slice(-7) : []
-                    Text { color: modelData.text.indexOf("Rollback") === 0 || modelData.text.indexOf("confirmed") >= 0 ? "#ff8a8a"
-                                : modelData.text.indexOf("Commit") === 0 ? win.accent : "#aeb9cc"
-                        font.family: fSans.name; font.pixelSize: 18; text: modelData.t + "   " + modelData.text } } }
-        }
-
-        // ---------------- alert band: a flat panel that extends like a physical shutter ----------------
-        // Docks from the TOP for a rollback or a successful commit, from the BOTTOM only for a blocked
-        // attack -- the bottom edge is reserved exclusively for "something adversarial happened" so it
-        // always carries that one meaning; rollback and success share the top edge since they never
-        // fire at the same moment, and are told apart by tone/tag/copy, not a second docking direction.
+        // ---------------- alert strip: the top 225 px are reserved for dynamic alerts ----------------
+        // There is no event log any more. Update, rollback, blocked-attack and diagnostic-port events appear
+        // here one after another, told apart by tone, tag and copy; the strip is empty when nothing happens,
+        // so it never competes with the progress gauge below it.
+        Rectangle { x: 0; y: 0; width: 2160; height: 225; color: "#070a0f"
+            Rectangle { y: parent.height - 1; width: parent.width; height: 1; color: win.hairline } }
         Item {
             id: band
             objectName: "otaEventBand"
-            anchors.fill: parent
+            x: 0; y: 0; width: 2160; height: 225; clip: true
             z: 100
+            readonly property bool shown: seq.running
             property string kind: "rollback"
             property string headline: ""
             property string tag: ""
+            property string sub: ""     // small text beside the headline: the version change, e.g. "V2 → V3"
             property color tone: win.critical
             property var pending: []
             function enqueue(event) {
@@ -251,13 +290,26 @@ Window {
                 if (!pending.length) return
                 var event = pending.shift()
                 kind = event.kind
-                if (kind === "rollback") { tone = win.critical; headline = "롤백 준비 · 복구 이미지 검사"; tag = "[ SYS ]" }
-                else if (kind === "rejected") { tone = win.critical; headline = "복구 이미지 거부 · 실행 차단"; tag = "[ SEC ]" }
-                else if (kind === "recovery_error") { tone = win.critical; headline = "복구 실패 · 수동 점검 필요"; tag = "[ SYS ]" }
-                else if (kind === "preparing") { tone = win.accent; headline = "업데이트 준비 · " + event.transition; tag = "[ OTA ]" }
-                else if (kind === "installed") { tone = win.success; headline = "설치 완료 · " + event.transition + " · 시험 운전"; tag = "[ OTA ]" }
-                else if (kind === "restored") { tone = win.success; headline = "이전 버전 복귀 완료"; tag = "[ SYS ]" }
-                else { tone = win.success; headline = "업데이트 최종 승인"; tag = "[ OTA ]" }
+                sub = event.transition ? event.transition : ""
+                // A rollback goes the other way: the transition recorded for it is old -> candidate.
+                if (sub && (kind === "rollback" || kind === "restored" || kind === "rejected" || kind === "recovery_error"))
+                    sub = sub.split(" → ").reverse().join(" → ")
+                // Only these messages ever show on the strip.
+                if (kind === "preparing") { tone = win.accent; headline = "업데이트 시작"; tag = "[ OTA ]" }
+                else if (kind === "installed") { tone = win.accent; headline = "설치 완료"; tag = "[ OTA ]" }       // written, not yet checked
+                else if (kind === "updated") { tone = win.success; headline = "업데이트 완료"; tag = "[ OTA ]" }   // the checked image runs
+                else if (kind === "rollback") { tone = win.warn; headline = "롤백 준비"; tag = "[ SYS ]" }
+                else if (kind === "restored") { tone = win.success; headline = "롤백 완료"; tag = "[ SYS ]" }
+                // Here the image a rollback would run is the attacker's V1, so a refused rollback is the DEFENCE working.
+                else if (kind === "rejected") { tone = win.success; headline = "롤백 차단"; tag = "[ SEC ]"; sub = "변조 이미지" }
+                else if (kind === "recovery_error") { tone = win.critical; headline = "롤백 실패"; tag = "[ SYS ]" }
+                else if (kind === "attack_running") { tone = win.critical; headline = "공격 이미지 실행 중"; tag = "[ SEC ]"; sub = "V1" }
+                else if (kind === "server_waiting") { tone = win.warn; headline = "서버 승인 대기 중"; tag = "[ NET ]"; sub = "V2 요청" }
+                else if (kind === "server_approved") { tone = win.success; headline = "서버 승인"; tag = "[ NET ]"; sub = "복원 시작" }
+                else if (kind === "server_rejected") { tone = win.critical; headline = "서버 거절"; tag = "[ NET ]"; sub = "정비 필요" }
+                else if (kind === "server_silent") { tone = win.critical; headline = "서버 응답 없음"; tag = "[ NET ]"; sub = "정비 필요" }
+                else if (kind === "port_closed") { tone = win.success; headline = "디버깅 포트 차단"; tag = "[ NET ]" }
+                else { pending.length ? next() : 0; return }   // anything else (e.g. the final commit) is not announced
                 seq.start()
             }
 
@@ -268,39 +320,27 @@ Window {
                 Row { x: 48; anchors.verticalCenter: parent.verticalCenter; spacing: 28
                     Rectangle { width: 108; height: 44; color: "transparent"; border.width: 2; border.color: "#05070a"
                         Text { anchors.centerIn: parent; text: band.tag; color: "#05070a"; font.family: fMono.name; font.pixelSize: 17; font.letterSpacing: 1 } }
-                    Text { text: band.headline; color: "#05070a"; font.family: fGroteskBold.name; font.pixelSize: 56; font.letterSpacing: 1
+                    Text { id: headlineText; text: band.headline; color: "#05070a"; font.family: fGroteskBold.name; font.pixelSize: 64
                         anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: band.sub; visible: band.sub !== ""; color: "#05070a"; opacity: 0.72; font.family: fGroteskMed.name; font.pixelSize: 34
+                        anchors.baseline: headlineText.baseline }
                 }
                 Rectangle { id: topScan; y: parent.height - 4; width: 220; height: 4; color: "#05070a"; opacity: 0.55 }
             }
-            Rectangle {
-                id: bottomBand
-                anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-                height: 0; color: band.tone; clip: true
-                Row { x: 48; anchors.verticalCenter: parent.verticalCenter; spacing: 28
-                    Rectangle { width: 108; height: 44; color: "transparent"; border.width: 2; border.color: "#05070a"
-                        Text { anchors.centerIn: parent; text: band.tag; color: "#05070a"; font.family: fMono.name; font.pixelSize: 17; font.letterSpacing: 1 } }
-                    Text { text: band.headline; color: "#05070a"; font.family: fGroteskBold.name; font.pixelSize: 56; font.letterSpacing: 1
-                        anchors.verticalCenter: parent.verticalCenter }
-                }
-                Rectangle { id: bottomScan; y: 0; width: 220; height: 4; color: "#05070a"; opacity: 0.55 }
-            }
-
             SequentialAnimation {
                 id: seq
                 onFinished: band.next()
                 PropertyAction { target: topBand; property: "height"; value: 0 }
-                PropertyAction { target: bottomBand; property: "height"; value: 0 }
-                PropertyAction { target: (band.kind === "rejected" ? bottomScan : topScan); property: "x"; value: -220 }
-                NumberAnimation { target: band.kind === "rejected" ? bottomBand : topBand; property: "height"; to: 190
+                                PropertyAction { target: topScan; property: "x"; value: -220 }
+                NumberAnimation { target: topBand; property: "height"; to: 225
                     duration: 360; easing.type: Easing.OutCubic }
                 ParallelAnimation {
-                    NumberAnimation { target: band.kind === "rejected" ? bottomScan : topScan; property: "x"; from: -220; to: 2160
+                    NumberAnimation { target: topScan; property: "x"; from: -220; to: 2160
                         duration: 1100; easing.type: Easing.InOutQuad }
                     PauseAnimation { duration: 1100 }
                 }
                 PauseAnimation { duration: 500 }
-                NumberAnimation { target: band.kind === "rejected" ? bottomBand : topBand; property: "height"; to: 0
+                NumberAnimation { target: topBand; property: "height"; to: 0
                     duration: 300; easing.type: Easing.InCubic }
             }
         }

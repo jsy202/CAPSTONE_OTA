@@ -111,3 +111,29 @@ def test_healthy_traffic_has_no_waiting_frames_inflating_the_delay():
     for k in range(60):                                       # sample at many phases of the 100 ms frame cycle
         values.append(tap.snapshot(T0 + 29.0 + k * 0.0167)['delay_ms'])
     assert max(v for v in values if v is not None) < 40
+
+
+def _outage(until, gap=(20.0, 21.5)):
+    """Healthy 50 Hz traffic in which the cluster is simply off for `gap` seconds (a restart): no echoes at all."""
+    rows = dc.build_profile(dc.DEMO_CYCLE, hz=50, shifts=dc.DEMO_SHIFT_KMH)
+    frames = [f for f in simulate(rows, mode='normal', seed=5, hz=50, t0=T0)
+              if not (f.id == 0x300 and T0 + gap[0] <= f.t < T0 + gap[1])]
+    tap, i, snap, now = DelayTap(), 0, None, T0 + 1
+    while now <= until:
+        while i < len(frames) and frames[i].t <= now:
+            tap.feed(frames[i]); i += 1
+        snap = tap.snapshot(now)
+        now += 0.1
+    return snap
+
+
+def test_frames_nobody_ever_answered_do_not_read_as_a_delay_once_the_cluster_is_back():
+    """A restart leaves up to 1.5 s of source frames without any echo. Those were dropped, not late: the readout
+    used to show about 3 s for the next three seconds although the cluster was answering again within milliseconds."""
+    assert _outage(T0 + 22.5)['delay_ms'] < 100          # back for 1 s: healthy
+    assert _outage(T0 + 24.5)['delay_ms'] < 100
+
+
+def test_a_cluster_that_is_still_silent_keeps_reading_a_growing_wait():
+    snap = _outage(T0 + 21.0)                             # off for 1 s so far
+    assert snap['delay_ms'] > 500                          # the lower bound of what the waiting frames have waited

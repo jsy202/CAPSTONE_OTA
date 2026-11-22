@@ -67,6 +67,10 @@ class Probation:
             if verdict and verdict.get('reset_nonce') == nonce:
                 acknowledged = True
             blind = not (fresh and acknowledged) or (verdict or {}).get('state') == 'blind'
+            self.trace({'kind': 'poll', 't': round(self.clock(), 2), 'elapsed_s': round(self.clock() - start, 1),
+                        'seq': (verdict or {}).get('seq'), 'state': (verdict or {}).get('state'), 'acknowledged': acknowledged,
+                        'fresh': fresh, 'blind': blind, 'monitored_s': (verdict or {}).get('monitored_s'),
+                        'reset_nonce_ok': bool(verdict) and verdict.get('reset_nonce') == nonce})
             if acknowledged and verdict and verdict.get('state') == 'confirmed':
                 return self._rollback(verdict, f"confirmed {verdict.get('cls')} ({', '.join(verdict.get('fired', []))})")
             if not blind and verdict.get('monitored_s', 0) >= self.probation_s:
@@ -87,7 +91,7 @@ class Probation:
             own = bool(self._cluster_obs and moment - self._cluster_obs[0] <= self.obs_grace and self._cluster_obs[1])
             watching = bool(monitor and fresh and monitor.get('state') != 'blind')
             bus = (not watching) or monitor.get('bus_stopped_s', 0) >= self.safe_s     # degrade if blind
-            self.trace({'t': round(moment, 2), 'cluster': cluster, 'own_stopped': own, 'watching': watching,
+            self.trace({'kind': 'window', 't': round(moment, 2), 'cluster': cluster, 'own_stopped': own, 'watching': watching,
                         'pi3_state': monitor.get('state') if monitor else None,
                         'pi3_bus_stopped_s': monitor.get('bus_stopped_s') if monitor else None, 'bus_stopped': bus,
                         'safe_since': None if safe_since is None else round(safe_since, 2)})

@@ -41,6 +41,7 @@ def main(argv=None) -> int:
     ivi_validation.add_argument("--check-command", help="trusted probation command as a JSON argument array; slot path appended")
     ivi_validation.add_argument("--initialization-only", action="store_true")
     ivi.add_argument("--systemd", action="store_true", help="first-install opt-in to capstone-ivi.service")
+    ivi.add_argument("--recheck-command", help="own check of the old image after a rollback, as a JSON argument array (default: the check command)")
     ivi.add_argument("--verifier-can-channel", help="CAN interface (e.g. can0) carrying the authenticated verdict; SSH becomes a trigger only")
     ivi.add_argument("--verifier-can-secret-file", type=Path, help="pre-shared HMAC key file matching the verifier's")
     for name, what in (("cluster-repair", "Cluster"), ("ivi-repair", "IVI")):
@@ -66,16 +67,17 @@ def main(argv=None) -> int:
             result = Device(args.root).update(args.url, args.public_key, args.systemd)
         elif args.command in ("cluster-update", "ivi-update"):
             checker = check_command(json.loads(args.check_command)) if args.check_command is not None else None
+            recheck = json.loads(args.recheck_command) if getattr(args, "recheck_command", None) else None
             device = (IviDevice if args.command == "ivi-update" else ClusterDevice)(
                 args.root, checker, verifier_can_channel=args.verifier_can_channel,
-                verifier_can_secret_path=args.verifier_can_secret_file)
+                verifier_can_secret_path=args.verifier_can_secret_file, recheck_command=recheck)
             try:
                 result = device.update(args.url, args.public_key, args.systemd)
             except (OSError, ValueError) as exc:
                 result = device.status()
                 if result["result"] != "recovery_failed":
                     raise
-                result.update(passed=False, error=str(exc.__cause__ or exc))
+                result.update(passed=False, error=str(exc.__cause__ or exc), **device.recovery_evidence())
             result.update(validation="external" if checker else "initialization_only", verification=device.reports)
         elif args.command in ("cluster-repair", "ivi-repair"):
             checker = check_command(json.loads(args.check_command)) if args.check_command is not None else None

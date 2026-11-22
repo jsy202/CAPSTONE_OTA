@@ -34,3 +34,20 @@ def test_cli_cluster_repair_is_available(tampered):
     device, url = tampered
     process = _cli(device.root, "cluster-repair", url + "/v2", "--initialization-only")
     assert json.loads(process.stdout)["result"] == "rolled_back"
+
+
+def test_cli_update_reports_hashes_when_recovery_fails(tmp_path, served, keys):
+    """Pi1 learns the hashes from Pi2's own answer, not by reading Pi2's files."""
+    from test_device import serving
+    from test_device_repair import VERIFIER
+    root, counter = tmp_path / "device", tmp_path / "calls"
+    check = json.dumps([sys.executable, "-c", VERIFIER, str(counter), str(root)])
+    with serving(served) as url:
+        first = _cli(root, "ivi-update", url + "/v2", "--public-key", str(keys[1]), "--check-command", check)
+        assert first.returncode == 0, first.stderr
+        second = _cli(root, "ivi-update", url + "/v3", "--check-command", check)
+    result = json.loads(second.stdout)
+    assert second.returncode == 1 and result["result"] == "recovery_failed"
+    state = json.loads((root / "state.json").read_bytes())
+    assert result["expected_tree_sha256"] == state["committed"]["tree_sha256"]
+    assert result["observed_tree_sha256"] not in (None, result["expected_tree_sha256"])
