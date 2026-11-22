@@ -304,7 +304,7 @@ Window {
                 else if (kind === "rejected") { tone = win.success; headline = "롤백 차단"; tag = "[ SEC ]"; sub = "변조 이미지" }
                 else if (kind === "recovery_error") { tone = win.critical; headline = "롤백 실패"; tag = "[ SYS ]" }
                 else if (kind === "attack_running") { tone = win.critical; headline = "공격 이미지 실행 중"; tag = "[ SEC ]"; sub = "V1" }
-                else if (kind === "server_waiting") { tone = win.warn; headline = "서버 승인 대기 중"; tag = "[ NET ]"; sub = "복원 요청" }
+                else if (kind === "server_waiting") { tone = win.warn; headline = "서버 승인 대기 중"; tag = "[ NET ]"; sub = "V2 요청" }
                 else if (kind === "server_approved") { tone = win.success; headline = "서버 승인"; tag = "[ NET ]"; sub = "복원 시작" }
                 else if (kind === "server_rejected") { tone = win.critical; headline = "서버 거절"; tag = "[ NET ]"; sub = "정비 필요" }
                 else if (kind === "server_silent") { tone = win.critical; headline = "서버 응답 없음"; tag = "[ NET ]"; sub = "정비 필요" }
