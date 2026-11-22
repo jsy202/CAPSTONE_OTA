@@ -48,10 +48,11 @@ def _argv(config: dict, action: str, url: str) -> list[str] | None:
     if action == "repair":
         return [*head, "ivi-repair", *check, url]
     if action == "update" and _absolute(pinned.get("public_key")):
-        recheck = pinned.get("recheck_command")
-        if recheck is not None and not _check(recheck):
-            return None
-        extra = ["--recheck-command", json.dumps(recheck)] if recheck is not None else []
+        recheck, extra = pinned.get("recheck_command"), []
+        if recheck is not None:
+            if not _check(recheck):
+                return None
+            extra = ["--recheck-command", json.dumps(recheck)]
         return [*head, "ivi-update", "--public-key", pinned["public_key"], *check, *extra, url]
     return None
 

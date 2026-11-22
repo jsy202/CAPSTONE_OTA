@@ -149,7 +149,7 @@ def main(argv=None) -> int:
     rows = []
     try:
         field.start_real_services(boards, print, hz=hz, cycle=cycle)
-        field.start_screen(boards, field.pi3_address(boards["pi3"]), print, virtual=True, labels=field.version_labels(config))
+        field.start_screen(boards, field.wifi_address(boards["pi3"]), print, virtual=True, labels=field.version_labels(config))
         time.sleep(25)       # let the cockpit and the monitor settle before the first measurement
         for level in levels:
             rows.append(measure(boards, level, args.seconds))

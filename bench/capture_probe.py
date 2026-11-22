@@ -48,7 +48,7 @@ def main(argv=None) -> int:
     results = []
     field.start_real_services(boards, print)
     try:
-        pi3_ip = field.pi3_address(boards["pi3"])
+        pi3_ip = field.wifi_address(boards["pi3"])
         if not field.wait_for(lambda: field.healthy(field.pi3_verdict(boards["pi3"])), 90, 3.0):
             raise SystemExit("the Pi3 monitor does not see both the vehicle input and the cluster answer")
         for name, interval in (("none", None), ("0.5s", 0.5), ("0.1s", 0.1), ("none-again", None)):

@@ -1,5 +1,6 @@
 """Target-side application installation; no Central slots or existing Qt services."""
 import subprocess
+import math
 import time
 from pathlib import Path
 
@@ -43,9 +44,11 @@ class ClusterDevice(Device):
         from .qt_verify import socket_request
         try:
             report = socket_request(self.speed_socket, {"op": "snapshot", "nonce": "standstill"})
-            return report["model_speed"] if report.get("valid") is True else None
-        except (OSError, ValueError, KeyError):
+        except (OSError, ValueError):
             return None
+        # Anything but a plain, finite number from a valid snapshot is "no reading" (a bool is not a speed: False == 0).
+        speed = report.get("model_speed") if isinstance(report, dict) and report.get("valid") is True else None
+        return speed if type(speed) in (int, float) and math.isfinite(speed) else None
 
     def _park(self, max_s, clock=time.monotonic, sleep=time.sleep):
         """Wait until the cluster reports a steady standstill (an update is installed standing still), at most `max_s`.

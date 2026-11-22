@@ -498,3 +498,28 @@ def test_a_car_that_keeps_moving_or_is_unknown_never_counts_as_standing_still(tm
 def test_a_moving_reading_restarts_the_standstill_time(tmp_path):
     waited = _parked(tmp_path, [0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0])
     assert 3.5 <= waited < 5.0                              # without the 12 km/h reading it would have started at 2.0 s
+
+
+@pytest.mark.parametrize('reply', [None, [], 'x', {'valid': True, 'model_speed': False}, {'valid': True, 'model_speed': None},
+                                   {'valid': True, 'model_speed': 'fast'}, {'valid': True, 'model_speed': float('nan')},
+                                   {'valid': False, 'model_speed': 0}, {'valid': 'yes', 'model_speed': 0}])
+def test_an_odd_cluster_answer_is_never_a_reading_and_never_crashes_the_update(tmp_path, monkeypatch, reply):
+    cluster = importlib.import_module('capstone_ota.cluster')
+    qt_verify = importlib.import_module('capstone_ota.qt_verify')
+    monkeypatch.setattr(qt_verify, 'socket_request', lambda *a, **k: reply)
+    assert cluster.ClusterDevice(tmp_path / 'cluster', None).vehicle_speed() is None
+
+
+def test_a_valid_cluster_answer_is_the_speed(tmp_path, monkeypatch):
+    cluster = importlib.import_module('capstone_ota.cluster')
+    qt_verify = importlib.import_module('capstone_ota.qt_verify')
+    monkeypatch.setattr(qt_verify, 'socket_request', lambda *a, **k: {'valid': True, 'model_speed': 0})
+    assert cluster.ClusterDevice(tmp_path / 'cluster', None).vehicle_speed() == 0
+
+
+def test_a_pinned_recheck_without_a_check_command_is_refused_not_dropped(tmp_path):
+    relay = importlib.import_module('capstone_ota.relay')
+    target = {"host": "h", "checkout": "/c", "python": "/p", "root": "/r", "public_key": "/k",
+              "application": "ivi", "initialization_only": True, "recheck_command": ["true"]}
+    with pytest.raises(ValueError):
+        relay.target_command(target)

@@ -91,6 +91,8 @@ def target_command(config):
         raise ValueError("can_secret_file must be an absolute path")
     initial = config.get("initialization_only", False)
     systemd = config.get("systemd", False)
+    if initial and config.get("recheck_command") is not None:
+        raise ValueError("a recheck_command needs a check_command: nothing would run it")
     checker = config.get("check_command")
     if (type(initial) is not bool or type(systemd) is not bool
             or (checker is None) != initial):

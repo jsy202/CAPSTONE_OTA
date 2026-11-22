@@ -151,3 +151,15 @@ def test_gear_and_rpm_follow_the_slowing_car_and_idle_when_it_stands():
     middle = next(i for i, s in enumerate(speeds) if 0 < s <= 200)  # still rolling at 20 km/h or less
     assert gears[middle] < 4 and rpms[middle] < 2200            # downshifted, revs down
     assert gears[-1] == 0 and rpms[-1] == dc.IDLE_RPM           # neutral and idle when standing
+
+
+def test_a_forgotten_hold_file_stops_holding_after_the_safety_limit(tmp_path):
+    import os
+    import time
+    marker = tmp_path / 'profile.hold'
+    marker.write_text('')
+    hold = pp.file_hold(marker, max_age_s=300)
+    assert hold() is True
+    old = time.time() - 301
+    os.utime(marker, (old, old))                 # the laptop that should have removed it is gone
+    assert hold() is False

@@ -20,10 +20,17 @@ from capstone_ota.qt_source import frame
 from . import drive_cycle
 
 
-def file_hold(path):
-    """A hold that is on while `path` exists (the orchestrator touches/removes it on Pi1)."""
+def file_hold(path, max_age_s=300.0):
+    """A hold that is on while `path` exists (the orchestrator touches/removes it on Pi1). A file older than
+    `max_age_s` is a forgotten one (the laptop that should remove it is gone): the car is not held for ever."""
     path = Path(path)
-    return lambda: path.exists()
+
+    def held():
+        try:
+            return time.time() - path.stat().st_mtime <= max_age_s
+        except OSError:
+            return False
+    return held
 
 
 BRAKE_KMH_S = 9.0      # a held car brakes like a car ...

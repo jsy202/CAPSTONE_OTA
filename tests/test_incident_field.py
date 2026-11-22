@@ -491,7 +491,6 @@ def test_every_board_asks_for_its_wifi_address_the_same_way():
     board = _Board("172.20.10.4\n")
     assert field.wifi_address(board) == "172.20.10.4"
     assert "wlan0" in board.commands[0]
-    assert field.pi3_address(board) == "172.20.10.4"
 
 
 def test_the_control_centre_key_pair_is_written_private_to_the_owner(tmp_path):
@@ -523,3 +522,18 @@ def test_a_decision_is_posted_to_the_incident_of_the_control_centre(monkeypatch)
     field.decide("10.0.0.1", "INC-0002", "approve")
     assert seen[1] == ("POST", "/incidents/INC-0001/reject") and seen[3] == ("POST", "/incidents/INC-0002/approve")
     assert seen[0] == ("10.0.0.1", field.SERVER_PORT)
+
+
+def test_an_install_that_was_never_seen_standing_does_not_block_the_rollback_hold():
+    # The poll missed archive_verify/install (a ssh hiccup or a fast install) and first sees the running new image.
+    hold, calls, _ = _install_hold()
+    hold.step("trial")
+    assert hold.done and calls == []                 # nothing to hold any more: the rollback hold may go on
+
+
+def test_a_stale_finished_state_from_the_last_run_does_not_cancel_the_install_stop():
+    hold, calls, _ = _install_hold()
+    hold.step("committed")                           # progress.json of the previous run, before the update starts
+    assert not hold.done
+    hold.step("archive_verify")
+    assert calls == ["hold"]

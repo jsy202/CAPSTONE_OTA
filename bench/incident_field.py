@@ -197,15 +197,13 @@ def wifi_address(board):
     return board.run("ip -4 -o addr show wlan0 | awk '{print $4}' | cut -d/ -f1").stdout.strip()
 
 
-pi3_address = wifi_address
-
-
 def make_order_keys(directory):
     """A fresh signing key pair for this run's control centre: private key (0600) and public key, as PEM files."""
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     private_path, public_path = Path(directory) / "order.key", Path(directory) / "order.pub"
     private = Ed25519PrivateKey.generate()
+    private_path.touch(mode=0o600)                     # owner-only before the key is written, not after
     private_path.write_bytes(private.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
                                                    serialization.NoEncryption()))
     private_path.chmod(0o600)
@@ -218,7 +216,7 @@ def decide(host, incident, decision):
     """Click "approve" or "reject" for one incident on the control centre (what the person does in the browser)."""
     import http.client
     connection = http.client.HTTPConnection(host, SERVER_PORT, timeout=10)
-    connection.request("POST", f"/incidents/{incident}/{'approve' if decision == 'approve' else 'reject'}")
+    connection.request("POST", f"/incidents/{incident}/{decision}")
     connection.getresponse().read()
     connection.close()
 
@@ -260,6 +258,7 @@ class ProfileHold:
 
 INSTALL_STOP_STAGES = ("archive_verify", "install")                       # download complete: the car must stand
 BOOTED_STAGES = ("trial", "verify", "committed", "recover", "recheck", "rolled_back")   # the new (or restored) image runs
+RUNNING_NEW_STAGES = ("trial", "verify")   # only seen once an update is under way (never left over from a previous run)
 DRIVE_OFF_AFTER_S = 4.0     # the new image shows 0 km/h for a moment before the car accelerates
 
 
@@ -282,6 +281,8 @@ class InstallHold:
             if stage in INSTALL_STOP_STAGES:
                 self._set()
                 self.holding, self._since = True, self._clock()
+            elif stage in RUNNING_NEW_STAGES:
+                self.finish()      # the poll missed the install: nothing left to hold, the rollback hold must still work
             return
         if stage in BOOTED_STAGES and self._booted is None:
             self._booted = self._clock()
@@ -702,7 +703,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
                                 cycle=config.get("profile_cycle", "synthetic"))
             apply_demo_pace(pi2, config)
             threading.Thread(target=run_profile_hold, args=(boards, hold_stop), daemon=True).start()
-            pi3_ip = pi3_address(boards["pi3"])
+            pi3_ip = wifi_address(boards["pi3"])
             if screen:
                 start_screen(boards, pi3_ip, log, virtual=virtual_screen, labels=version_labels(config))
                 show_port(pi2, f"정비 포트 {MAINTENANCE_PORT} 열림 · 이더넷 전용")
