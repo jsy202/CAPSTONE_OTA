@@ -199,7 +199,7 @@ def pi3_address(pi3):
 PROFILE_HOLD = RUNTIME + "/profile.hold"       # while this file exists on Pi1 the simulated vehicle stands still
 HOLD_AFTER_STOPPED_S = 6.0                     # confirmed overrun and standing still this long: the rollback is imminent
 HOLD_MAX_S = 300.0                             # the car is never held longer than this, whatever happens
-RESTORED_STAGES = ("recheck", "rolled_back", "committed")   # the restored image runs: the cluster is back
+RESTORED_STAGES = ("rolled_back", "committed")   # rollback AND the check after it are complete (both gauges 100%): drive on
 
 
 class ProfileHold:

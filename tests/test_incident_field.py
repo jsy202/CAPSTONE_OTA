@@ -353,10 +353,13 @@ def test_the_car_is_held_once_the_overrun_is_confirmed_and_it_has_stood_still_a_
     assert calls == ["hold"]
 
 
-def test_the_car_is_released_when_the_cluster_is_back_and_never_held_again_in_that_run():
+def test_the_car_is_released_only_when_rollback_and_check_are_both_complete_and_never_held_again_in_that_run():
     hold, calls, _ = _hold()
     hold.step(_verdict("confirmed", 7), None)
-    hold.step(_verdict("confirmed", 20), "recheck")  # restored image runs: drive on, from standstill
+    hold.step(_verdict("confirmed", 15), "recover")
+    hold.step(_verdict("confirmed", 20), "recheck")  # the restored image runs but the 검증 gauge is still filling
+    assert calls == ["hold"] and hold.holding
+    hold.step(_verdict("confirmed", 40), "rolled_back")  # both gauges at 100%: drive on, from standstill
     assert calls == ["hold", "release"] and not hold.holding
     hold.step(_verdict("confirmed", 30), None)       # the monitor may still say confirmed for a while
     assert calls == ["hold", "release"]
