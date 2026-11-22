@@ -313,7 +313,7 @@ Item {
         interval: 200; running: true; repeat: false
         onTriggered: {
             var seen = {}
-            var kinds = ["preparing", "installed", "updated", "rollback", "rejected", "port_closed"]
+            var kinds = ["preparing", "installed", "updated", "rollback", "rejected", "port_closed", "server_waiting", "server_approved", "server_rejected", "server_silent"]
             for (var i = 0; i < kinds.length; i++) {
                 band.pending = [{kind: kinds[i], transition: "V2 \\u2192 V3"}]
                 band.next()
@@ -331,7 +331,9 @@ Item {
     line = [row for row in done.stderr.splitlines() if 'HEADLINES:' in row][0]
     seen = json.loads(line.split('HEADLINES:', 1)[1])
     assert seen == {'preparing': '업데이트 시작', 'installed': '설치 완료',
-                    'updated': '업데이트 완료', 'rollback': '롤백 준비', 'rejected': '롤백 차단', 'port_closed': '디버깅 포트 차단'}, seen
+                    'updated': '업데이트 완료', 'rollback': '롤백 준비', 'rejected': '롤백 차단', 'port_closed': '디버깅 포트 차단',
+                    'server_waiting': '서버 승인 대기 중', 'server_approved': '서버 승인', 'server_rejected': '서버 거절',
+                    'server_silent': '서버 응답 없음'}, seen
 
 
 

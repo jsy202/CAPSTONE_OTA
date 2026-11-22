@@ -49,6 +49,11 @@ Window {
             var t = String(look.rows[i].text || "")
             if (t.indexOf("디버깅 포트 닫힘") === 0) band.enqueue({kind: "port_closed", text: t})
             else if (t.indexOf("화면 앱 V1 실행") === 0) band.enqueue({kind: "attack_running", text: t})   // the IVI itself reports V1
+            // The vehicle asked the control centre for the restore and waits for a person's decision.
+            else if (t.indexOf("서버에 사고 보고") === 0) band.enqueue({kind: "server_waiting", text: t})
+            else if (t.indexOf("서버 승인됨") === 0) band.enqueue({kind: "server_approved", text: t})
+            else if (t.indexOf("서버 거절됨") === 0) band.enqueue({kind: "server_rejected", text: t})
+            else if (t.indexOf("서버 응답 없음") === 0 || t.indexOf("서버에 연결할 수 없음") === 0) band.enqueue({kind: "server_silent", text: t})
         }
     }
     property string _rollbackRun: ""
@@ -299,6 +304,10 @@ Window {
                 else if (kind === "rejected") { tone = win.success; headline = "롤백 차단"; tag = "[ SEC ]"; sub = "변조 이미지" }
                 else if (kind === "recovery_error") { tone = win.critical; headline = "롤백 실패"; tag = "[ SYS ]" }
                 else if (kind === "attack_running") { tone = win.critical; headline = "공격 이미지 실행 중"; tag = "[ SEC ]"; sub = "V1" }
+                else if (kind === "server_waiting") { tone = win.warn; headline = "서버 승인 대기 중"; tag = "[ NET ]"; sub = "복원 요청" }
+                else if (kind === "server_approved") { tone = win.success; headline = "서버 승인"; tag = "[ NET ]"; sub = "복원 시작" }
+                else if (kind === "server_rejected") { tone = win.critical; headline = "서버 거절"; tag = "[ NET ]"; sub = "정비 필요" }
+                else if (kind === "server_silent") { tone = win.critical; headline = "서버 응답 없음"; tag = "[ NET ]"; sub = "정비 필요" }
                 else if (kind === "port_closed") { tone = win.success; headline = "디버깅 포트 차단"; tag = "[ NET ]" }
                 else { pending.length ? next() : 0; return }   // anything else (e.g. the final commit) is not announced
                 seq.start()
