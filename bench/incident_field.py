@@ -192,8 +192,35 @@ def apply_demo_pace(pi2, config):
         pi2.run(f"sudo -n rm -f {path}; true", check=False)
 
 
-def pi3_address(pi3):
-    return pi3.run("ip -4 -o addr show wlan0 | awk '{print $4}' | cut -d/ -f1").stdout.strip()
+def wifi_address(board):
+    """The board's Wi-Fi IPv4 address (the one the laptop and the other boards reach it on)."""
+    return board.run("ip -4 -o addr show wlan0 | awk '{print $4}' | cut -d/ -f1").stdout.strip()
+
+
+pi3_address = wifi_address
+
+
+def make_order_keys(directory):
+    """A fresh signing key pair for this run's control centre: private key (0600) and public key, as PEM files."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    private_path, public_path = Path(directory) / "order.key", Path(directory) / "order.pub"
+    private = Ed25519PrivateKey.generate()
+    private_path.write_bytes(private.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                                   serialization.NoEncryption()))
+    private_path.chmod(0o600)
+    public_path.write_bytes(private.public_key().public_bytes(serialization.Encoding.PEM,
+                                                              serialization.PublicFormat.SubjectPublicKeyInfo))
+    return private_path, public_path
+
+
+def decide(host, incident, decision):
+    """Click "approve" or "reject" for one incident on the control centre (what the person does in the browser)."""
+    import http.client
+    connection = http.client.HTTPConnection(host, SERVER_PORT, timeout=10)
+    connection.request("POST", f"/incidents/{incident}/{'approve' if decision == 'approve' else 'reject'}")
+    connection.getresponse().read()
+    connection.close()
 
 
 PROFILE_HOLD = RUNTIME + "/profile.hold"       # while this file exists on Pi1 the simulated vehicle stands still
@@ -653,15 +680,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
     archive = output / "attack/v1/app.tar.gz"
 
     # Control centre on the laptop; Pi1 reports to it over Wi-Fi.
-    order_key, order_pub = output / "order.key", output / "order.pub"
-    from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    private = Ed25519PrivateKey.generate()
-    order_key.write_bytes(private.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
-                                                serialization.NoEncryption()))
-    order_key.chmod(0o600)
-    order_pub.write_bytes(private.public_key().public_bytes(serialization.Encoding.PEM,
-                                                            serialization.PublicFormat.SubjectPublicKeyInfo))
+    order_key, order_pub = make_order_keys(output)
     server = IncidentServer((laptop, SERVER_PORT), releases / "releases", output / "incidents.json", order_key,
                             release_labels(config), order_lifetime=600.0)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -708,10 +727,10 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
             "--gateway-log", RUNTIME + "/gateway.jsonl", "--result-out", RUNTIME + "/result.json",
             "--bind", PI1_ETH, "--advertise", PI1_ETH, "--decision-timeout", "900", "--linger", "60"])
         pi1.run(f"nohup setsid {command} > {RUNTIME}/central.log 2>&1 < /dev/null & echo started")
-        pi1_wifi = pi1.run("ip -4 -o addr show wlan0 | awk '{print $4}' | cut -d/ -f1").stdout.strip()
+        pi1_wifi = wifi_address(pi1)
         if not wait_for(lambda: reachable(pi1_wifi, GATEWAY_PORT), 30):
             raise SystemExit("Pi1 gateway did not come up: " + pi1.run(f"tail -5 {RUNTIME}/central.log", check=False).stdout)
-        pi2_wifi = pi2.run("ip -4 -o addr show wlan0 | awk '{print $4}' | cut -d/ -f1").stdout.strip()
+        pi2_wifi = wifi_address(pi2)
         note("exposure", gateway_reachable_from_laptop=reachable(pi1_wifi, GATEWAY_PORT),
              pi2_maintenance_reachable_from_laptop=reachable(pi2_wifi, MAINTENANCE_PORT),
              pi2_maintenance_listening_on=pi2.run(f"ss -ltn | grep ':{MAINTENANCE_PORT} ' || true").stdout.split()[3:4])
@@ -765,16 +784,10 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
             raise SystemExit("no incident reached the control centre")
         if attack:
             note("incident_reported", id=incident[0]["id"], status=incident[0]["status"])
-        if not attack:
-            pass
-        elif decision == "human":
+        if attack and decision == "human":
             note("waiting_for_human", url=server_url + "/")
-        else:
-            import http.client
-            connection = http.client.HTTPConnection(laptop, SERVER_PORT, timeout=10)
-            connection.request("POST", f"/incidents/{incident[0]['id']}/{'approve' if decision == 'approve' else 'reject'}")
-            connection.getresponse().read()
-            connection.close()
+        elif attack:
+            decide(laptop, incident[0]["id"], decision)
             note("auto_decision", decision=decision)
         done = wait_for(lambda: pi1.run(f"cat {RUNTIME}/result.json 2>/dev/null", check=False).stdout.strip(), 1200, 2.0)
         if not done:

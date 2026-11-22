@@ -476,3 +476,50 @@ def test_the_wait_for_the_control_centre_shows_on_the_cockpit():
     assert field.port_line({"event": "incident_rejected"}) == "서버 거절됨 · 정비 필요"
     assert field.port_line({"event": "incident_timeout"}) == "서버 응답 없음 (시간 초과) · 정비 필요"
     assert field.port_line({"event": "incident_unreachable"}) == "서버에 연결할 수 없음 · 정비 필요"
+
+
+class _Board:
+    def __init__(self, out):
+        self.out, self.commands = out, []
+
+    def run(self, command, **_):
+        self.commands.append(command)
+        return type("R", (), {"stdout": self.out})()
+
+
+def test_every_board_asks_for_its_wifi_address_the_same_way():
+    board = _Board("172.20.10.4\n")
+    assert field.wifi_address(board) == "172.20.10.4"
+    assert "wlan0" in board.commands[0]
+    assert field.pi3_address(board) == "172.20.10.4"
+
+
+def test_the_control_centre_key_pair_is_written_private_to_the_owner(tmp_path):
+    from capstone_ota.order import verify_order  # noqa: F401  (the pair must be one the control centre can use)
+    private, public = field.make_order_keys(tmp_path)
+    assert private.stat().st_mode & 0o777 == 0o600
+    assert b"BEGIN PRIVATE KEY" in private.read_bytes() and b"BEGIN PUBLIC KEY" in public.read_bytes()
+
+
+def test_a_decision_is_posted_to_the_incident_of_the_control_centre(monkeypatch):
+    seen = []
+
+    class Conn:
+        def __init__(self, host, port, timeout):
+            seen.append((host, port))
+
+        def request(self, method, path):
+            seen.append((method, path))
+
+        def getresponse(self):
+            return type("R", (), {"read": lambda self: b""})()
+
+        def close(self):
+            pass
+
+    import http.client
+    monkeypatch.setattr(http.client, "HTTPConnection", Conn)
+    field.decide("10.0.0.1", "INC-0001", "reject")
+    field.decide("10.0.0.1", "INC-0002", "approve")
+    assert seen[1] == ("POST", "/incidents/INC-0001/reject") and seen[3] == ("POST", "/incidents/INC-0002/approve")
+    assert seen[0] == ("10.0.0.1", field.SERVER_PORT)
