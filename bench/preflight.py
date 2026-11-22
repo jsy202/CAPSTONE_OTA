@@ -17,13 +17,24 @@ from pathlib import Path
 from bench import incident_field as field
 
 ROOT = Path(__file__).resolve().parents[1]
-CODE_HASH_COMMAND = (f"{field.PY} -c \"import capstone_ota,hashlib,pathlib;r=pathlib.Path(capstone_ota.__file__).parent;"
-                     "print(hashlib.sha256(b''.join(p.name.encode()+p.read_bytes() for p in sorted(r.rglob('*.py')))).hexdigest())\"")
+CODE_FILES_COMMAND = (f"{field.PY} -c \"import capstone_ota,hashlib,pathlib;r=pathlib.Path(capstone_ota.__file__).parent;"
+                      "print('\\n'.join(str(p.relative_to(r))+' '+hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(r.rglob('*.py'))))\"")
 
 
-def code_hash(package=ROOT / "capstone_ota") -> str:
-    """The same fingerprint the boards compute of their installed copy of the package."""
-    return hashlib.sha256(b"".join(p.name.encode() + p.read_bytes() for p in sorted(Path(package).rglob("*.py")))).hexdigest()
+def code_files(package=ROOT / "capstone_ota") -> dict:
+    """{relative path: sha256} of the package's source: the same fingerprint the boards compute of their installed copy."""
+    package = Path(package)
+    return {str(p.relative_to(package)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(package.rglob("*.py"))}
+
+
+def compare_code(local: dict, remote_output: str):
+    """Every local file must be on the board with the same content. Extra files there (an older install's leftovers) are
+    only reported: nothing in this checkout imports them."""
+    remote = dict(line.split() for line in remote_output.splitlines() if len(line.split()) == 2)
+    wrong = sorted(name for name, digest in local.items() if remote.get(name) != digest)
+    extra = sorted(set(remote) - set(local))
+    note = ("same" if not wrong else "differs: " + ", ".join(wrong[:5]) + " (run `incident_field setup`)")
+    return not wrong, note + (f"; leftovers on the board: {', '.join(extra)}" if extra else "")
 
 
 def laptop_addresses() -> list[str]:
@@ -39,9 +50,9 @@ def _safe(name, test):
     return name, bool(ok), str(detail)
 
 
-def check(config, boards, local_hash=None, laptop_addresses=laptop_addresses):
+def check(config, boards, local_files=None, laptop_addresses=laptop_addresses):
     """[(name, ok, detail)] for everything a run needs. One failing check never hides the others."""
-    local_hash = local_hash if local_hash is not None else code_hash()
+    local_files = local_files if local_files is not None else code_files()
     addresses = laptop_addresses() if callable(laptop_addresses) else laptop_addresses
     wanted = field.baseline_version(config)
     results = []
@@ -56,9 +67,8 @@ def check(config, boards, local_hash=None, laptop_addresses=laptop_addresses):
         return current.get("version") == wanted and current.get("phase") == "stable", \
             f"version={current.get('version')} phase={current.get('phase')} slot={current.get('active_slot')}"
     results.append(_safe(f"Pi2 IVI stable at {wanted}", status))
-    results.append(_safe("Pi2 runs this checkout's code", lambda: (
-        lambda remote: (remote == local_hash, "same" if remote == local_hash else "differs: run `incident_field setup`"))(
-            boards["pi2"].run(CODE_HASH_COMMAND, timeout=60).stdout.strip())))
+    results.append(_safe("Pi2 runs this checkout's code",
+                         lambda: compare_code(local_files, boards["pi2"].run(CODE_FILES_COMMAND, timeout=60).stdout)))
     results.append(_safe(f"laptop has laptop_ip {config.get('laptop_ip')}", lambda: (config.get("laptop_ip") in addresses, ", ".join(addresses[:4]))))
     release = Path(config.get("release_dir", "/nonexistent"))
     needed = [release / "keys/ivi-private.pem", release / "releases/v2", release / "releases/v3"]
