@@ -299,12 +299,12 @@ def test_demo_pace_file_is_removed_when_not_configured():
     assert pi2.commands and "rm -f" in pi2.commands[0] and f"{field.IVI_ROOT}/demo-pace.json" in pi2.commands[0]
 
 
-def test_the_recheck_length_the_screen_uses_is_the_one_the_device_waits_for():
-    command = field.feeder_command("10.0.0.4", recheck_s=field.RECHECK_SECONDS)
-    assert command[command.index("--recheck-seconds") + 1] == str(field.RECHECK_SECONDS)
-    assert "--trial-seconds" not in command
-    recheck = field.probation_command("10.0.0.4", probation=field.RECHECK_SECONDS, max_total=120, trace="recheck-trace.jsonl")
-    assert recheck[recheck.index("--probation") + 1] == str(field.RECHECK_SECONDS)
+def test_there_is_no_second_watch_after_a_rollback_and_so_no_gauge_for_it():
+    assert not hasattr(field, "RECHECK_SECONDS")
+    command = field.feeder_command("10.0.0.4")
+    assert "--recheck-seconds" not in command and "--trial-seconds" not in command
+    source = open(field.__file__, encoding="utf-8").read()
+    assert "recheck = passing_recheck()" in source and 'trace="recheck-trace.jsonl"' not in source.split("def run(")[1]
 
 
 def test_a_failed_defence_run_holds_the_v1_screen_briefly_and_then_announces_its_end():

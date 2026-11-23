@@ -254,7 +254,8 @@ assert.strictEqual(watch({stage: 'recheck', updated: 90}, pi3(5), 20, 100).fract
 assert.strictEqual(watch({stage: 'recheck', updated: 90}, pi3(500), 20, 100).fraction, 0.5);       // a stale big value cannot beat the 10 s that passed
 assert.strictEqual(watch({stage: 'recheck', updated: 70}, pi3(30), 20, 100).fraction, 1);
 assert.strictEqual(watch({stage: 'recheck'}, null, 20, 100).fraction, 0);                           // no monitor reading: nothing is claimed
-assert.strictEqual(watch({stage: 'recheck', updated: 90}, pi3(5), 0, 100).fraction, 0);             // unknown length: nothing is claimed
+assert.deepStrictEqual(watch({stage: 'recheck', updated: 90}, pi3(5), 0, 100), idle);                // no post-rollback watch: no gauge
+assert.deepStrictEqual(watch({stage: 'rolled_back'}, pi3(0), 0, 100), idle);
 assert.deepStrictEqual(watch({stage: 'rolled_back'}, pi3(0), 20, 100), {label: '확인', fraction: 1, kind: 'done', percent: '100%'});
 """)
 
