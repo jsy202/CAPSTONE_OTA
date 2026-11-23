@@ -164,7 +164,7 @@ function verified(ota) {
 // recheck began (a monitor value left over from an earlier watch cannot fill it early). Unknown length or no reading = 0.
 function watch(ota, pi3, recheckS, now) {
     var none = {label: "확인", fraction: 0, kind: "idle", percent: ""}
-    if (!ota || !ota.stage) return none
+    if (!ota || !ota.stage || !(recheckS > 0)) return none      // no post-rollback watch configured: no gauge
     function made(fraction, kind) { return {label: "확인", fraction: fraction, kind: kind, percent: Math.round(fraction * 100) + "%"} }
     if (ota.stage === "rolled_back") return made(1, "done")
     if (ota.stage === "recovery_verified") return made(0, "check")

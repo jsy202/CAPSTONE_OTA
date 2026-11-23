@@ -12,7 +12,7 @@ Item {
     property string gear: "D"
     property real fuel: 0.6           // 0..1
     property real coolant: 0.45       // 0..1
-    property int range: 480           // km
+    property int range: 367           // km
     property real trip: 126.5         // km
     property string timer: "2:30"
     property real average: 11.7       // km/L

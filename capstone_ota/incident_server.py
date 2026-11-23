@@ -41,7 +41,7 @@ LINE = 32  # hash characters per line: a 64-character hash reads as two clear ro
 _STYLE = (
     "body{font:16px sans-serif;max-width:980px;margin:2em auto;padding:0 1em}"
     "section{border:2px solid #666;border-radius:12px;padding:1.2em 1.5em;margin:1.2em 0}"
-    "h2{margin-top:0}.s{font-size:.6em;border:2px solid;border-radius:6px;padding:.1em .6em;vertical-align:middle}"
+    "h1{font-size:3em;margin:.2em 0 .4em}h2{margin-top:0}.s{font-size:.6em;border:2px solid;border-radius:6px;padding:.1em .6em;vertical-align:middle}"
     ".s.reported{color:#92400e;background:#fef3c7}.s.approved{color:#166534;background:#dcfce7}"
     ".s.rejected{color:#991b1b;background:#fee2e2}.s.closed{color:#374151;background:#e5e7eb}"
     "th{text-align:left;padding:.2em 1.2em .2em 0;white-space:nowrap}td{word-break:break-all}"
@@ -314,13 +314,19 @@ class IncidentServer(ThreadingHTTPServer):
             self._save()
             return 200
 
+    def _shown_version(self, committed_version) -> str:
+        """The release's product name (V2) when this server knows the committed version, else the raw version number."""
+        label = self.release_labels.get(committed_version)
+        return label.upper() if label else str(committed_version)
+
     def render_index(self) -> str:
         rows = []
         for item in reversed(self.incidents):
             report, status = item["report"], item["status"]
+            version = self._shown_version(report["committed_version"])
             fields = [("시각", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(item["reported_at"]))),
                       ("차량", report["vehicle"]), ("유형", report.get("type", "")),
-                      ("대상 슬롯", f"{report.get('slot', '')} (커밋 버전 {report['committed_version']}, svn {report.get('committed_svn', '')})"),
+                      ("대상 슬롯", f"{report.get('slot', '')} (커밋 버전 {version}, svn {report.get('committed_svn', '')})"),
                       ("출발지", report.get("source")), ("게이트 상태", report.get("gateway_state")),
                       ("클러스터", report.get("cluster")), ("상세", report.get("detail")),
                       ("결과", (item.get("outcome") or {}).get("result"))]
@@ -328,7 +334,7 @@ class IncidentServer(ThreadingHTTPServer):
                             for name, value in fields if value is not None)
             buttons = ""
             if status == "reported":
-                buttons = (f'<form method="post" action="/incidents/{item["id"]}/approve"><button class="go">{escape(str(report["committed_version"]))}로 복원 승인</button></form>'
+                buttons = (f'<form method="post" action="/incidents/{item["id"]}/approve"><button class="go">{escape(version)}로 복원 승인</button></form>'
                            f'<form method="post" action="/incidents/{item["id"]}/reject"><button class="no">거부 · 입고 지시</button></form>')
             rows.append(f'<section><h2>{escape(item["id"])} <span class="s {escape(status)}">{escape(status)}</span></h2>'
                         f'{_hash_block(report.get("expected_tree_sha256"), report.get("observed_tree_sha256"))}'
@@ -336,7 +342,6 @@ class IncidentServer(ThreadingHTTPServer):
         body = "".join(rows) or "<p>접수된 사고가 없습니다.</p>"
         return ('<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta http-equiv="refresh" content="2">'
                 '<title>보안 사고 관제</title><style>' + _STYLE + '</style></head><body><h1>보안 사고 관제</h1>'
-                '<p><small>시연 환경: V3 실패 판정은 시험용으로 강제한 것이며 실제 CPU 경합 측정이 아닙니다.</small></p>'
                 + body + "</body></html>")
 
 def _address(text: str) -> tuple[str, int]:

@@ -114,7 +114,7 @@ Item {
         }
         Row {   // range (visual)
             x: Theme.s2; anchors.verticalCenter: parent.verticalCenter; anchors.verticalCenterOffset: 4; spacing: Theme.s1
-            Text { anchors.verticalCenter: parent.verticalCenter; text: "514km"; color: Theme.ink; font.pixelSize: Theme.tSm; font.family: Theme.fBodyMed }
+            Text { anchors.verticalCenter: parent.verticalCenter; text: "367km"; color: Theme.ink; font.pixelSize: Theme.tSm; font.family: Theme.fBodyMed }
             Icon { anchors.verticalCenter: parent.verticalCenter; kind: "fuel"; size: Theme.iconSm }
             Rectangle { anchors.verticalCenter: parent.verticalCenter; width: 52; height: 28; radius: 6; color: Theme.segment
                 Rectangle { width: 40; height: parent.height; radius: 6; color: Theme.ink } }

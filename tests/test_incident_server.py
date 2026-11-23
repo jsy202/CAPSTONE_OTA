@@ -212,10 +212,16 @@ def test_outcome_and_reports_need_the_token_when_configured(tmp_path, order_keys
         secured.server_close()
 
 
+def test_an_unknown_committed_version_is_shown_as_its_number(server):
+    report(server, committed_version="9.9.9")
+    _status, page = call(server, "GET", "/")
+    assert "9.9.9" in page.decode()
+
+
 def test_decision_button_names_the_reported_version_and_conflict_is_readable(server):
     _status, incident = report(server, committed_version="2.0.0")
     _status, page = call(server, "GET", "/")
-    assert "2.0.0로 복원 승인" in page.decode()
+    assert "V2로 복원 승인" in page.decode() and "2.0.0로" not in page.decode()      # the product name, not the build number
     assert post_form(server, f"/incidents/{incident}/approve")[0] == 303
     status, body = post_form(server, f"/incidents/{incident}/reject", Accept="text/html")
     assert status == 409 and "이미 처리" in body.decode("utf-8")
@@ -235,3 +241,10 @@ def test_stalled_connection_is_dropped(tmp_path, order_keys):
     finally:
         slow.shutdown()
         slow.server_close()
+
+
+def test_the_control_page_has_a_large_title_and_no_demo_disclaimer_line(server):
+    _status, page = call(server, "GET", "/")
+    html = page.decode()
+    assert "<h1>보안 사고 관제</h1>" in html and "h1{font-size:" in html
+    assert "시연 환경" not in html and "강제한 것" not in html

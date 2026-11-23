@@ -45,7 +45,6 @@ DEFAULT_PROFILE_HZ = 10
 DRIVE_OFF_VIEW_SECONDS = 15    # after a restore the recording goes on this long, so the car is seen driving off again
 VULNERABLE_HOLD_SECONDS = 20   # how long the V1 screen stays up after a failed defence before the run ends (the recording stops then)
 TRIAL_SECONDS = 120        # how long Pi3 must watch a new image before it may pass: the overrun has to be CONFIRMED well inside this
-RECHECK_SECONDS = 20       # how long Pi2 watches a restored image after a rollback; the cockpit's "확인" gauge counts against it
 
 
 def monitor_baseline_for(hz, cycle="synthetic"):
@@ -57,7 +56,8 @@ def monitor_baseline_for(hz, cycle="synthetic"):
     return f"/home/otauser/capstone-incident/monitor/baseline-{hz}hz{suffix}.json"
 
 
-MAP_FLAG = "/run/capstone-ivi/map_active"
+IVI_RUN = "/run/capstone-ivi"
+MAP_FLAG = IVI_RUN + "/map_active"
 DROPIN = "/run/systemd/system/{unit}.d/field-cpu.conf"
 PI2_ROOT_TO_PI3 = ["ssh", "-F", "/dev/null", "-i", "/root/.ssh/capstone-source-ed25519", "-o", "IdentitiesOnly=yes",
                    "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=yes",
@@ -375,6 +375,20 @@ def version_labels(config):
     return labels
 
 
+def shown_version(config, version):
+    """What people read: the product name (V1/V2/V3), never the build number. Unknown versions stay as they are."""
+    try:
+        return version_labels(config).get(version, version)
+    except (OSError, ValueError, KeyError):
+        return version
+
+
+def shown_status(config, status):
+    """A copy of a device status whose versions read V1/V2/V3 (for logs and printed results)."""
+    return {key: shown_version(config, value) if key in ("version", "trial_version", "candidate") and isinstance(value, str) else value
+            for key, value in status.items()}
+
+
 def feeder_command(pi3_address, interval=0.5, ivi_ui=None, labels=None, recheck_s=0):
     """Collects what the cockpit shows (cluster capture, Pi3 verdict, update progress). Display only: it never decides."""
     ssh = [*PI2_ROOT_TO_PI3, f"otauser@{pi3_address}"]
@@ -432,7 +446,7 @@ def start_screen(boards, pi3_ip, log, interval=0.1, ivi_ui=None, virtual=False, 
     pi2.run("sudo systemctl stop field-cockpit-feeder.service 2>/dev/null; sudo rm -f /run/cockpit/extra.jsonl; true", check=False)
     pi2.run("sudo systemd-run --quiet --collect --unit field-cockpit-feeder "
             f"-p WorkingDirectory={SCREEN} -p Environment=PYTHONPATH={SCREEN}:{site} "
-            "-p Environment=XAUTHORITY=/var/lib/capstone-app/Xauthority " + shlex.join(feeder_command(pi3_ip, interval, ivi_ui, labels, RECHECK_SECONDS)))
+            "-p Environment=XAUTHORITY=/var/lib/capstone-app/Xauthority " + shlex.join(feeder_command(pi3_ip, interval, ivi_ui, labels)))
     pi2.run("pkill -f '[q]mlscene.*Cockpit.qml'; true", check=False)
     if virtual:
         pi2.put(f"{SCREEN}/cockpit/Cockpit.qml",
@@ -485,16 +499,30 @@ def show_port(pi2, text):
     pi2.run("sudo mkdir -p /run/cockpit && sudo tee -a /run/cockpit/extra.jsonl >/dev/null", data=row + "\n", check=False, timeout=20)
 
 
+def relay_lines(entries, state):
+    """The cockpit lines for new gateway log entries. After the control centre REJECTED the restore, the gateway's closing
+    gets no "port closed" line (it is a popup on the cockpit): nothing was restored, so there is nothing to celebrate.
+    `state` carries the rejection across polls."""
+    lines = []
+    for entry in entries:
+        if entry.get("event") == "incident_rejected":
+            state["rejected"] = True
+        if entry.get("event") == "gateway_closed" and state.get("rejected"):
+            continue
+        text = port_line(entry)
+        if text:
+            lines.append(text)
+    return lines
+
+
 def watch_gateway(pi1, pi2, stop):
     """Relay what Pi1's real gateway log says to the Pi2 cockpit, once per entry."""
-    seen = 0
+    seen, state = 0, {"rejected": False}
     while not stop.is_set():
         try:
             lines = pi1.run(f"cat {RUNTIME}/gateway.jsonl 2>/dev/null", check=False, timeout=15).stdout.splitlines()
-            for line in lines[seen:]:
-                text = port_line(json.loads(line))
-                if text:
-                    show_port(pi2, text)
+            for text in relay_lines([json.loads(line) for line in lines[seen:]], state):
+                show_port(pi2, text)
             seen = len(lines)
         except (ValueError, OSError, subprocess.SubprocessError):
             pass
@@ -506,6 +534,43 @@ def click_pi2(boards, x, y, button=1):
     done = boards["pi2"].run(f"python3 {SCREEN}/xclick.py {VDISPLAY} {int(x)} {int(y)} {int(button)}", check=False, timeout=30)
     if done.returncode:
         raise RuntimeError("click failed: " + (done.stderr or done.stdout)[-300:])
+
+
+MAP_TILE = (1050, 1387)         # the navigation tile in the IVI dock, in cockpit pixels (the screen is 2160x1440)
+POINTER_LEAD_SECONDS = 8         # the map tap comes this long after V3 starts its trial, so the viewer sees V3 running first
+
+
+def pointer_click_pi2(boards, x, y):
+    """A real click on Pi2's HDMI monitor through a virtual pointer: Pi2 has no mouse or touch panel to tap with."""
+    pi2 = boards["pi2"]
+    pi2.put(f"{SCREEN}/uinput_click.py", (ROOT / "bench" / "uinput_click.py").read_bytes())
+    done = pi2.run(f"sudo -n python3 {SCREEN}/uinput_click.py {int(x)} {int(y)}", check=False, timeout=30)
+    if done.returncode:
+        raise RuntimeError("click failed: " + (done.stderr or done.stdout)[-300:])
+
+
+def v3_on_screen(status_text):
+    """True once the IVI that runs on Pi2 is the one with a map (V3): its status file says map_enabled. V2 has no map."""
+    try:
+        return json.loads(status_text).get("map_enabled") is True
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
+def open_map_by_pointer(read_status, read_flag, tap, lead=POINTER_LEAD_SECONDS, settle=3.0, ready_timeout=120.0,
+                        check_timeout=6.0, interval=0.5, tries=3):
+    """Tap the map tile with the virtual pointer, but only while V3 is on the screen: a tap on V2's screen opens nothing
+    (V2 has no map) and a tap during the switch from V2 to V3 is lost. Repeat a tap that did not open the map.
+    Returns how many taps it took."""
+    if not wait_for(lambda: v3_on_screen(read_status()), ready_timeout, interval):
+        raise SystemExit("V3 never appeared on Pi2's screen, so the map tile was not tapped")
+    time.sleep(lead)       # the viewer sees V3 running first
+    time.sleep(settle)     # the screen has finished switching to V3's pages
+    for taps in range(1, tries + 1):
+        tap()
+        if wait_for(lambda: map_flag_active(read_flag()), check_timeout, interval):
+            return taps
+    raise SystemExit(f"the map did not open after {tries} taps on the map tile ({MAP_FLAG} stayed inactive)")
 
 
 def stop_screen(boards):
@@ -666,7 +731,9 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
     attack_as = attack_version(baseline_version(config))
     check_committed_slot(pi2)
     attack_slot = recovery_slot(baseline)
-    note("baseline", status=baseline, attack_slot=attack_slot)
+    note("baseline", status=shown_status(config, baseline), attack_slot=attack_slot)
+    if screen:
+        stop_screen(boards)  # the last run's screen stays up so its result can be read; do not show it as if it were this run
     if vulnerable:
         if not (attack and verdict == "real" and screen):
             raise SystemExit("--vulnerable needs the attack, --verdict real and --screen (it shows what the defence failure looks like)")
@@ -709,7 +776,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
                 start_screen(boards, pi3_ip, log, virtual=virtual_screen, labels=version_labels(config))
                 show_port(pi2, f"정비 포트 {MAINTENANCE_PORT} 열림 · 이더넷 전용")
             trial = probation_command(pi3_ip)
-            recheck = probation_command(pi3_ip, probation=RECHECK_SECONDS, max_total=120, trace="recheck-trace.jsonl")
+            recheck = passing_recheck()      # no second watch after a rollback: the rollback itself is the end
             seen = wait_for(lambda: healthy(pi3_verdict(boards["pi3"])), 90, 3.0)
             note("monitor_health", healthy=bool(seen), verdict=pi3_verdict(boards["pi3"]))
             if not seen:
@@ -766,9 +833,16 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
             else:
                 note("waiting_for_map_click", message="Tap the navigation (map) tile on Pi2's screen; "
                      "that tap opens the map and starts the CPU contention.")
+                if map_trigger == "pointer":
+                    taps = open_map_by_pointer(
+                        lambda: pi2.run(f"sudo -n cat {IVI_RUN}/status.json", check=False).stdout,
+                        lambda: (lambda r: r.stdout if r.returncode == 0 else None)(pi2.run(f"cat {MAP_FLAG}", check=False)),
+                        lambda: pointer_click_pi2(boards, *MAP_TILE),
+                        lead=float(config.get("map_lead", POINTER_LEAD_SECONDS)))   # config "map_lead": a faster run
+                    note("map_tapped", taps=taps)
                 wait_for_map_click(lambda: (lambda r: r.stdout if r.returncode == 0 else None)(
                     pi2.run(f"cat {MAP_FLAG}", check=False)), 900, 1.0)
-                note("map_opened", flag=MAP_FLAG, by="ui")
+                note("map_opened", flag=MAP_FLAG, by=map_trigger)
         if vulnerable:
             # The defence is off: the rollback lands on the attacker's image, so there is no incident to wait for.
             settled = wait_for(lambda: (lambda s: s if s.get("phase") == "stable" else None)(pi2_status(pi2)), 600, 3.0)
@@ -777,7 +851,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
                                                               check=False).stdout.strip()}
             note("vulnerable_outcome", settled=bool(settled))
             time.sleep(VULNERABLE_HOLD_SECONDS)  # keep the screen up: this is the picture the user sees if the defence fails
-            note("final", status=pi2_status(pi2))   # the recorder stops here, before the boards are shut down
+            note("final", status=shown_status(config, pi2_status(pi2)))   # the recorder stops here, before the boards are shut down
             watching["on"] = False
             result["verdict_timeline"] = timeline
             return result
@@ -805,7 +879,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
         result["incident_record"] = server.incidents
         if screen and verdict == "real":
             time.sleep(DRIVE_OFF_VIEW_SECONDS)   # rollback and check are done: the car drives off from 0 (the hold is released)
-        note("final", status=result["pi2_final"])
+        note("final", status=shown_status(config, result["pi2_final"]))
     finally:
         if vulnerable:
             pi2.write(RUNTIME + "/root-python", f'#!/bin/sh\nexec sudo -n {PY} "$@"\n', "755")
@@ -839,8 +913,9 @@ def main(argv=None) -> int:
     parser.add_argument("--no-attack", action="store_true", help="only watch the real detection and the normal rollback")
     parser.add_argument("--screen", action="store_true", help="show the whole cockpit on Pi2's HDMI monitor (needs --verdict real)")
     parser.add_argument("--virtual-screen", action="store_true", help="no monitor: run the cockpit on a private virtual display on Pi2 (implies --screen)")
-    parser.add_argument("--map-trigger", choices=["script", "ui"], default="script",
-                        help="script: touch the flag after the attack; ui: wait for the tap on the map tile of the cockpit screen (use with --screen)")
+    parser.add_argument("--map-trigger", choices=["script", "ui", "pointer"], default="script",
+                        help="script: touch the flag after the attack; ui: wait for a person to tap the map tile of the cockpit screen; "
+                             "pointer: a virtual mouse on Pi2 taps the map tile for you (HDMI monitor, use with --screen)")
     parser.add_argument("--vulnerable", action="store_true",
                         help="DEMO ONLY: Pi2 skips the recovery check, so the attack wins and the V1 screen shows. Needs a manual slot restore afterwards")
     args = parser.parse_args(argv)
@@ -857,7 +932,7 @@ def main(argv=None) -> int:
             parser.error("run needs --output")
         outcome = run(config, boards, args.output, args.verdict, args.decision, attack=not args.no_attack, screen=args.screen, virtual_screen=args.virtual_screen,
                        map_trigger=args.map_trigger, vulnerable=args.vulnerable)
-        print(json.dumps({"final": outcome.get("pi2_final"), "forced_verdict": outcome["forced_verdict"]}))
+        print(json.dumps({"final": shown_status(config, outcome.get("pi2_final") or {}), "forced_verdict": outcome["forced_verdict"]}))
     return 0
 
 

@@ -1,5 +1,8 @@
 """bench.incident_field: what Pi1 sends must be exactly what Pi2's pinned gate allows (no board needed)."""
+import json
 import shlex
+import struct
+import subprocess
 
 import pytest
 
@@ -297,12 +300,12 @@ def test_demo_pace_file_is_removed_when_not_configured():
     assert pi2.commands and "rm -f" in pi2.commands[0] and f"{field.IVI_ROOT}/demo-pace.json" in pi2.commands[0]
 
 
-def test_the_recheck_length_the_screen_uses_is_the_one_the_device_waits_for():
-    command = field.feeder_command("10.0.0.4", recheck_s=field.RECHECK_SECONDS)
-    assert command[command.index("--recheck-seconds") + 1] == str(field.RECHECK_SECONDS)
-    assert "--trial-seconds" not in command
-    recheck = field.probation_command("10.0.0.4", probation=field.RECHECK_SECONDS, max_total=120, trace="recheck-trace.jsonl")
-    assert recheck[recheck.index("--probation") + 1] == str(field.RECHECK_SECONDS)
+def test_there_is_no_second_watch_after_a_rollback_and_so_no_gauge_for_it():
+    assert not hasattr(field, "RECHECK_SECONDS")
+    command = field.feeder_command("10.0.0.4")
+    assert "--recheck-seconds" not in command and "--trial-seconds" not in command
+    source = open(field.__file__, encoding="utf-8").read()
+    assert "recheck = passing_recheck()" in source and 'trace="recheck-trace.jsonl"' not in source.split("def run(")[1]
 
 
 def test_a_failed_defence_run_holds_the_v1_screen_briefly_and_then_announces_its_end():
@@ -537,3 +540,97 @@ def test_a_stale_finished_state_from_the_last_run_does_not_cancel_the_install_st
     assert not hold.done
     hold.step("archive_verify")
     assert calls == ["hold"]
+
+
+# ---- a real pointer click on the HDMI monitor (Pi2 has no mouse or touch panel) ----
+
+def test_the_pointer_map_trigger_is_accepted(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(field, "load", lambda path: ({}, {}))
+    monkeypatch.setattr(field, "run", lambda *a, **k: seen.update(k) or {"forced_verdict": False})
+    assert field.main(["run", "cfg.json", "--output", "out", "--verdict", "real", "--screen", "--map-trigger", "pointer"]) == 0
+    assert seen["map_trigger"] == "pointer"
+
+
+def test_uinput_click_arguments_are_checked_and_events_have_the_kernel_layout():
+    from bench import uinput_click
+    assert uinput_click.parse(["1050", "1387"]) == (1050, 1387)
+    for bad in (["1050"], ["x", "1"], ["-1", "5"], ["2160", "5"], ["5", "1440"]):
+        with pytest.raises(SystemExit):
+            uinput_click.parse(bad)
+    assert len(uinput_click.device_description()) == 1116        # struct uinput_user_dev
+    assert len(uinput_click.event(uinput_click.EV_KEY, uinput_click.BTN_LEFT, 1)) == struct.calcsize("llHHi")
+
+
+def test_pointer_click_sends_the_helper_and_runs_it_as_root_on_pi2():
+    class Pi2:
+        def __init__(self):
+            self.puts, self.runs = [], []
+
+        def put(self, path, data, mode="644"):
+            self.puts.append((path, data))
+
+        def run(self, command, **kwargs):
+            self.runs.append(command)
+            return subprocess.CompletedProcess(command, 0, stdout="clicked 1050 1387\n", stderr="")
+
+    pi2 = Pi2()
+    field.pointer_click_pi2({"pi2": pi2}, 1050, 1387)
+    assert pi2.puts[0][0].endswith("/uinput_click.py") and b"UI_DEV_CREATE" in pi2.puts[0][1]
+    assert pi2.runs[-1].startswith("sudo -n python3 ") and pi2.runs[-1].endswith("uinput_click.py 1050 1387")
+    failing = Pi2()
+    failing.run = lambda command, **kwargs: subprocess.CompletedProcess(command, 1, stdout="", stderr="no uinput")
+    with pytest.raises(RuntimeError, match="click failed"):
+        field.pointer_click_pi2({"pi2": failing}, 1, 1)
+
+
+def test_a_status_line_for_people_names_versions_v1_v2_v3(tmp_path):
+    for name, version in (("v2", "3.13.0"), ("v3", "3.14.0")):
+        (tmp_path / "releases" / name).mkdir(parents=True)
+        (tmp_path / "releases" / name / "release.json").write_text('{"version": "%s"}' % version)
+    config = {"release_dir": str(tmp_path)}
+    status = {"version": "3.13.0", "trial_version": "3.14.0", "phase": "stable", "min_svn": 15, "result": "rolled_back"}
+    assert field.shown_status(config, status) == dict(status, version="V2", trial_version="V3")
+    assert field.shown_status(config, {"version": "7.7.7", "trial_version": None}) == {"version": "7.7.7", "trial_version": None}
+    assert field.shown_status({"release_dir": str(tmp_path / "missing")}, status) == status   # no labels known: unchanged
+
+
+def test_the_map_tap_delay_can_be_shortened_in_the_config():
+    source = open(field.__file__, encoding="utf-8").read()
+    assert 'config.get("map_lead", POINTER_LEAD_SECONDS)' in source
+
+
+def test_no_port_closed_popup_after_the_control_centre_rejected_the_restore():
+    approved = [{"event": "incident_reported"}, {"event": "incident_approved"}, {"event": "gateway_closed"}]
+    rejected = [{"event": "incident_reported"}, {"event": "incident_rejected"}, {"event": "gateway_closed"}]
+    assert field.relay_lines(approved, {"rejected": False})[-1] == "디버깅 포트 닫힘"          # the popup comes after a restore
+    lines = field.relay_lines(rejected, {"rejected": False})
+    assert lines == ["서버에 사고 보고 전송 · 서버 승인 대기 중", "서버 거절됨 · 정비 필요"]
+    state = {"rejected": False}                    # the rejection and the closing may arrive in different polls
+    assert field.relay_lines(rejected[:2], state)[-1] == "서버 거절됨 · 정비 필요"
+    assert field.relay_lines(rejected[2:], state) == []
+
+
+# ---- the map tap must land on V3's screen, not on V2's ----
+
+def test_the_map_is_tapped_only_once_v3_is_on_the_screen_and_a_missed_tap_is_repeated():
+    status = iter([json.dumps({"version": "V2", "map_enabled": False}), json.dumps({"version": "V2", "map_enabled": False}),
+                   json.dumps({"version": "V3", "map_enabled": True})])
+    log = []                                       # the first tap does nothing, the second opens the map
+    taps = field.open_map_by_pointer(lambda: next(status), lambda: "1" if len(log) >= 2 else None, lambda: log.append("tap"),
+                                     lead=0, settle=0, ready_timeout=5, check_timeout=0.05, interval=0.01)
+    assert taps == 2 and log == ["tap", "tap"]
+
+
+def test_no_tap_is_made_while_the_screen_still_shows_v2():
+    log = []
+    with pytest.raises(SystemExit, match="V3"):
+        field.open_map_by_pointer(lambda: json.dumps({"version": "V2", "map_enabled": False}), lambda: None,
+                                  lambda: log.append("tap"), lead=0, settle=0, ready_timeout=0.1, check_timeout=0.1, interval=0.01)
+    assert log == []
+
+
+def test_a_map_that_never_opens_after_every_tap_is_an_error():
+    with pytest.raises(SystemExit, match="map"):
+        field.open_map_by_pointer(lambda: json.dumps({"map_enabled": True}), lambda: None, lambda: None,
+                                  lead=0, settle=0, ready_timeout=1, check_timeout=0.05, interval=0.01, tries=2)

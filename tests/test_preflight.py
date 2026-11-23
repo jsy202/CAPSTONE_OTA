@@ -97,3 +97,13 @@ def test_a_leftover_file_from_an_older_install_is_reported_but_does_not_fail(tmp
     results = preflight.check(config, boards, local_files={"a.py": "1", "b.py": "2"}, laptop_addresses=["10.0.0.9"])
     row = next(r for r in results if r[0] == "Pi2 runs this checkout's code")
     assert row[1] is True and "old_gate.py" in row[2]
+
+
+def test_versions_are_shown_by_product_name_never_by_build_number(tmp_path):
+    config, boards = healthy(tmp_path)
+    for name, version in (("v2", "3.9.0"), ("v3", "3.10.0")):
+        (tmp_path / "rel/releases" / name / "release.json").write_text(json.dumps({"version": version}))
+    results = preflight.check(config, boards, local_files={"a.py": "1", "b.py": "2"}, laptop_addresses=["10.0.0.9"])
+    shown = {name: detail for name, _ok, detail in results}
+    assert "Pi2 IVI stable at V2" in shown and shown["Pi2 IVI stable at V2"].startswith("version=V2 ")
+    assert not any("3.9.0" in name or "3.9.0" in detail for name, detail in shown.items())
