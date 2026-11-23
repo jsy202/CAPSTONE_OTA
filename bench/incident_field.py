@@ -56,7 +56,8 @@ def monitor_baseline_for(hz, cycle="synthetic"):
     return f"/home/otauser/capstone-incident/monitor/baseline-{hz}hz{suffix}.json"
 
 
-MAP_FLAG = "/run/capstone-ivi/map_active"
+IVI_RUN = "/run/capstone-ivi"
+MAP_FLAG = IVI_RUN + "/map_active"
 DROPIN = "/run/systemd/system/{unit}.d/field-cpu.conf"
 PI2_ROOT_TO_PI3 = ["ssh", "-F", "/dev/null", "-i", "/root/.ssh/capstone-source-ed25519", "-o", "IdentitiesOnly=yes",
                    "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=yes",
@@ -548,6 +549,30 @@ def pointer_click_pi2(boards, x, y):
         raise RuntimeError("click failed: " + (done.stderr or done.stdout)[-300:])
 
 
+def v3_on_screen(status_text):
+    """True once the IVI that runs on Pi2 is the one with a map (V3): its status file says map_enabled. V2 has no map."""
+    try:
+        return json.loads(status_text).get("map_enabled") is True
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
+def open_map_by_pointer(read_status, read_flag, tap, lead=POINTER_LEAD_SECONDS, settle=3.0, ready_timeout=120.0,
+                        check_timeout=6.0, interval=0.5, tries=3):
+    """Tap the map tile with the virtual pointer, but only while V3 is on the screen: a tap on V2's screen opens nothing
+    (V2 has no map) and a tap during the switch from V2 to V3 is lost. Repeat a tap that did not open the map.
+    Returns how many taps it took."""
+    if not wait_for(lambda: v3_on_screen(read_status()), ready_timeout, interval):
+        raise SystemExit("V3 never appeared on Pi2's screen, so the map tile was not tapped")
+    time.sleep(lead)       # the viewer sees V3 running first
+    time.sleep(settle)     # the screen has finished switching to V3's pages
+    for taps in range(1, tries + 1):
+        tap()
+        if wait_for(lambda: map_flag_active(read_flag()), check_timeout, interval):
+            return taps
+    raise SystemExit(f"the map did not open after {tries} taps on the map tile ({MAP_FLAG} stayed inactive)")
+
+
 def stop_screen(boards):
     pi2 = boards["pi2"]
     pi2.run("sudo systemctl stop field-cockpit-display.service 2>/dev/null; true", check=False)
@@ -809,8 +834,12 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
                 note("waiting_for_map_click", message="Tap the navigation (map) tile on Pi2's screen; "
                      "that tap opens the map and starts the CPU contention.")
                 if map_trigger == "pointer":
-                    time.sleep(float(config.get("map_lead", POINTER_LEAD_SECONDS)))   # config "map_lead": a faster run
-                    pointer_click_pi2(boards, *MAP_TILE)
+                    taps = open_map_by_pointer(
+                        lambda: pi2.run(f"sudo -n cat {IVI_RUN}/status.json", check=False).stdout,
+                        lambda: (lambda r: r.stdout if r.returncode == 0 else None)(pi2.run(f"cat {MAP_FLAG}", check=False)),
+                        lambda: pointer_click_pi2(boards, *MAP_TILE),
+                        lead=float(config.get("map_lead", POINTER_LEAD_SECONDS)))   # config "map_lead": a faster run
+                    note("map_tapped", taps=taps)
                 wait_for_map_click(lambda: (lambda r: r.stdout if r.returncode == 0 else None)(
                     pi2.run(f"cat {MAP_FLAG}", check=False)), 900, 1.0)
                 note("map_opened", flag=MAP_FLAG, by=map_trigger)

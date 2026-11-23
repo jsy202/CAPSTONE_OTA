@@ -1,4 +1,5 @@
 """bench.incident_field: what Pi1 sends must be exactly what Pi2's pinned gate allows (no board needed)."""
+import json
 import shlex
 import struct
 import subprocess
@@ -608,3 +609,28 @@ def test_no_port_closed_popup_after_the_control_centre_rejected_the_restore():
     state = {"rejected": False}                    # the rejection and the closing may arrive in different polls
     assert field.relay_lines(rejected[:2], state)[-1] == "서버 거절됨 · 정비 필요"
     assert field.relay_lines(rejected[2:], state) == []
+
+
+# ---- the map tap must land on V3's screen, not on V2's ----
+
+def test_the_map_is_tapped_only_once_v3_is_on_the_screen_and_a_missed_tap_is_repeated():
+    status = iter([json.dumps({"version": "V2", "map_enabled": False}), json.dumps({"version": "V2", "map_enabled": False}),
+                   json.dumps({"version": "V3", "map_enabled": True})])
+    log = []                                       # the first tap does nothing, the second opens the map
+    taps = field.open_map_by_pointer(lambda: next(status), lambda: "1" if len(log) >= 2 else None, lambda: log.append("tap"),
+                                     lead=0, settle=0, ready_timeout=5, check_timeout=0.05, interval=0.01)
+    assert taps == 2 and log == ["tap", "tap"]
+
+
+def test_no_tap_is_made_while_the_screen_still_shows_v2():
+    log = []
+    with pytest.raises(SystemExit, match="V3"):
+        field.open_map_by_pointer(lambda: json.dumps({"version": "V2", "map_enabled": False}), lambda: None,
+                                  lambda: log.append("tap"), lead=0, settle=0, ready_timeout=0.1, check_timeout=0.1, interval=0.01)
+    assert log == []
+
+
+def test_a_map_that_never_opens_after_every_tap_is_an_error():
+    with pytest.raises(SystemExit, match="map"):
+        field.open_map_by_pointer(lambda: json.dumps({"map_enabled": True}), lambda: None, lambda: None,
+                                  lead=0, settle=0, ready_timeout=1, check_timeout=0.05, interval=0.01, tries=2)
