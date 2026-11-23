@@ -1,5 +1,7 @@
 """bench.incident_field: what Pi1 sends must be exactly what Pi2's pinned gate allows (no board needed)."""
 import shlex
+import struct
+import subprocess
 
 import pytest
 
@@ -537,3 +539,45 @@ def test_a_stale_finished_state_from_the_last_run_does_not_cancel_the_install_st
     assert not hold.done
     hold.step("archive_verify")
     assert calls == ["hold"]
+
+
+# ---- a real pointer click on the HDMI monitor (Pi2 has no mouse or touch panel) ----
+
+def test_the_pointer_map_trigger_is_accepted(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(field, "load", lambda path: ({}, {}))
+    monkeypatch.setattr(field, "run", lambda *a, **k: seen.update(k) or {"forced_verdict": False})
+    assert field.main(["run", "cfg.json", "--output", "out", "--verdict", "real", "--screen", "--map-trigger", "pointer"]) == 0
+    assert seen["map_trigger"] == "pointer"
+
+
+def test_uinput_click_arguments_are_checked_and_events_have_the_kernel_layout():
+    from bench import uinput_click
+    assert uinput_click.parse(["1050", "1387"]) == (1050, 1387)
+    for bad in (["1050"], ["x", "1"], ["-1", "5"], ["2160", "5"], ["5", "1440"]):
+        with pytest.raises(SystemExit):
+            uinput_click.parse(bad)
+    assert len(uinput_click.device_description()) == 1116        # struct uinput_user_dev
+    assert len(uinput_click.event(uinput_click.EV_KEY, uinput_click.BTN_LEFT, 1)) == struct.calcsize("llHHi")
+
+
+def test_pointer_click_sends_the_helper_and_runs_it_as_root_on_pi2():
+    class Pi2:
+        def __init__(self):
+            self.puts, self.runs = [], []
+
+        def put(self, path, data, mode="644"):
+            self.puts.append((path, data))
+
+        def run(self, command, **kwargs):
+            self.runs.append(command)
+            return subprocess.CompletedProcess(command, 0, stdout="clicked 1050 1387\n", stderr="")
+
+    pi2 = Pi2()
+    field.pointer_click_pi2({"pi2": pi2}, 1050, 1387)
+    assert pi2.puts[0][0].endswith("/uinput_click.py") and b"UI_DEV_CREATE" in pi2.puts[0][1]
+    assert pi2.runs[-1].startswith("sudo -n python3 ") and pi2.runs[-1].endswith("uinput_click.py 1050 1387")
+    failing = Pi2()
+    failing.run = lambda command, **kwargs: subprocess.CompletedProcess(command, 1, stdout="", stderr="no uinput")
+    with pytest.raises(RuntimeError, match="click failed"):
+        field.pointer_click_pi2({"pi2": failing}, 1, 1)

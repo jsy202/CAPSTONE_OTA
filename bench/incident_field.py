@@ -508,6 +508,19 @@ def click_pi2(boards, x, y, button=1):
         raise RuntimeError("click failed: " + (done.stderr or done.stdout)[-300:])
 
 
+MAP_TILE = (1050, 1387)         # the navigation tile in the IVI dock, in cockpit pixels (the screen is 2160x1440)
+POINTER_LEAD_SECONDS = 8         # the map tap comes this long after V3 starts its trial, so the viewer sees V3 running first
+
+
+def pointer_click_pi2(boards, x, y):
+    """A real click on Pi2's HDMI monitor through a virtual pointer: Pi2 has no mouse or touch panel to tap with."""
+    pi2 = boards["pi2"]
+    pi2.put(f"{SCREEN}/uinput_click.py", (ROOT / "bench" / "uinput_click.py").read_bytes())
+    done = pi2.run(f"sudo -n python3 {SCREEN}/uinput_click.py {int(x)} {int(y)}", check=False, timeout=30)
+    if done.returncode:
+        raise RuntimeError("click failed: " + (done.stderr or done.stdout)[-300:])
+
+
 def stop_screen(boards):
     pi2 = boards["pi2"]
     pi2.run("sudo systemctl stop field-cockpit-display.service 2>/dev/null; true", check=False)
@@ -766,9 +779,12 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
             else:
                 note("waiting_for_map_click", message="Tap the navigation (map) tile on Pi2's screen; "
                      "that tap opens the map and starts the CPU contention.")
+                if map_trigger == "pointer":
+                    time.sleep(POINTER_LEAD_SECONDS)
+                    pointer_click_pi2(boards, *MAP_TILE)
                 wait_for_map_click(lambda: (lambda r: r.stdout if r.returncode == 0 else None)(
                     pi2.run(f"cat {MAP_FLAG}", check=False)), 900, 1.0)
-                note("map_opened", flag=MAP_FLAG, by="ui")
+                note("map_opened", flag=MAP_FLAG, by=map_trigger)
         if vulnerable:
             # The defence is off: the rollback lands on the attacker's image, so there is no incident to wait for.
             settled = wait_for(lambda: (lambda s: s if s.get("phase") == "stable" else None)(pi2_status(pi2)), 600, 3.0)
@@ -839,8 +855,9 @@ def main(argv=None) -> int:
     parser.add_argument("--no-attack", action="store_true", help="only watch the real detection and the normal rollback")
     parser.add_argument("--screen", action="store_true", help="show the whole cockpit on Pi2's HDMI monitor (needs --verdict real)")
     parser.add_argument("--virtual-screen", action="store_true", help="no monitor: run the cockpit on a private virtual display on Pi2 (implies --screen)")
-    parser.add_argument("--map-trigger", choices=["script", "ui"], default="script",
-                        help="script: touch the flag after the attack; ui: wait for the tap on the map tile of the cockpit screen (use with --screen)")
+    parser.add_argument("--map-trigger", choices=["script", "ui", "pointer"], default="script",
+                        help="script: touch the flag after the attack; ui: wait for a person to tap the map tile of the cockpit screen; "
+                             "pointer: a virtual mouse on Pi2 taps the map tile for you (HDMI monitor, use with --screen)")
     parser.add_argument("--vulnerable", action="store_true",
                         help="DEMO ONLY: Pi2 skips the recovery check, so the attack wins and the V1 screen shows. Needs a manual slot restore afterwards")
     args = parser.parse_args(argv)

@@ -24,7 +24,7 @@ from pathlib import Path
 from bench import incident_field as field
 from bench import remote_view
 
-MAP_TILE = (1050, 1387)     # the navigation tile in the IVI dock, in virtual-display pixels
+MAP_TILE = field.MAP_TILE
 FPS = 5.0
 
 
