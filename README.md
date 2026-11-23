@@ -25,30 +25,17 @@
 ## 구조
 
 ```mermaid
+%%{init: {"themeVariables": {"fontSize": "20px"}}}%%
 flowchart LR
-  subgraph LAP["노트북"]
-    SRV["관제 서버<br/>승인 화면 · 서명된 릴리스"]
-  end
-  subgraph P1["Pi1 Central"]
-    GW["진단 게이트웨이 :7400"]
-    RELAY["릴리스 중계 · 사고 대응"]
-    DRV["주행 입력 송신"]
-  end
-  subgraph P2["Pi2 Cockpit"]
-    MP["정비 포트 :7312"]
-    CL["디지털 클러스터"]
-    IVI["IVI 앱 A/B"]
-  end
-  subgraph P3["Pi3 Verifier"]
-    MON["지연·끊김 판정"]
-  end
-  SRV -- "HTTP 릴리스·보고·승인" --> RELAY
-  RELAY -- "HTTP 이미지 + SSH 명령" --> IVI
-  GW -- "이더넷" --> MP
-  DRV -- "CAN 0x200 차량 입력" --> CL
-  DRV -. "CAN 0x200" .-> MON
-  CL -- "CAN 0x300 처리 응답" --> MON
-  MON -- "판정 조회 SSH" --> IVI
+  LAP["<b>노트북</b><br/>관제 서버 · 승인 화면<br/>서명된 릴리스"]
+  P1["<b>Pi1 Central</b><br/>릴리스 중계 · 사고 대응<br/>진단 게이트웨이 :7400<br/>주행 입력 송신"]
+  P2["<b>Pi2 Cockpit</b><br/>IVI 앱 A/B<br/>디지털 클러스터<br/>정비 포트 :7312"]
+  P3["<b>Pi3 Verifier</b><br/>지연·끊김 판정"]
+  LAP -- "HTTP" --> P1
+  P1 -- "HTTP 이미지<br/>SSH 명령<br/>CAN 0x200 입력" --> P2
+  P1 -. "CAN 0x200<br/>차량 입력" .-> P3
+  P2 -- "CAN 0x300<br/>처리 응답" --> P3
+  P3 -. "판정 조회 SSH" .-> P2
 ```
 
 - Raspberry Pi 3대, MCP2515 HAT, `can0` 500kbit/s. 파일은 LAN으로, 차량 입력과 처리 응답은 CAN으로 오간다.
@@ -71,7 +58,8 @@ flowchart LR
 ## 시나리오 1: IVI의 CPU 경합과 자동 롤백
 
 ```mermaid
-flowchart LR
+%%{init: {"themeVariables": {"fontSize": "20px"}}}%%
+flowchart TB
   A["V2 정상<br/>클러스터가 CAN 입력을 처리"] --> B["V3 시험 설치<br/>지도가 닫혀 있으면 부하 작음"]
   B --> C["지도 열림<br/>CPU 워커를 코어 수만큼 실행"]
   C --> D["클러스터 응답 지연"]
@@ -104,26 +92,25 @@ flowchart LR
 리콜 정비용 진단 포트가 열려 있다고 가정하고, 공격자가 **복구 슬롯을 다른 정식 서명 릴리스(V1)로 바꿔치기**한다.
 
 ```mermaid
+%%{init: {"themeVariables": {"fontSize": "20px"}}}%%
 sequenceDiagram
   autonumber
-  actor ATK as 공격자 노트북
+  actor ATK as 공격자
   participant GW as Pi1 게이트웨이
   participant P2 as Pi2
-  participant SRV as 관제 서버 노트북
-  actor HUM as 사람
-  ATK->>GW: 복구 슬롯에 V1 이미지 전송 7400
-  GW->>P2: 이더넷으로 전달 7312
-  Note over P2: 롤백 직전 트리 해시 비교, 다르면 recovery_failed
-  P2-->>GW: 기대 해시와 관측 해시
-  Note over GW: 게이트를 닫는다
-  GW->>SRV: 사고 보고 HTTP POST
-  SRV->>HUM: 승인 화면
-  HUM->>SRV: 승인 또는 거부
-  GW->>SRV: 복원 지시서 조회 HTTP GET
-  GW->>SRV: V2 원본 다운로드
-  GW->>P2: SSH로 ivi-repair 실행 제한 키
+  actor SRV as 관제 서버
+  ATK->>GW: V1 이미지 전송
+  GW->>P2: 이더넷으로 전달
+  Note over P2: 트리 해시 불일치<br/>recovery_failed
+  P2-->>GW: 기대·관측 해시
+  Note over GW: 게이트 닫기
+  GW->>SRV: 사고 보고
+  Note over SRV: 사람이 승인
+  GW->>SRV: 지시서 조회
+  GW->>SRV: V2 원본 받기
+  GW->>P2: SSH ivi-repair
   P2-->>GW: rolled_back
-  ATK->>GW: 같은 공격 다시 시도
+  ATK->>GW: 같은 공격 재시도
   GW-->>ATK: ERROR gateway closed
 ```
 
