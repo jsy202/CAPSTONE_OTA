@@ -680,6 +680,8 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
     check_committed_slot(pi2)
     attack_slot = recovery_slot(baseline)
     note("baseline", status=baseline, attack_slot=attack_slot)
+    if screen:
+        stop_screen(boards)  # the last run's screen stays up so its result can be read; do not show it as if it were this run
     if vulnerable:
         if not (attack and verdict == "real" and screen):
             raise SystemExit("--vulnerable needs the attack, --verdict real and --screen (it shows what the defence failure looks like)")
