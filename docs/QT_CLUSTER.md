@@ -30,7 +30,7 @@ export CAPSTONE_QT_PREFIX=/home/jsy/Downloads/volvo-qt-runtime/root/usr
 ```
 
 화면 구성: 왼쪽 속도 링(0~220 km/h), 오른쪽 rpm 링(0~8000), 가운데 주행 정보, 아래 외기온·기어.
-**CAN에서 오는 실제 값은 속도·rpm·기어(0=N, 1~6=D)·유효 여부뿐이다.** 앞차 간격, Trip/Timer/Avg., 연료 480 km,
+**CAN에서 오는 실제 값은 속도·rpm·기어(0=N, 1~6=D)·유효 여부뿐이다.** 앞차 간격, Trip/Timer/Avg., 연료 367 km,
 냉각수, 외기온 25 °C, 총 주행거리 1576 km는 디자인 시안과 같은 고정 표시값이고 차량 신호가 아니다.
 
 Build output and binaries are ignored under .demo/qt-build.
