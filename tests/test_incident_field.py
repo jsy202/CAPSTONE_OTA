@@ -592,3 +592,19 @@ def test_a_status_line_for_people_names_versions_v1_v2_v3(tmp_path):
     assert field.shown_status(config, status) == dict(status, version="V2", trial_version="V3")
     assert field.shown_status(config, {"version": "7.7.7", "trial_version": None}) == {"version": "7.7.7", "trial_version": None}
     assert field.shown_status({"release_dir": str(tmp_path / "missing")}, status) == status   # no labels known: unchanged
+
+
+def test_the_map_tap_delay_can_be_shortened_in_the_config():
+    source = open(field.__file__, encoding="utf-8").read()
+    assert 'config.get("map_lead", POINTER_LEAD_SECONDS)' in source
+
+
+def test_no_port_closed_popup_after_the_control_centre_rejected_the_restore():
+    approved = [{"event": "incident_reported"}, {"event": "incident_approved"}, {"event": "gateway_closed"}]
+    rejected = [{"event": "incident_reported"}, {"event": "incident_rejected"}, {"event": "gateway_closed"}]
+    assert field.relay_lines(approved, {"rejected": False})[-1] == "디버깅 포트 닫힘"          # the popup comes after a restore
+    lines = field.relay_lines(rejected, {"rejected": False})
+    assert lines == ["서버에 사고 보고 전송 · 서버 승인 대기 중", "서버 거절됨 · 정비 필요"]
+    state = {"rejected": False}                    # the rejection and the closing may arrive in different polls
+    assert field.relay_lines(rejected[:2], state)[-1] == "서버 거절됨 · 정비 필요"
+    assert field.relay_lines(rejected[2:], state) == []

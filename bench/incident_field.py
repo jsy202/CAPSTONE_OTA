@@ -498,16 +498,30 @@ def show_port(pi2, text):
     pi2.run("sudo mkdir -p /run/cockpit && sudo tee -a /run/cockpit/extra.jsonl >/dev/null", data=row + "\n", check=False, timeout=20)
 
 
+def relay_lines(entries, state):
+    """The cockpit lines for new gateway log entries. After the control centre REJECTED the restore, the gateway's closing
+    gets no "port closed" line (it is a popup on the cockpit): nothing was restored, so there is nothing to celebrate.
+    `state` carries the rejection across polls."""
+    lines = []
+    for entry in entries:
+        if entry.get("event") == "incident_rejected":
+            state["rejected"] = True
+        if entry.get("event") == "gateway_closed" and state.get("rejected"):
+            continue
+        text = port_line(entry)
+        if text:
+            lines.append(text)
+    return lines
+
+
 def watch_gateway(pi1, pi2, stop):
     """Relay what Pi1's real gateway log says to the Pi2 cockpit, once per entry."""
-    seen = 0
+    seen, state = 0, {"rejected": False}
     while not stop.is_set():
         try:
             lines = pi1.run(f"cat {RUNTIME}/gateway.jsonl 2>/dev/null", check=False, timeout=15).stdout.splitlines()
-            for line in lines[seen:]:
-                text = port_line(json.loads(line))
-                if text:
-                    show_port(pi2, text)
+            for text in relay_lines([json.loads(line) for line in lines[seen:]], state):
+                show_port(pi2, text)
             seen = len(lines)
         except (ValueError, OSError, subprocess.SubprocessError):
             pass
@@ -795,7 +809,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
                 note("waiting_for_map_click", message="Tap the navigation (map) tile on Pi2's screen; "
                      "that tap opens the map and starts the CPU contention.")
                 if map_trigger == "pointer":
-                    time.sleep(POINTER_LEAD_SECONDS)
+                    time.sleep(float(config.get("map_lead", POINTER_LEAD_SECONDS)))   # config "map_lead": a faster run
                     pointer_click_pi2(boards, *MAP_TILE)
                 wait_for_map_click(lambda: (lambda r: r.stdout if r.returncode == 0 else None)(
                     pi2.run(f"cat {MAP_FLAG}", check=False)), 900, 1.0)
