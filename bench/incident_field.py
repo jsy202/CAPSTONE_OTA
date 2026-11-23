@@ -374,6 +374,20 @@ def version_labels(config):
     return labels
 
 
+def shown_version(config, version):
+    """What people read: the product name (V1/V2/V3), never the build number. Unknown versions stay as they are."""
+    try:
+        return version_labels(config).get(version, version)
+    except (OSError, ValueError, KeyError):
+        return version
+
+
+def shown_status(config, status):
+    """A copy of a device status whose versions read V1/V2/V3 (for logs and printed results)."""
+    return {key: shown_version(config, value) if key in ("version", "trial_version", "candidate") and isinstance(value, str) else value
+            for key, value in status.items()}
+
+
 def feeder_command(pi3_address, interval=0.5, ivi_ui=None, labels=None, recheck_s=0):
     """Collects what the cockpit shows (cluster capture, Pi3 verdict, update progress). Display only: it never decides."""
     ssh = [*PI2_ROOT_TO_PI3, f"otauser@{pi3_address}"]
@@ -678,7 +692,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
     attack_as = attack_version(baseline_version(config))
     check_committed_slot(pi2)
     attack_slot = recovery_slot(baseline)
-    note("baseline", status=baseline, attack_slot=attack_slot)
+    note("baseline", status=shown_status(config, baseline), attack_slot=attack_slot)
     if screen:
         stop_screen(boards)  # the last run's screen stays up so its result can be read; do not show it as if it were this run
     if vulnerable:
@@ -794,7 +808,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
                                                               check=False).stdout.strip()}
             note("vulnerable_outcome", settled=bool(settled))
             time.sleep(VULNERABLE_HOLD_SECONDS)  # keep the screen up: this is the picture the user sees if the defence fails
-            note("final", status=pi2_status(pi2))   # the recorder stops here, before the boards are shut down
+            note("final", status=shown_status(config, pi2_status(pi2)))   # the recorder stops here, before the boards are shut down
             watching["on"] = False
             result["verdict_timeline"] = timeline
             return result
@@ -822,7 +836,7 @@ def run(config, boards, output, verdict="forced", decision="human", attack=True,
         result["incident_record"] = server.incidents
         if screen and verdict == "real":
             time.sleep(DRIVE_OFF_VIEW_SECONDS)   # rollback and check are done: the car drives off from 0 (the hold is released)
-        note("final", status=result["pi2_final"])
+        note("final", status=shown_status(config, result["pi2_final"]))
     finally:
         if vulnerable:
             pi2.write(RUNTIME + "/root-python", f'#!/bin/sh\nexec sudo -n {PY} "$@"\n', "755")
@@ -875,7 +889,7 @@ def main(argv=None) -> int:
             parser.error("run needs --output")
         outcome = run(config, boards, args.output, args.verdict, args.decision, attack=not args.no_attack, screen=args.screen, virtual_screen=args.virtual_screen,
                        map_trigger=args.map_trigger, vulnerable=args.vulnerable)
-        print(json.dumps({"final": outcome.get("pi2_final"), "forced_verdict": outcome["forced_verdict"]}))
+        print(json.dumps({"final": shown_status(config, outcome.get("pi2_final") or {}), "forced_verdict": outcome["forced_verdict"]}))
     return 0
 
 

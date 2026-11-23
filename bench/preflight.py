@@ -55,6 +55,7 @@ def check(config, boards, local_files=None, laptop_addresses=laptop_addresses):
     local_files = local_files if local_files is not None else code_files()
     addresses = laptop_addresses() if callable(laptop_addresses) else laptop_addresses
     wanted = field.baseline_version(config)
+    wanted_name = field.shown_version(config, wanted)       # V2, not the build number
     results = []
     for name in ("pi1", "pi2", "pi3"):
         results.append(_safe(f"{name.capitalize()} reachable", lambda b=boards[name]: ("ok" in b.run("echo ok", timeout=20).stdout, "")))
@@ -65,8 +66,8 @@ def check(config, boards, local_files=None, laptop_addresses=laptop_addresses):
     def status():
         current = field.pi2_status(boards["pi2"])
         return current.get("version") == wanted and current.get("phase") == "stable", \
-            f"version={current.get('version')} phase={current.get('phase')} slot={current.get('active_slot')}"
-    results.append(_safe(f"Pi2 IVI stable at {wanted}", status))
+            f"version={field.shown_version(config, current.get('version'))} phase={current.get('phase')} slot={current.get('active_slot')}"
+    results.append(_safe(f"Pi2 IVI stable at {wanted_name}", status))
     results.append(_safe("Pi2 runs this checkout's code",
                          lambda: compare_code(local_files, boards["pi2"].run(CODE_FILES_COMMAND, timeout=60).stdout)))
     results.append(_safe(f"laptop has laptop_ip {config.get('laptop_ip')}", lambda: (config.get("laptop_ip") in addresses, ", ".join(addresses[:4]))))

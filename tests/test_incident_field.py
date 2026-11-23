@@ -581,3 +581,14 @@ def test_pointer_click_sends_the_helper_and_runs_it_as_root_on_pi2():
     failing.run = lambda command, **kwargs: subprocess.CompletedProcess(command, 1, stdout="", stderr="no uinput")
     with pytest.raises(RuntimeError, match="click failed"):
         field.pointer_click_pi2({"pi2": failing}, 1, 1)
+
+
+def test_a_status_line_for_people_names_versions_v1_v2_v3(tmp_path):
+    for name, version in (("v2", "3.13.0"), ("v3", "3.14.0")):
+        (tmp_path / "releases" / name).mkdir(parents=True)
+        (tmp_path / "releases" / name / "release.json").write_text('{"version": "%s"}' % version)
+    config = {"release_dir": str(tmp_path)}
+    status = {"version": "3.13.0", "trial_version": "3.14.0", "phase": "stable", "min_svn": 15, "result": "rolled_back"}
+    assert field.shown_status(config, status) == dict(status, version="V2", trial_version="V3")
+    assert field.shown_status(config, {"version": "7.7.7", "trial_version": None}) == {"version": "7.7.7", "trial_version": None}
+    assert field.shown_status({"release_dir": str(tmp_path / "missing")}, status) == status   # no labels known: unchanged
