@@ -41,7 +41,7 @@ LINE = 32  # hash characters per line: a 64-character hash reads as two clear ro
 _STYLE = (
     "body{font:16px sans-serif;max-width:980px;margin:2em auto;padding:0 1em}"
     "section{border:2px solid #666;border-radius:12px;padding:1.2em 1.5em;margin:1.2em 0}"
-    "h2{margin-top:0}.s{font-size:.6em;border:2px solid;border-radius:6px;padding:.1em .6em;vertical-align:middle}"
+    "h1{font-size:3em;margin:.2em 0 .4em}h2{margin-top:0}.s{font-size:.6em;border:2px solid;border-radius:6px;padding:.1em .6em;vertical-align:middle}"
     ".s.reported{color:#92400e;background:#fef3c7}.s.approved{color:#166534;background:#dcfce7}"
     ".s.rejected{color:#991b1b;background:#fee2e2}.s.closed{color:#374151;background:#e5e7eb}"
     "th{text-align:left;padding:.2em 1.2em .2em 0;white-space:nowrap}td{word-break:break-all}"
@@ -342,7 +342,6 @@ class IncidentServer(ThreadingHTTPServer):
         body = "".join(rows) or "<p>접수된 사고가 없습니다.</p>"
         return ('<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta http-equiv="refresh" content="2">'
                 '<title>보안 사고 관제</title><style>' + _STYLE + '</style></head><body><h1>보안 사고 관제</h1>'
-                '<p><small>시연 환경: V3 실패 판정은 시험용으로 강제한 것이며 실제 CPU 경합 측정이 아닙니다.</small></p>'
                 + body + "</body></html>")
 
 def _address(text: str) -> tuple[str, int]:

@@ -241,3 +241,10 @@ def test_stalled_connection_is_dropped(tmp_path, order_keys):
     finally:
         slow.shutdown()
         slow.server_close()
+
+
+def test_the_control_page_has_a_large_title_and_no_demo_disclaimer_line(server):
+    _status, page = call(server, "GET", "/")
+    html = page.decode()
+    assert "<h1>보안 사고 관제</h1>" in html and "h1{font-size:" in html
+    assert "시연 환경" not in html and "강제한 것" not in html
